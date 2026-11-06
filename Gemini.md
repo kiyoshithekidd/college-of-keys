@@ -6,6 +6,7 @@
 
 ## 1. Project Goal & Vision
 Build **College of Keys**, a local Electron PC application that transforms piano practice into a D&D 5E Bard LitRPG progression loop, designed with a Rock Band-style play-along architecture:
+- **Repository:** https://github.com/kiyoshithekidd/college-of-keys
 - **Core Loop:** Parse `.mid` files, display falling arcane glyphs ("The Spell Highway") on a 60 FPS HTML5 Canvas, and interact with a physical 61-key MIDI keyboard (`C2` / MIDI 36 to `C7` / MIDI 96).
 - **Thematic UI:** "Tavern Dark Mode" aesthetic with Radiant Gold (Track 1 / Lead) and Eldritch Blue (Track 2 / Accompaniment) visuals.
 - **Practice & Play-Along Mechanics:**
@@ -21,16 +22,16 @@ Build **College of Keys**, a local Electron PC application that transforms piano
 
 | Date | Decision | Rationale ("Why") | Status |
 | :--- | :--- | :--- | :--- |
-| 2026-11-06 | **Maintain `Gemini.md` alongside `context.md` and `progress.md`** | User confirmed maintaining `Gemini.md` as the detailed build log, plan, and decision record while also keeping `context.md` and `progress.md` per Section 7 of the PRD. | Approved |
+| 2026-11-06 | **Maintain `Gemini.md` alongside `context.md`, `progress.md`, `README.md`, and `CHANGELOG.md`** | User confirmed maintaining `Gemini.md` as the detailed build log, plan, and decision record while also keeping `context.md`, `progress.md`, `README.md`, and `CHANGELOG.md` continuously updated in the workspace and on GitHub. | Approved |
 | 2026-11-06 | **Exclusive Branding: "College of Keys"** | User confirmed using "College of Keys" exclusively across the app title, UI headers, and documentation (retiring "FlowState"). | Approved |
 | 2026-11-06 | **Include Mouse-Click & QWERTY Fallback alongside Web MIDI** | User confirmed adding mouse/QWERTY input on the 61-key canvas so every phase can be tested reliably even if the physical 61-key MIDI controller is unplugged. | Approved |
 | 2026-11-06 | **Non-Destructive Multi-Track Architecture + "Backing Band" Toggle** | Instead of deleting non-piano tracks, default the playable Spell Highway to Piano (Track 1 = RH, Track 2 = LH, or Middle-C split on single-track files), allow switching which track you play via dropdown, and preserve remaining tracks/audio as a toggleable "Backing Band" (Rock Band style play-along vs. solo piano). | Approved |
 | 2026-11-06 | **Save Vocals ("Let's Sing") & Multi-Instrument Controllers for Backlog, Design Data Model to Support Them Now** | Keep Phases 1–9 focused on the 61-key Piano MVP while structuring the song/track data model so microphone pitch detection (Vocals) and other instrument highways can plug in cleanly later. | Approved |
 | 2026-11-06 | **Strict Single-Phase Execution Gate** | Prevents compounding bugs across audio, MIDI hardware, canvas rendering, and game logic; ensures each layer is verified by the user before building on top of it. | Active |
-| 2026-11-06 | **Single HTML5 Canvas (60 FPS) with Primitive Shapes for MVP** | Avoids DOM layout thrashing for falling notes; modular rendering design allows seamless PNG sprite swapping and top-50% sheet music split in future iterations. | Planned |
-| 2026-11-06 | **Persistent `Tone.PolySynth` Voice Pool + `Tone.context.lookAhead = 0`** | Pre-warmed singleton polyphonic synth avoids garbage collection clicks/stutters on `noteon` events; setting `lookAhead = 0` eliminates Tone.js's default 100ms buffer lag for live MIDI play. | Planned |
-| 2026-11-06 | **Native Web MIDI API (`navigator.requestMIDIAccess`) + Velocity-0 NoteOff Handling** | Eliminates third-party wrapper latency; handles both explicit `0x80` NoteOff and `0x90` NoteOn with `velocity === 0` (used by many 61-key controllers on key release), plus Sustain Pedal (`CC 64`). | Planned |
-| 2026-11-06 | **61-Key Octave Folding (MIDI 36–96)** | Physical hardware is a 61-key controller (`C2`–`C7`). Out-of-bounds MIDI notes are transposed by $\pm 12$ semitones until they fall within `[36, 96]` so every note in any song is playable. | Planned |
+| 2026-11-06 | **Single HTML5 Canvas (60 FPS) with Primitive Shapes for MVP** | Avoids DOM layout thrashing for falling notes; modular rendering design allows seamless PNG sprite swapping and top-50% sheet music split in future iterations. | Implemented (Phase 1) |
+| 2026-11-06 | **Persistent `Tone.PolySynth` Voice Pool + `Tone.context.lookAhead = 0`** | Pre-warmed singleton polyphonic synth avoids garbage collection clicks/stutters on `noteon` events; setting `lookAhead = 0` eliminates Tone.js's default 100ms buffer lag for live MIDI play. | Implemented (Phase 1) |
+| 2026-11-06 | **Native Web MIDI API (`navigator.requestMIDIAccess`) + Velocity-0 NoteOff Handling** | Eliminates third-party wrapper latency; handles both explicit `0x80` NoteOff and `0x90` NoteOn with `velocity === 0` (used by many 61-key controllers on key release), plus Sustain Pedal (`CC 64`). | Implemented (Phase 1) |
+| 2026-11-06 | **61-Key Octave Folding (MIDI 36–96)** | Physical hardware is a 61-key controller (`C2`–`C7`). Out-of-bounds MIDI notes are transposed by $\pm 12$ semitones until they fall within `[36, 96]` so every note in any song is playable. | Implemented (Phase 1) |
 | 2026-11-06 | **Decoupled Python CLI for `yt-dlp` + `basic-pitch` (+ Backing Audio / Stems)** | Keeps heavy ML/audio dependencies out of the Electron binary; outputs both `.mid` and optional synced backing audio into `Imports/` for Rock Band-style play-along. | Planned |
 
 ---
@@ -40,13 +41,13 @@ Build **College of Keys**, a local Electron PC application that transforms piano
 In addition to the libraries in the PRD (`Tone.js`, `@tonejs/midi`, `atosystem/midi2Tiles`, `schollz/pianoai`, `spotify/basic-pitch`, `alacrity-ai/sequenzia`), we reviewed how leading open-source WebMIDI + Canvas piano trainers (**`Bewelge/MIDIano`**, **`Sightread`**, and **Synthesia / Rock Band 3 Pro Keys**) solve common pitfalls:
 
 1. **The "Stuck Key" Web MIDI Trap (`NoteOn` with `Velocity = 0`):**
-   - Many physical 61-key MIDI keyboards send status `0x90` (`NoteOn`) with `velocity = 0` when you release a key instead of status `0x80` (`NoteOff`). Our Web MIDI parser will explicitly route `(status & 0xF0) === 0x90 && velocity === 0` to `noteOff(pitch)`.
+   - Many physical 61-key MIDI keyboards send status `0x90` (`NoteOn`) with `velocity = 0` when you release a key instead of status `0x80` (`NoteOff`). Our Web MIDI parser explicitly routes `(status & 0xF0) === 0x90 && velocity === 0` to `handleNoteOff(pitch)`.
 2. **Zero-Latency Live Monitoring (`Tone.context.lookAhead = 0`):**
    - By default, `Tone.js` uses a `100ms` scheduling lookahead buffer (`Tone.context.lookAhead = 0.1`), which feels noticeably delayed when pressing physical piano keys. Setting `Tone.context.lookAhead = 0` drops audio latency to `<10ms`.
 3. **Wait Mode "Sustained Bass vs. New Onset" Rule (from `MIDIano` / `Sightread`):**
    - If the Left Hand holds a long whole-note chord while the Right Hand plays 4 quarter notes, Wait Mode must only gate on **note onsets (`note.time`)** arriving at the strike line—never forcing the player to re-press a sustained note they already struck earlier in the measure.
 4. **Shared Key-Geometry Lookup Table (`keyGeometry[midiNote]`):**
-   - On a 61-key keyboard (`36` white keys, `25` black keys), black keys are ~60% the width of white keys and offset between white-key boundaries. Computing a single `keyGeometry[36..96]` lookup table `{ x, width, height, isBlack }` on canvas resize guarantees falling glyphs in Phase 3 align pixel-perfectly with the physical keys drawn in Phase 1.
+   - On a 61-key keyboard (`36` white keys, `25` black keys), black keys are ~62% the width of white keys and offset between white-key boundaries. Computing a single `keyGeometry[36..96]` lookup table `{ x, width, height, isBlack }` on canvas resize guarantees falling glyphs in Phase 3 align pixel-perfectly with the physical keys drawn in Phase 1.
 5. **Sustain Pedal Support (`CC 64`):**
    - Listening for MIDI Control Change `0xB0` with controller `64` (`value >= 64` pedal down, `< 64` pedal up) lets players use a physical sustain pedal naturally.
 
@@ -101,8 +102,8 @@ In addition to the libraries in the PRD (`Tone.js`, `@tonejs/midi`, `atosystem/m
 
 ## 5. Phased Build Plan & Checklist (MVP: Phases 1–9)
 
-- [ ] **Phase 1: Electron Skeleton & Audio**
-  - Initialize `package.json`, `main.js`, `index.html`, `renderer.js` (and `styles.css`).
+- [/] **Phase 1: Electron Skeleton & Audio (Implemented — Awaiting `"Testing successful"`)**
+  - Initialize [package.json](file:///g:/My%20Drive/Projects/College%20of%20Keys/package.json), [main.js](file:///g:/My%20Drive/Projects/College%20of%20Keys/main.js), [index.html](file:///g:/My%20Drive/Projects/College%20of%20Keys/index.html), [renderer.js](file:///g:/My%20Drive/Projects/College%20of%20Keys/renderer.js), and [styles.css](file:///g:/My%20Drive/Projects/College%20of%20Keys/styles.css).
   - Render static 61-key piano (`C2`–`C7`) on HTML5 Canvas.
   - Connect physical MIDI keyboard via `navigator.requestMIDIAccess()` with `onstatechange` support + mouse/QWERTY fallback.
   - Integrate `Tone.js` persistent `PolySynth` (`lookAhead = 0`) and highlight/play keys on input.
@@ -174,5 +175,14 @@ In addition to the libraries in the PRD (`Tone.js`, `@tonejs/midi`, `atosystem/m
   - Read [music_app_prd_and_handoff.md](file:///g:/My%20Drive/Projects/College%20of%20Keys/music_app_prd_and_handoff.md).
   - Created [Gemini.md](file:///g:/My%20Drive/Projects/College%20of%20Keys/Gemini.md), [context.md](file:///g:/My%20Drive/Projects/College%20of%20Keys/context.md), and [progress.md](file:///g:/My%20Drive/Projects/College%20of%20Keys/progress.md).
   - Researched open-source WebMIDI piano trainers (`Bewelge/MIDIano`, `Sightread`, `schollz/pianoai`, `atosystem/midi2Tiles`, `Tone.js`, `spotify/basic-pitch`) and documented key technical safeguards (Velocity-0 `NoteOff` handling, `Tone.context.lookAhead = 0` for <10ms latency, Wait Mode onset-only gating so sustained chords don't re-block, and shared `keyGeometry` table).
-  - Checked local Git, GitHub CLI (`gh`), and Node.js environment before starting Phase 1.
-- **Current status:** Ready to set up Git/GitHub repository and Node.js environment, then execute **Phase 1: Electron Skeleton & Audio**.
+
+### 2026-11-06 — Session 2: GitHub Repo Setup, Node.js LTS & Phase 1 Implementation
+- **What we did:**
+  - Installed Node.js LTS (`v26.13.0` / `npm 11.20.0`) via `winget`.
+  - Authenticated GitHub CLI (`kiyoshithekidd`), initialized local Git repo on `main`, and created/pushed the public remote repository https://github.com/kiyoshithekidd/college-of-keys.
+  - Built **Phase 1: Electron Skeleton & Audio**:
+    - [package.json](file:///g:/My%20Drive/Projects/College%20of%20Keys/package.json): Configured Electron, `tone`, and `@tonejs/midi`.
+    - [main.js](file:///g:/My%20Drive/Projects/College%20of%20Keys/main.js): Created the Electron window with automatic Chromium Web MIDI (`midi` & `midiSysex`) permissions.
+    - [index.html](file:///g:/My%20Drive/Projects/College%20of%20Keys/index.html) & [styles.css](file:///g:/My%20Drive/Projects/College%20of%20Keys/styles.css): Built the Tavern Dark Mode HUD (MIDI device status pill, Instrument Tone selector, Volume slider, Sustain indicator, Active Glyphs readout) and responsive canvas stage.
+    - [renderer.js](file:///g:/My%20Drive/Projects/College%20of%20Keys/renderer.js): Implemented the 61-key piano layout (`C2`–`C7`, 36 white keys, 25 black keys) on HTML5 Canvas, `navigator.requestMIDIAccess()` with hot-plug (`onstatechange`), velocity-0 `NoteOff`, Sustain Pedal (`CC 64`), persistent `Tone.PolySynth` (`lookAhead = 0`), and Mouse/QWERTY fallback.
+- **Current status:** Waiting for `npm install` to complete, then ready for User Gate 1 testing (`"Testing successful"`).

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>College of Keys</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app-shell">
+    <!-- Tavern Dark Mode Top HUD Bar -->
+    <header id="tavern-header">
+      <div class="brand-block">
+        <div class="arcane-crest" aria-hidden="true">&#9830;</div>
+        <div>
+          <h1 class="app-title">College of Keys</h1>
+          <span class="app-subtitle">Arcane Bardic Conservatory &bull; 61-Key Spellbook (C2&ndash;C7)</span>
+        </div>
+      </div>
+
+      <div class="hud-controls">
+        <!-- MIDI Device Status Pill -->
+        <div id="midi-status-pill" class="status-pill status-waiting" title="Physical Web MIDI Controller Status">
+          <span class="status-dot"></span>
+          <span id="midi-status-text">MIDI: Scanning...</span>
+          <button id="btn-rescan-midi" class="btn-icon" title="Rescan MIDI Devices">&#8635;</button>
+        </div>
+
+        <!-- Synth Tone Preset Selector -->
+        <div class="control-group">
+          <label for="synth-preset">Instrument Tone</label>
+          <select id="synth-preset" class="tavern-select">
+            <option value="grand">Tavern Grand Piano</option>
+            <option value="harp">Arcane Lute-Harp</option>
+            <option value="organ">Cathedral Pipe Organ</option>
+            <option value="warm">Eldritch Warm Pad</option>
+          </select>
+        </div>
+
+        <!-- Master Volume -->
+        <div class="control-group">
+          <label for="master-volume">Volume</label>
+          <input id="master-volume" type="range" min="-30" max="6" value="-4" step="1" class="tavern-slider" />
+        </div>
+
+        <!-- Sustain Pedal Indicator -->
+        <div id="sustain-pill" class="status-pill">
+          <span>Sustain: <strong id="sustain-state">OFF</strong></span>
+        </div>
+      </div>
+
+      <!-- Real-Time Active Note Monitor -->
+      <div class="active-note-readout">
+        <span class="readout-label">Active Glyphs</span>
+        <div id="active-notes-display" class="readout-value">Strike a key...</div>
+      </div>
+    </header>
+
+    <!-- Main Stage: Spell Highway + 61-Key Piano Canvas -->
+    <main id="stage-container">
+      <canvas id="spell-canvas"></canvas>
+
+      <!-- Subtle helper overlay in top-left of highway for Phase 1 testing -->
+      <div id="phase1-helper-banner">
+        <div class="helper-title">Phase 1: 61-Key Arcane Keyboard &amp; Live Synth Ready</div>
+        <div class="helper-body">
+          <span><strong>Physical MIDI:</strong> Play any key on your 61-key controller (C2&ndash;C7 / MIDI 36&ndash;96)</span>
+          <span><strong>Mouse:</strong> Click or drag across any white or black key below</span>
+          <span><strong>QWERTY:</strong> Middle row <code>A S D F G H J K L ;</code> (white keys) &amp; <code>W E T Y U O P</code> (sharps) &bull; <code>Z</code> / <code>X</code> shifts octave (<span id="qwerty-octave-label">C4&ndash;E5</span>)</span>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Load Tone.js and @tonejs/midi local vendor builds -->
+  <script src="./vendor/Tone.js"></script>
+  <script src="./vendor/Midi.js"></script>
+  <script src="./renderer.js"></script>
+</body>
+</html>

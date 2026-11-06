@@ -19,5 +19,5 @@
 
 ## Directives
 - Follow Micro-Targeted Operations: edit only requested files.
-- Consult `progress.md` and `Gemini.md` before starting any phase.
+- Consult and update `Gemini.md`, `progress.md`, `context.md`, `README.md`, and `CHANGELOG.md` at every phase.
 - Wait for explicit user confirmation ("Testing successful") before advancing phases.

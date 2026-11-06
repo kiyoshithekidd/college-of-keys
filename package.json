@@ -1,0 +1,31 @@
+{
+  "name": "college-of-keys",
+  "version": "0.1.0",
+  "description": "College of Keys — A D&D 5E Bard LitRPG Piano Practice App",
+  "main": "main.js",
+  "scripts": {
+    "start": "start.bat"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kiyoshithekidd/college-of-keys.git"
+  },
+  "keywords": [
+    "piano",
+    "midi",
+    "electron",
+    "tonejs",
+    "dnd",
+    "bard",
+    "litrpg"
+  ],
+  "author": "Kiyoshi",
+  "license": "MIT",
+  "dependencies": {
+    "@tonejs/midi": "^2.0.28",
+    "tone": "^14.7.77"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}

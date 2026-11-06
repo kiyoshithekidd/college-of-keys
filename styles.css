@@ -1,0 +1,272 @@
+:root {
+  --bg-obsidian: #0b0914;
+  --bg-tavern-panel: #151125;
+  --bg-tavern-card: #1e1833;
+  --border-brass: #8a6d2f;
+  --border-gold-bright: #d4af37;
+  --radiant-gold: #ffd700;
+  --radiant-gold-glow: rgba(255, 215, 0, 0.55);
+  --eldritch-blue: #00e5ff;
+  --eldritch-blue-glow: rgba(0, 229, 255, 0.5);
+  --text-parchment: #f4ebd9;
+  --text-muted: #a397b8;
+  --status-connected: #36d399;
+  --status-waiting: #fbbd23;
+  --status-error: #f87272;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--bg-obsidian);
+  color: var(--text-parchment);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+#app-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Tavern Header Bar */
+#tavern-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 20px;
+  background: linear-gradient(180deg, #1d1732 0%, #120e21 100%);
+  border-bottom: 2px solid var(--border-brass);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.7);
+  z-index: 10;
+}
+
+.brand-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.arcane-crest {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: radial-gradient(circle at 30% 30%, #ffd700, #8a6d2f);
+  color: #120e21;
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 12px var(--radiant-gold-glow);
+  border: 1px solid var(--radiant-gold);
+}
+
+.app-title {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--radiant-gold);
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.35);
+}
+
+.app-subtitle {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+}
+
+.hud-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--bg-tavern-card);
+  border: 1px solid var(--border-brass);
+  font-size: 0.82rem;
+  color: var(--text-parchment);
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--status-waiting);
+  box-shadow: 0 0 8px var(--status-waiting);
+}
+
+.status-pill.status-connected .status-dot {
+  background: var(--status-connected);
+  box-shadow: 0 0 8px var(--status-connected);
+}
+
+.status-pill.status-waiting .status-dot {
+  background: var(--status-waiting);
+  box-shadow: 0 0 8px var(--status-waiting);
+}
+
+.status-pill.status-error .status-dot {
+  background: var(--status-error);
+  box-shadow: 0 0 8px var(--status-error);
+}
+
+.btn-icon {
+  background: transparent;
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  color: var(--radiant-gold);
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  transition: all 0.15s ease;
+}
+
+.btn-icon:hover {
+  background: rgba(255, 215, 0, 0.15);
+  border-color: var(--radiant-gold);
+}
+
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-tavern-card);
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(138, 109, 47, 0.55);
+}
+
+.control-group label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tavern-select {
+  background: #120e21;
+  color: var(--text-parchment);
+  border: 1px solid var(--border-brass);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 0.82rem;
+  outline: none;
+  cursor: pointer;
+}
+
+.tavern-select:focus {
+  border-color: var(--radiant-gold);
+}
+
+.tavern-slider {
+  width: 90px;
+  accent-color: var(--radiant-gold);
+  cursor: pointer;
+}
+
+.active-note-readout {
+  min-width: 190px;
+  text-align: right;
+  background: var(--bg-tavern-card);
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-brass);
+}
+
+.readout-label {
+  display: block;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.readout-value {
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--radiant-gold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Main Stage & Canvas */
+#stage-container {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 25%, #1a1333 0%, #0b0914 75%);
+}
+
+#spell-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+#phase1-helper-banner {
+  position: absolute;
+  top: 16px;
+  left: 20px;
+  background: rgba(21, 17, 37, 0.86);
+  border: 1px solid var(--border-brass);
+  border-left: 3px solid var(--radiant-gold);
+  border-radius: 8px;
+  padding: 10px 16px;
+  max-width: 760px;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+}
+
+.helper-title {
+  font-family: Georgia, serif;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--radiant-gold);
+  margin-bottom: 4px;
+}
+
+.helper-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.8rem;
+  color: var(--text-parchment);
+}
+
+.helper-body code {
+  background: rgba(255, 215, 0, 0.12);
+  color: var(--radiant-gold);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: 'Consolas', monospace;
+}
+
