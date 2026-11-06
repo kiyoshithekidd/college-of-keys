@@ -7,11 +7,15 @@ venv/
 __pycache__/
 *.pyc
 
-# Local user imports / temporary audio files
+# Local user imports / temporary audio files / player profile
 Imports/*.wav
 Imports/*.mp3
 Imports/*.m4a
 Imports/*.webm
+Imports/*.mid
+Imports/*.midi
+bard_profile.json
+grimoire_library.json
 
 # Build / packaging outputs
 dist/

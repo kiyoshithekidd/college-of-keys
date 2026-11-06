@@ -40,7 +40,7 @@
         <!-- Master Volume -->
         <div class="control-group">
           <label for="master-volume">Volume</label>
-          <input id="master-volume" type="range" min="-30" max="6" value="-4" step="1" class="tavern-slider" />
+          <input id="master-volume" type="range" min="-30" max="6" value="-2" step="1" class="tavern-slider" />
         </div>
 
         <!-- Sustain Pedal Indicator -->
@@ -56,20 +56,330 @@
       </div>
     </header>
 
-    <!-- Main Stage: Spell Highway + 61-Key Piano Canvas -->
-    <main id="stage-container">
-      <canvas id="spell-canvas"></canvas>
+    <!-- Phase 2, 3 & 4: Spell Scroll Bar (MIDI Loader, Transport, Wait Mode, Hand Isolation & Backing Band) -->
+    <section id="spell-scroll-bar">
+      <!-- File Loading Actions & Grimoire Sidebar Toggle -->
+      <div class="spell-actions">
+        <button id="btn-toggle-grimoire" class="tavern-btn btn-gold-outline" title="Toggle The Grimoire Spellbook Sidebar & Imports/ Folder Watcher">
+          &#128214; The Grimoire (<span id="grimoire-count-badge">0</span>)
+        </button>
+        <input id="midi-file-input" type="file" accept=".mid,.midi" hidden />
+        <button id="btn-load-midi" class="tavern-btn tavern-btn-primary" title="Upload a local .mid file (or drag & drop onto window)">
+          &#128220; Load MIDI (.mid)
+        </button>
+        <button id="btn-sample-midi" class="tavern-btn" title="Load built-in multi-track sample MIDI">
+          &#10024; Demo Spell
+        </button>
+      </div>
 
-      <!-- Subtle helper overlay in top-left of highway for Phase 1 testing -->
-      <div id="phase1-helper-banner">
-        <div class="helper-title">Phase 1: 61-Key Arcane Keyboard &amp; Live Synth Ready</div>
-        <div class="helper-body">
-          <span><strong>Physical MIDI:</strong> Play any key on your 61-key controller (C2&ndash;C7 / MIDI 36&ndash;96)</span>
-          <span><strong>Mouse:</strong> Click or drag across any white or black key below</span>
-          <span><strong>QWERTY:</strong> Middle row <code>A S D F G H J K L ;</code> (white keys) &amp; <code>W E T Y U O P</code> (sharps) &bull; <code>Z</code> / <code>X</code> shifts octave (<span id="qwerty-octave-label">C4&ndash;E5</span>)</span>
+      <!-- Phase 3 & 4: Playback Transport, Wait Mode Toggle & Timeline -->
+      <div class="transport-group">
+        <button id="btn-play-pause" class="tavern-btn tavern-btn-cast" disabled title="Play / Pause the Spell Highway (Spacebar)">
+          &#9654; Cast Spell
+        </button>
+        <button id="btn-restart" class="tavern-btn" disabled title="Restart Song from Beginning">
+          &#9198;
+        </button>
+        <!-- Phase 4: Wait Mode Toggle -->
+        <button id="btn-wait-mode" class="tavern-btn btn-wait-active" title="Wait Mode pauses falling notes at the strike line until you play the required pitch(es), with 100ms chord roll forgiveness">
+          &#9203; Wait Mode: <span id="wait-mode-state">ON</span>
+        </button>
+        <div class="timeline-box">
+          <input id="song-progress-slider" type="range" min="0" max="1000" value="0" step="1" class="timeline-slider" disabled />
+          <span id="song-time-readout" class="time-readout">0:00 / 0:00</span>
+        </div>
+        <!-- Phase 5: Open Performance Check Summary Modal -->
+        <button id="btn-performance-check" class="tavern-btn btn-gold-outline" title="View Post-Song Performance Check & Bardic Progression Summary">
+          &#127942; Performance Check
+        </button>
+      </div>
+
+      <!-- Phase 3: Hand Isolation, Accompaniment & Backing Band Controls -->
+      <div class="highway-routing-controls">
+        <!-- Active Track Assignment Dropdown -->
+        <div class="control-group">
+          <label for="playable-track-select">Track</label>
+          <select id="playable-track-select" class="tavern-select" disabled>
+            <option value="auto-piano">No Spell Loaded</option>
+          </select>
+        </div>
+
+        <!-- Track Isolation (Track 1 RH Gold, Track 2 LH Blue, Both) -->
+        <div class="control-group" title="Choose which hand(s) you play on the Spell Highway">
+          <label for="hand-isolation-select">Hands</label>
+          <select id="hand-isolation-select" class="tavern-select">
+            <option value="both">Both (T1 Gold + T2 Blue)</option>
+            <option value="track1">Track 1 Only (RH Gold)</option>
+            <option value="track2">Track 2 Only (LH Blue)</option>
+          </select>
+        </div>
+
+        <!-- Accompaniment Toggle (Mute vs. Auto-Play) -->
+        <div class="control-group" title="Control whether Tone.js auto-plays the backing hand or both hands">
+          <label for="accompaniment-select">Accompaniment</label>
+          <select id="accompaniment-select" class="tavern-select">
+            <option value="auto-other">Auto-Play Other Hand</option>
+            <option value="mute-other">Mute Other Hand</option>
+            <option value="auto-both">Auto-Play Both (Preview)</option>
+          </select>
+        </div>
+
+        <!-- Rock Band Backing Band Toggle -->
+        <button id="btn-backing-band" class="tavern-btn btn-toggle-active" title="Rock Band Mode: Toggle non-piano Backing Band tracks On/Off">
+          &#127928; Backing Band: <span id="backing-band-state">ON</span>
+        </button>
+
+        <!-- Tempo / Practice Speed -->
+        <div class="control-group" title="Practice Tempo Multiplier">
+          <label for="playback-speed-select">Tempo</label>
+          <select id="playback-speed-select" class="tavern-select">
+            <option value="0.5">0.5x</option>
+            <option value="0.75">0.75x</option>
+            <option value="1" selected>1.0x</option>
+            <option value="1.25">1.25x</option>
+          </select>
+        </div>
+
+        <!-- Note Fall Speed -->
+        <div class="control-group" title="Falling Glyph Scroll Speed">
+          <label for="fall-speed-select">Note Speed</label>
+          <select id="fall-speed-select" class="tavern-select">
+            <option value="180">Slow</option>
+            <option value="260" selected>Normal</option>
+            <option value="360">Fast</option>
+          </select>
         </div>
       </div>
-    </main>
+
+      <!-- Parsed Song, Strike Zone Status & Auto-Difficulty Readout -->
+      <div id="spell-metadata-panel">
+        <div class="spell-title-group">
+          <span class="spell-label">Active Spell Scroll</span>
+          <strong id="spell-name-display">None &mdash; Load a .mid file or click "Demo Spell"</strong>
+        </div>
+
+        <!-- Phase 4: Real-Time Wait Mode / Chord Forgiveness Status Pill -->
+        <div id="strike-zone-status" class="strike-status-pill">
+          <span id="strike-status-text">Strike Zone: Ready (100ms Chord Grace Active)</span>
+        </div>
+
+        <div id="spell-stats-badges" class="spell-stats-badges hidden">
+          <span id="spell-difficulty-badge" class="difficulty-badge diff-cantrip">Cantrip (1.0x XP)</span>
+          <span class="stat-chip" title="Notes Per Second (Total Active Playable Notes / Duration)">
+            NPS: <strong id="stat-nps">0.00</strong>
+          </span>
+          <span class="stat-chip" title="Tempo & Duration">
+            <strong id="stat-bpm">120 BPM</strong> &bull; <span id="stat-duration">0:00</span>
+          </span>
+          <span class="stat-chip chip-gold" title="Track 1 (Right Hand / Lead — Radiant Gold)">
+            T1 (RH): <strong id="stat-t1-notes">0</strong>
+          </span>
+          <span class="stat-chip chip-blue" title="Track 2 (Left Hand / Accompaniment — Eldritch Blue)">
+            T2 (LH): <strong id="stat-t2-notes">0</strong>
+          </span>
+          <span class="stat-chip" title="Remaining MIDI Tracks preserved for Rock Band Play-Along">
+            Band Tracks: <strong id="stat-band-tracks">0</strong>
+          </span>
+          <span class="stat-chip chip-folded" title="Out-of-bounds notes (<C2 or >C7) transposed by +/-12 semitones into 61-key range (36..96)">
+            Octave Folded: <strong id="stat-folded-notes">0</strong>
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Phase 6: Workspace Row (The Grimoire Sidebar + Main Spell Highway Stage) -->
+    <div id="workspace-row">
+      <!-- Phase 6: The Grimoire (Local Song Library & Imports/ Folder Watcher Sidebar) -->
+      <aside id="grimoire-sidebar" aria-label="The Grimoire Spell Library">
+        <div class="grimoire-header">
+          <div class="grimoire-title-block">
+            <h2 class="grimoire-title">&#128214; The Grimoire</h2>
+            <span id="watcher-status-pill" class="watcher-pill" title="Actively watching ./Imports for new .mid files">
+              <span class="watcher-dot"></span>
+              <span id="watcher-status-text">Watching ./Imports</span>
+            </span>
+          </div>
+          <button id="btn-close-grimoire" class="btn-icon" title="Collapse Grimoire Sidebar">&#10005;</button>
+        </div>
+
+        <!-- Grimoire Action Bar -->
+        <div class="grimoire-actions">
+          <button id="btn-save-grimoire" class="tavern-btn tavern-btn-primary grimoire-btn-full" title="Save currently loaded MIDI spell into The Grimoire">
+            &#128190; Save Active Spell to Grimoire
+          </button>
+          <div class="grimoire-sub-actions">
+            <button id="btn-open-imports" class="tavern-btn grimoire-btn-half" title="Open the watched ./Imports folder in File Explorer">
+              &#128194; Open Imports/
+            </button>
+            <button id="btn-test-watcher-drop" class="tavern-btn btn-gold-outline grimoire-btn-half" title="Generate and drop a new .mid file directly into ./Imports to test automatic folder-watcher ingestion!">
+              &#9889; Drop Test .mid in Imports/
+            </button>
+          </div>
+        </div>
+
+        <!-- Search & Spell Level Filter -->
+        <div class="grimoire-filter-row">
+          <input id="grimoire-search-input" type="text" class="grimoire-search" placeholder="Search spells in Grimoire..." />
+          <select id="grimoire-filter-select" class="tavern-select grimoire-level-filter" title="Filter by D&D Spell Level">
+            <option value="all">All Levels</option>
+            <option value="Cantrip">Cantrip</option>
+            <option value="2nd-Level Spell">2nd-Level</option>
+            <option value="5th-Level Spell">5th-Level</option>
+            <option value="9th-Level Spell">9th-Level</option>
+          </select>
+        </div>
+
+        <!-- Scrollable Spell List -->
+        <div id="grimoire-spell-list" class="grimoire-spell-list">
+          <!-- Populated dynamically by renderer.js -->
+        </div>
+
+        <div class="grimoire-footer">
+          <span>Drop any <code>.mid</code> file into <code>./Imports</code> &mdash; The Grimoire ingests it automatically!</span>
+        </div>
+      </aside>
+
+      <!-- Main Stage: Spell Highway + 61-Key Piano Canvas -->
+      <main id="stage-container">
+        <canvas id="spell-canvas"></canvas>
+
+        <!-- Phase 6: Live Folder Watcher Toast Notification -->
+        <div id="grimoire-toast" class="grimoire-toast hidden">
+          <span id="grimoire-toast-text">&#128214; New Spell Ingested into The Grimoire!</span>
+        </div>
+
+        <!-- Helper overlay in top-left of highway -->
+        <div id="phase1-helper-banner">
+          <div class="helper-title" id="banner-phase-title">Phase 7: Arcane Particle Bursts, Shockwaves &amp; Tavern Dark Mode Polish</div>
+          <div class="helper-body" id="banner-phase-body">
+            <span><strong>Strike-Line Particle Bursts:</strong> Striking keys bursts with <strong>Radiant Gold</strong>, <strong>Eldritch Blue</strong>, or <strong>Astral Inspiration</strong> star runes, shockwave rings &amp; floating XP popups!</span>
+            <span><strong>Tavern Dark Mode Aesthetic:</strong> Ambient arcane dust motes drift across the Spell Highway with illuminated brass borders and magical typography.</span>
+          </div>
+        </div>
+
+        <!-- Phase 5: LitRPG Bardic Progression & Spell Chain HUD Overlay (Top-Right of Stage) -->
+        <aside id="litrpg-hud-card" aria-label="Bardic Progression & Spell Chain">
+          <div class="litrpg-header-row">
+            <div class="bard-identity">
+              <span id="hud-bard-level" class="bard-level-pill">LVL 1</span>
+              <div class="bard-title-wrap">
+                <span class="bard-label">Bardic Rank</span>
+                <strong id="hud-bard-title">Tavern Busker</strong>
+              </div>
+            </div>
+            <div class="bard-career-xp">
+              <span class="bard-label">Total XP</span>
+              <strong id="hud-total-xp">0 XP</strong>
+            </div>
+          </div>
+
+          <!-- Level XP Progress Bar -->
+          <div class="xp-bar-section">
+            <div class="xp-bar-labels">
+              <span id="hud-xp-progress-text">0 / 1,000 XP to Lvl 2</span>
+              <span id="hud-song-xp" class="song-xp-tag">+0 XP this song</span>
+            </div>
+            <div class="xp-bar-track">
+              <div id="hud-xp-bar-fill" class="xp-bar-fill" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Spell Chain (Combo) & Multiplier Row -->
+          <div class="spell-chain-row">
+            <div class="chain-counter-box">
+              <span class="chain-label">Spell Chain</span>
+              <div class="chain-number-wrap">
+                <strong id="hud-spell-chain" class="chain-number">0</strong>
+                <span id="hud-max-chain" class="chain-max">Max: 0</span>
+              </div>
+            </div>
+
+            <div class="multiplier-box">
+              <span class="chain-label">Effective XP</span>
+              <span id="hud-xp-multiplier" class="multiplier-pill">1.0x XP</span>
+              <span id="hud-last-xp-gain" class="last-xp-gain">Ready to cast...</span>
+            </div>
+          </div>
+
+          <!-- Bardic Inspiration Status Banner (50+ Combo) -->
+          <div id="hud-inspiration-banner" class="inspiration-banner">
+            <span id="hud-inspiration-text">&#10024; Reach 50 Spell Chain for Bardic Inspiration (2x XP)</span>
+            <button id="btn-boost-chain" class="btn-mini-sim" title="Testing Shortcut: Add +25 Spell Chain to test Bardic Inspiration (50+ Streak) & XP Multiplier">+25 Chain</button>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <!-- Phase 5: Post-Song "Performance Check" Modal -->
+    <div id="performance-check-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="performance-modal-card">
+        <div class="modal-header-ornament">&#9830; ARCANE PERFORMANCE CHECK &#9830;</div>
+        <h2 id="modal-title" class="modal-main-title">Spell Casting Complete!</h2>
+        <p id="modal-song-subtitle" class="modal-song-subtitle">Ballad of the Silver Flagon &bull; Cantrip (1.0x XP)</p>
+
+        <!-- D20 Performance Roll & Grade -->
+        <div class="d20-grade-banner">
+          <div id="modal-d20-badge" class="d20-hex">20</div>
+          <div class="d20-grade-info">
+            <span class="d20-Roll-label">D&amp;D 5E Performance Check</span>
+            <strong id="modal-grade-title" class="d20-grade-title">Natural 20 &mdash; Legendary Virtuoso!</strong>
+            <span id="modal-grade-flavor" class="d20-grade-flavor">The entire tavern erupts in thunderous applause as arcane light fills the rafters.</span>
+          </div>
+        </div>
+
+        <!-- Level Up Celebration Banner (Shown when player levels up) -->
+        <div id="modal-levelup-banner" class="levelup-banner hidden">
+          &#127881; <strong>LEVEL UP!</strong> You reached <span id="modal-new-level">Level 2</span> &mdash; <em id="modal-new-title">Tavern Busker</em>!
+        </div>
+
+        <!-- Bardic Level & XP Bar inside Modal -->
+        <div class="modal-xp-card">
+          <div class="modal-xp-header">
+            <div>
+              <span id="modal-bard-level" class="bard-level-pill">LVL 1</span>
+              <strong id="modal-bard-title" class="modal-rank-name">Tavern Busker</strong>
+            </div>
+            <span id="modal-xp-numbers" class="modal-xp-numbers">0 / 1,000 XP</span>
+          </div>
+          <div class="xp-bar-track modal-xp-track">
+            <div id="modal-xp-bar-fill" class="xp-bar-fill" style="width: 0%;"></div>
+          </div>
+        </div>
+
+        <!-- 6-Box Session Stat Breakdown -->
+        <div class="modal-stats-grid">
+          <div class="modal-stat-box stat-box-gold">
+            <span class="modal-stat-label">XP Earned (Song)</span>
+            <strong id="modal-stat-xp" class="modal-stat-value">+0 XP</strong>
+          </div>
+          <div class="modal-stat-box">
+            <span class="modal-stat-label">Spell Accuracy</span>
+            <strong id="modal-stat-accuracy" class="modal-stat-value">100%</strong>
+          </div>
+          <div class="modal-stat-box">
+            <span class="modal-stat-label">Max Spell Chain</span>
+            <strong id="modal-stat-chain" class="modal-stat-value">0</strong>
+          </div>
+          <div class="modal-stat-box">
+            <span class="modal-stat-label">Clean Notes Hit</span>
+            <strong id="modal-stat-clean" class="modal-stat-value">0</strong>
+          </div>
+          <div class="modal-stat-box">
+            <span class="modal-stat-label">Fumbled (&gt;2s Wait)</span>
+            <strong id="modal-stat-fumbled" class="modal-stat-value">0</strong>
+          </div>
+          <div class="modal-stat-box">
+            <span class="modal-stat-label">100ms Chord Rolls</span>
+            <strong id="modal-stat-rolls" class="modal-stat-value">0 Rolls &bull; 0 Off-Key</strong>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="btn-modal-replay" class="tavern-btn tavern-btn-cast">&#128260; Cast Spell Again</button>
+          <button id="btn-modal-close" class="tavern-btn tavern-btn-primary">&#128220; Return to Conservatory</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Load Tone.js and @tonejs/midi local vendor builds -->

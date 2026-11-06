@@ -10,13 +10,13 @@
 
 | Phase | Milestone | Status |
 | :--- | :--- | :--- |
-| **Phase 1** | **Electron Skeleton, 61-Key Canvas Piano, Web MIDI & Tone.js Synth** | **Implemented (Testing Gate 1)** |
-| **Phase 2** | MIDI Parsing (`@tonejs/midi`), Octave Folding (`C2`–`C7`) & Auto-Difficulty (NPS) | Planned |
-| **Phase 3** | The Spell Highway (60 FPS), Hand Isolation & Backing Band Toggle | Planned |
-| **Phase 4** | Wait Mode & 100ms Chord Forgiveness ("The Roll") | Planned |
-| **Phase 5** | LitRPG Gamification UI (Spell Chain, Bardic Inspiration, XP & Titles) | Planned |
-| **Phase 6** | The Grimoire (Local Song Library & `Imports/` Folder Watcher) | Planned |
-| **Phase 7** | Tavern Dark Mode UI Polish & Strike-Line Particle Bursts | Planned |
+| **Phase 1** | **Electron Skeleton, 61-Key Canvas Piano, Web MIDI & Sampled Grand Piano** | **Completed** |
+| **Phase 2** | **MIDI Parsing (`@tonejs/midi`), Octave Folding (`C2`–`C7`) & Auto-Difficulty (NPS)** | **Completed** |
+| **Phase 3** | **The Spell Highway (60 FPS), Hand Isolation & Backing Band Toggle** | **Completed** |
+| **Phase 4** | **Wait Mode & 100ms Chord Forgiveness ("The Roll")** | **Completed** |
+| **Phase 5** | **LitRPG Gamification UI (Spell Chain, Bardic Inspiration, XP & Titles)** | **Completed** |
+| **Phase 6** | **The Grimoire (Local Song Library & `Imports/` Folder Watcher)** | **Completed** |
+| **Phase 7** | **Tavern Dark Mode UI Polish & Strike-Line Particle Bursts** | **Implemented (Testing Gate 7)** |
 | **Phase 8** | Decoupled Python ML Pipeline (`yt-dlp` + Spotify `basic-pitch` + Backing Track) | Planned |
 | **Phase 9** | "The Quest Board" (In-App YouTube-to-MIDI Sourcing & Quick Links) | Planned |
 
@@ -95,3 +95,4 @@ npm start
 - **Epic A — "Spell-Singing" (Vocals / *Let's Sing* Mode):** Web Audio API microphone pitch detection with a scrolling vocal pitch highway and lyrics.
 - **Epic B — AI Stem Separation (`Demucs`) & Multi-Instrument Highways:** 4-stem splitting (`vocals`, `drums`, `bass`, `piano/other`) to mute only the piano in real audio tracks or play other instruments.
 - **Epic C — Scrolling Grand-Staff Sheet Music Split View:** Synchronized sheet music notation in the top 50% of the screen.
+

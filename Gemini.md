@@ -29,7 +29,7 @@ Build **College of Keys**, a local Electron PC application that transforms piano
 | 2026-11-06 | **Save Vocals ("Let's Sing") & Multi-Instrument Controllers for Backlog, Design Data Model to Support Them Now** | Keep Phases 1–9 focused on the 61-key Piano MVP while structuring the song/track data model so microphone pitch detection (Vocals) and other instrument highways can plug in cleanly later. | Approved |
 | 2026-11-06 | **Strict Single-Phase Execution Gate** | Prevents compounding bugs across audio, MIDI hardware, canvas rendering, and game logic; ensures each layer is verified by the user before building on top of it. | Active |
 | 2026-11-06 | **Single HTML5 Canvas (60 FPS) with Primitive Shapes for MVP** | Avoids DOM layout thrashing for falling notes; modular rendering design allows seamless PNG sprite swapping and top-50% sheet music split in future iterations. | Implemented (Phase 1) |
-| 2026-11-06 | **Persistent `Tone.PolySynth` Voice Pool + `Tone.context.lookAhead = 0`** | Pre-warmed singleton polyphonic synth avoids garbage collection clicks/stutters on `noteon` events; setting `lookAhead = 0` eliminates Tone.js's default 100ms buffer lag for live MIDI play. | Implemented (Phase 1) |
+| 2026-11-06 | **Real Multi-Sampled Acoustic Grand Piano (`Tone.Sampler` + Local Salamander Samples) + `Tone.context.lookAhead = 0`** | Initial `Tone.Synth` (`triangle8` oscillator) sounded like an electronic synth rather than a real piano. Upgraded "Tavern Grand Piano" to `Tone.Sampler` backed by 22 local Yamaha C5 Salamander Grand Piano recordings (`./assets/samples/piano/A1..C7.mp3`) loaded into memory, with `lookAhead = 0` for `<10ms` live latency. | Implemented (Phase 1) |
 | 2026-11-06 | **Native Web MIDI API (`navigator.requestMIDIAccess`) + Velocity-0 NoteOff Handling** | Eliminates third-party wrapper latency; handles both explicit `0x80` NoteOff and `0x90` NoteOn with `velocity === 0` (used by many 61-key controllers on key release), plus Sustain Pedal (`CC 64`). | Implemented (Phase 1) |
 | 2026-11-06 | **61-Key Octave Folding (MIDI 36–96)** | Physical hardware is a 61-key controller (`C2`–`C7`). Out-of-bounds MIDI notes are transposed by $\pm 12$ semitones until they fall within `[36, 96]` so every note in any song is playable. | Implemented (Phase 1) |
 | 2026-11-06 | **Decoupled Python CLI for `yt-dlp` + `basic-pitch` (+ Backing Audio / Stems)** | Keeps heavy ML/audio dependencies out of the Electron binary; outputs both `.mid` and optional synced backing audio into `Imports/` for Rock Band-style play-along. | Planned |
@@ -102,44 +102,44 @@ In addition to the libraries in the PRD (`Tone.js`, `@tonejs/midi`, `atosystem/m
 
 ## 5. Phased Build Plan & Checklist (MVP: Phases 1–9)
 
-- [/] **Phase 1: Electron Skeleton & Audio (Implemented — Awaiting `"Testing successful"`)**
+- [x] **Phase 1: Electron Skeleton & Audio (Completed & Verified)**
   - Initialize [package.json](file:///g:/My%20Drive/Projects/College%20of%20Keys/package.json), [main.js](file:///g:/My%20Drive/Projects/College%20of%20Keys/main.js), [index.html](file:///g:/My%20Drive/Projects/College%20of%20Keys/index.html), [renderer.js](file:///g:/My%20Drive/Projects/College%20of%20Keys/renderer.js), and [styles.css](file:///g:/My%20Drive/Projects/College%20of%20Keys/styles.css).
   - Render static 61-key piano (`C2`–`C7`) on HTML5 Canvas.
   - Connect physical MIDI keyboard via `navigator.requestMIDIAccess()` with `onstatechange` support + mouse/QWERTY fallback.
-  - Integrate `Tone.js` persistent `PolySynth` (`lookAhead = 0`) and highlight/play keys on input.
-  - *Gate 1: Stop, provide test steps, wait for `"Testing successful"`.*
+  - Integrate `Tone.Sampler` (local Yamaha C5 Salamander Grand Piano samples + warm EQ/low-pass filtering + upper-register key-scaling) and highlight/play keys on input.
+  - *Gate 1: Passed (`"Testing successful"`).*
 
-- [ ] **Phase 2: MIDI Parsing & Auto-Difficulty (Octave Folding + Non-Destructive Track Categorization)**
-  - Implement local `.mid` file upload and parsing via `@tonejs/midi`.
+- [x] **Phase 2: MIDI Parsing & Auto-Difficulty (Completed & Verified)**
+  - Implement local `.mid` file upload (file picker, drag-and-drop, and 1-click Built-In Demo Spell) and parsing via `@tonejs/midi`.
   - Preserve all tracks: auto-select Piano track(s) for Track 1 (RH) & Track 2 (LH) (with Middle-C split for single-track files and a UI dropdown to switch active tracks) while keeping remaining tracks as Backing Band data.
   - Apply Octave Folding into `36–96` for playable keyboard tracks.
   - Calculate Notes Per Second (NPS) and assign the D&D Spell Level difficulty tag.
-  - *Gate 2: Stop, provide test steps, wait for `"Testing successful"`.*
+  - *Gate 2: Passed (`"Testing successful"`).*
 
-- [ ] **Phase 3: The Spell Highway, Accompaniment & Backing Band**
+- [x] **Phase 3: The Spell Highway, Accompaniment & Backing Band (Completed & Verified)**
   - Build the 60 FPS `requestAnimationFrame` render loop.
   - Draw falling glowing notes (Track 1 = Radiant Gold, Track 2 = Eldritch Blue) aligned to the 61-key layout.
   - Add Track Isolation selector (`Track 1`, `Track 2`, `Both`), Left-Hand Accompaniment Toggle (`Mute` vs. `Auto-play`), and **Backing Band Toggle** (`Solo Piano` vs. `Full Band Play-Along`).
-  - *Gate 3: Stop, provide test steps, wait for `"Testing successful"`.*
+  - *Gate 3: Passed (`"Testing successful"`).*
 
-- [ ] **Phase 4: Wait Mode & Chord Forgiveness (100ms Roll)**
+- [x] **Phase 4: Wait Mode & Chord Forgiveness (100ms Roll) (Completed & Verified)**
   - Define the strike zone collision boundary and Wait Mode UI toggle.
   - Implement the 100ms `chordGracePeriod` window for rolled chords.
   - Gate playback progression on matching MIDI `noteon` events when Wait Mode is active.
-  - *Gate 4: Stop, provide test steps, wait for `"Testing successful"`.*
+  - *Gate 4: Passed (`"Testing successful"`).*
 
-- [ ] **Phase 5: LitRPG Gamification UI (Combos, XP, Titles)**
+- [x] **Phase 5: LitRPG Gamification UI (Combos, XP, Titles) (Completed & Verified)**
   - Build HUD for Spell Chain counter, Bardic Inspiration state, XP bar, Level, and Bardic Title.
   - Implement XP calculation (difficulty multiplier, 50-streak 2x multiplier, >2s Wait Mode fumble penalty) and local persistence.
   - Build the post-song "Performance Check" summary modal.
-  - *Gate 5: Stop, provide test steps, wait for `"Testing successful"`.*
+  - *Gate 5: Passed (`"Testing successful"`).*
 
-- [ ] **Phase 6: The Grimoire (Folder Watcher & Local Storage)**
+- [x] **Phase 6: The Grimoire (Folder Watcher & Local Storage) (Completed & Verified)**
   - Build "The Grimoire" sidebar to save, browse, and load parsed songs (along with any paired backing audio) locally.
   - Add Electron folder watcher on local `Imports/` folder to auto-ingest new `.mid` (and paired backing audio) files into The Grimoire.
-  - *Gate 6: Stop, provide test steps, wait for `"Testing successful"`.*
+  - *Gate 6: Passed (`"Testing successful"`).*
 
-- [ ] **Phase 7: UI Polish & Particle Effects**
+- [/] **Phase 7: UI Polish & Particle Effects (Implemented — Awaiting `"Testing successful"`)**
   - Add HTML5 canvas particle bursts on note hits at the strike line.
   - Polish the Tavern Dark Mode aesthetic (arcane glow, typography, parchment/obsidian styling).
   - *Gate 7: Stop, provide test steps, wait for `"Testing successful"`.*
@@ -185,4 +185,60 @@ In addition to the libraries in the PRD (`Tone.js`, `@tonejs/midi`, `atosystem/m
     - [main.js](file:///g:/My%20Drive/Projects/College%20of%20Keys/main.js): Created the Electron window with automatic Chromium Web MIDI (`midi` & `midiSysex`) permissions.
     - [index.html](file:///g:/My%20Drive/Projects/College%20of%20Keys/index.html) & [styles.css](file:///g:/My%20Drive/Projects/College%20of%20Keys/styles.css): Built the Tavern Dark Mode HUD (MIDI device status pill, Instrument Tone selector, Volume slider, Sustain indicator, Active Glyphs readout) and responsive canvas stage.
     - [renderer.js](file:///g:/My%20Drive/Projects/College%20of%20Keys/renderer.js): Implemented the 61-key piano layout (`C2`–`C7`, 36 white keys, 25 black keys) on HTML5 Canvas, `navigator.requestMIDIAccess()` with hot-plug (`onstatechange`), velocity-0 `NoteOff`, Sustain Pedal (`CC 64`), persistent `Tone.PolySynth` (`lookAhead = 0`), and Mouse/QWERTY fallback.
-- **Current status:** Waiting for `npm install` to complete, then ready for User Gate 1 testing (`"Testing successful"`).
+### 2026-11-06 — Session 3: Upper-Register Piano Warmth Fix & Phase 2 Implementation
+- **What we did:**
+  - **Fixed Upper-Register (`C5`–`C7`) Piano Sharpness:** The raw Salamander Grand Piano V3 samples hosted by Tone.js are close-mic'd fortissimo (`v16`) hammer strikes, which sound warm around `C3` but overly bright/metallic above `C5`–`C6`. Added a warm Tavern EQ (`Tone.EQ3`: `+2.5 dB` low body `< 260 Hz`, `-8.5 dB` high-shelf cut `> 2.2 kHz`), a `3.1 kHz` `-12 dB/oct` low-pass filter (`Tone.Filter`), and pitch-dependent hammer velocity tapering above `C4` (`MIDI 60`).
+  - **Built Phase 2 (MIDI Parsing, Octave Folding, Non-Destructive Multi-Track & Auto-Difficulty):**
+    - Added the **Spell Scroll Bar** in [index.html](file:///g:/My%20Drive/Projects/College%20of%20Keys/index.html) and [styles.css](file:///g:/My%20Drive/Projects/College%20of%20Keys/styles.css) with `.mid` file upload, full-window drag-and-drop `.mid` support, and a 1-click **Load Demo Spell** button (*Ballad of the Silver Flagon.mid*).
+    - Implemented `@tonejs/midi` parsing (`parseMidiBuffer`) in [renderer.js](file:///g:/My%20Drive/Projects/College%20of%20Keys/renderer.js) with non-destructive multi-track categorization (`Track 1` RH Radiant Gold, `Track 2` LH Eldritch Blue, Middle-C split on single-track files, a **Highway Track Selector Dropdown** to play any track in the MIDI, and `backingBandTracks` preservation).
+    - Implemented 61-key Octave Folding (`36–96`) with folded-note tracking (`Octave Folded` HUD chip) and static canvas preview of parsed glyphs (`drawStaticParsedNotesPreview`).
+    - Implemented Notes Per Second (`NPS`) calculation and D&D 5E Spell Level difficulty badge assignment (`Cantrip`, `2nd-Level Spell`, `5th-Level Spell`, `9th-Level Spell`).
+- **Current status:** Phase 2 verified (`"Testing successful"`).
+
+### 2026-11-06 — Session 4: Phase 3 Implementation (The Spell Highway, Accompaniment & Backing Band)
+- **What we did:**
+  - Built the **60 FPS `requestAnimationFrame` Spell Highway** (`animationLoop` and `drawFallingSpellHighway`) in [renderer.js](file:///g:/My%20Drive/Projects/College%20of%20Keys/renderer.js), interpolating falling notes ($y = \text{strikeLineY} - (\text{noteTime} - \text{currentTime}) \times \text{fallSpeed}$) with scrolling beat/measure grid lines, **Radiant Gold** (Track 1 / RH) and **Eldritch Blue** (Track 2 / LH) glowing glyphs, and strike-line guide highlights on the 61-key piano.
+  - Added **Transport & Timeline Controls** (`▶ Cast Spell` / `⏸ Pause`, `Spacebar` shortcut, `⏮ Restart`, timeline scrubber slider, `Tempo` `0.5x`–`1.25x`, and `Note Speed` `Slow`/`Normal`/`Fast`) in [index.html](file:///g:/My%20Drive/Projects/College%20of%20Keys/index.html) and [styles.css](file:///g:/My%20Drive/Projects/College%20of%20Keys/styles.css).
+  - Implemented **Hand Isolation (`Both`, `Track 1 Only`, `Track 2 Only`)**, **Accompaniment Routing (`Auto-Play Other Hand`, `Mute Other Hand`, `Auto-Play Both (Preview)`)**, and the **Rock Band-style Backing Band Toggle (`🎸 Backing Band: ON / OFF`)** synthesizing remaining MIDI tracks via a dedicated 24-voice `backingBandSynth`.
+  - **Fixed Doubled/Duplicate MIDI Track Trap (`John_Legend_All_Of_Me.mid`):** Inspected `Midi Test Files/John_Legend_All_Of_Me.mid` and found that the MIDI arranger duplicated the Right Hand (`856` notes on Track 4 & Track 12) and Left Hand (`222` notes on Track 6 & Track 13) across two MIDI channels for volume. Previously, sorting by note count picked the two identical `856`-note RH tracks as `T1` and `T2` (drawing Gold directly over Blue and ignoring the `222`-note LH track). Added `areTracksDuplicates()` deduplication and Treble (`avgPitch >= 62`) + Bass (`avgPitch < 62`) piano track pairing so `T1 (RH Gold)` gets the `856`-note Right Hand and `T2 (LH Blue)` gets the `222`-note Left Hand.
+  - Added startup auto-discovery for `.mid` files in `Midi Test Files/`, `Imports/`, and project root (`tryAutoLoadWorkspaceMidi`).
+- **Current status:** Phase 3 verified (`"Testing successful"`).
+
+### 2026-11-06 — Session 5: Phase 4 Implementation (Wait Mode & 100ms Chord Forgiveness)
+- **What we did:**
+  - Built **Wait Mode (`⏳ Wait Mode: ON / OFF`)** in [index.html](file:///g:/My%20Drive/Projects/College%20of%20Keys/index.html), [styles.css](file:///g:/My%20Drive/Projects/College%20of%20Keys/styles.css), and [renderer.js](file:///g:/My%20Drive/Projects/College%20of%20Keys/renderer.js):
+    - Implemented onset-only chord clustering (`CHORD_CLUSTER_WINDOW_SEC = 0.045`) across the player's active hand(s) so sustained bass notes never re-block playback while new note/chord onsets freeze `currentSongTime` cleanly at the strike line (`getNextPlayerChordGate`).
+    - Implemented **100ms Chord Roll Forgiveness (`CHORD_GRACE_PERIOD_MS = 100`)**: pressing the notes of a multi-note chord within `100ms` registers as a clean rolled chord (`⚡ Clean 100ms Roll!`), while slower partial presses still lock in individual chord notes (`satisfiedPitches` highlighted in Emerald Green `#4ade80`) without losing progress.
+    - Added live `#strike-zone-status` HUD indicator displaying required pitches (`⏳ Waiting: C4 + E4 + G4`), clean roll confirmation, or `> 2.0s` Wait Mode hesitation (`Fumbled Component` detection ready for Phase 5 XP math).
+    - Automatically defaults Accompaniment to `Auto-Play Other Hand` when enabling Wait Mode so the player controls their selected hand(s) while Tone.js plays the accompanying hand.
+- **Current status:** Phase 4 verified (`"Testing successful"`).
+
+### 2026-11-06 — Session 6: Phase 5 Implementation (LitRPG Gamification UI: Combos, Bardic Inspiration, XP & Titles)
+- **What we did:**
+  - Built the **Top-Right LitRPG Bardic Progression & Spell Chain HUD (`#litrpg-hud-card`)** in [index.html](file:///g:/My%20Drive/Projects/College%20of%20Keys/index.html), [styles.css](file:///g:/My%20Drive/Projects/College%20of%20Keys/styles.css), and [renderer.js](file:///g:/My%20Drive/Projects/College%20of%20Keys/renderer.js):
+    - Displays live **Level (`LVL 1+`)**, **Bardic Title** (*Tavern Busker* at Lvl 1, *College Initiate* at Lvl 10, *Wandering Minstrel* at Lvl 20, *Court Virtuoso* at Lvl 30, *Spell-Singer* at Lvl 40, *Grand Maestro* at Lvl 50), **Total Career XP**, animated **Level XP Bar** (`1,000 XP` for Lvl 1 scaling by `1.5x` per level), **Spell Chain** combo counter, and **Effective XP Multiplier**.
+    - Implemented **XP & Fumbled Component Math**: Clean note strikes grant `+10 XP` base (`\times` Spell Level multiplier `\times` Bardic Inspiration multiplier); pausing `> 2.0s` in Wait Mode flags a **Fumbled Component** (`+2 XP` base).
+    - Implemented **Bardic Inspiration (`50+` Spell Chain)**: Reaching a `50` note streak activates a `2.0x` temporary XP multiplier, illuminates `#litrpg-hud-card` with an arcane gold/magenta aura, and adds a magenta-gold glow to the canvas Strike Zone line. Includes a `+25 Chain` testing shortcut button on the HUD card.
+    - Persists the Bard profile to both `localStorage` and local `bard_profile.json`.
+    - Built the **Post-Song "Performance Check" Modal (`#performance-check-modal`)** with a D&D 5E D20 Performance Roll (`1–20`), Level-Up banner, XP bar, and 6-stat performance breakdown, opening automatically at song completion or anytime via the **`🏆 Performance Check`** toolbar button.
+- **Current status:** Phase 5 verified (`"Testing successful"`).
+
+### 2026-11-06 — Session 7: Phase 6 Implementation (The Grimoire Sidebar & `Imports/` Folder Watcher)
+- **What we did:**
+  - Built **The Grimoire (`#grimoire-sidebar`)** on the left side of `#workspace-row` in [index.html](file:///g:/My%20Drive/Projects/College%20of%20Keys/index.html), [styles.css](file:///g:/My%20Drive/Projects/College%20of%20Keys/styles.css), and [renderer.js](file:///g:/My%20Drive/Projects/College%20of%20Keys/renderer.js):
+    - Displays all saved and discovered MIDI spells (with Title, D&D Spell Level Difficulty badge, XP multiplier, NPS, BPM, Duration, Source tag, and delete button for imported spells).
+    - Added collapsible sidebar toggle (`📖 The Grimoire (Count)`) that dynamically recalculates the 61-key canvas geometry (`computeKeyGeometry()`), plus live search (`#grimoire-search-input`) and Spell Level filter (`#grimoire-filter-select`).
+  - Implemented the **Active `Imports/` Folder Watcher (`initGrimoireAndWatcher` & `scanWatchedDirectories`)**:
+    - Automatically creates `./Imports/` if missing and watches it via both `fs.watch` and a resilient `1.8s` directory poll (ensuring instant detection on Google Drive virtual mounts).
+    - Auto-ingests new `.mid` files dropped into `./Imports/` (as well as indexing `./Midi Test Files/` and the Built-In Demo Spell), persists the library index to `localStorage` and `grimoire_library.json`, and displays a glowing toast notification (`#grimoire-toast`).
+    - Added `💾 Save Active Spell to Grimoire`, `📂 Open Imports/`, and a 1-click **`⚡ Drop Test .mid in Imports/`** button (`dropTestMidiIntoImports`) that generates new multi-track D&D Bard `.mid` files directly inside `./Imports/` to test live folder-watcher ingestion.
+- **Current status:** Phase 6 verified (`"Testing successful"`).
+
+### 2026-11-06 — Session 8: Phase 7 Implementation (Arcane Particle Bursts, Shockwaves, Floating Runes & Tavern Dark Mode Polish)
+- **What we did:**
+  - Built the **60 FPS HTML5 Canvas Arcane Particle System (`spawnKeyParticleBurst`, `spawnFloatingCanvasRune`, `updateAndDrawAmbientMotes`, `updateAndDrawStrikeParticles`)** in [renderer.js](file:///g:/My%20Drive/Projects/College%20of%20Keys/renderer.js):
+    - Spawns upward fountains of 4-point Arcane Stars, Diamonds, and Glowing Orbs with gravity/drag physics, expanding elliptical **Strike-Line Shockwave Rings**, and rising **Floating XP / Roll Runes** (`+20 XP`, `⚡ +60 XP ROLL!`, `🔥 +40 XP!`) directly above the struck keys.
+    - Color-themes bursts automatically: **Radiant Gold** (`#ffd700` for Right Hand / treble keys), **Eldritch Blue** (`#00e5ff` for Left Hand / bass keys), **Emerald-Gold Nova** (`#34d399` for 100ms Chord Rolls), and **Astral Magenta & Gold** (`#e879f9` during `50+` Bardic Inspiration).
+    - Added 28 drifting **Ambient Tavern Arcane Dust Motes** across the Spell Highway background and a celebratory 9-key particle wave when triggering `+25 Chain` / Bardic Inspiration.
+  - Polished the **Tavern Dark Mode CSS** in [styles.css](file:///g:/My%20Drive/Projects/College%20of%20Keys/styles.css) with `@keyframes arcaneCrestPulse`, `@keyframes inspirationAuraPulse`, stage inner vignette, and illuminated brass/gold borders.
+- **Current status:** Phase 7 implemented. Waiting for user verification (`"Testing successful"`).

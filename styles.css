@@ -44,11 +44,11 @@ html, body {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 20px;
+  padding: 8px 20px;
   background: linear-gradient(180deg, #1d1732 0%, #120e21 100%);
-  border-bottom: 2px solid var(--border-brass);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.7);
-  z-index: 10;
+  border-bottom: 1px solid var(--border-brass);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  z-index: 12;
 }
 
 .brand-block {
@@ -58,12 +58,12 @@ html, body {
 }
 
 .arcane-crest {
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border-radius: 8px;
   background: radial-gradient(circle at 30% 30%, #ffd700, #8a6d2f);
   color: #120e21;
-  font-size: 22px;
+  font-size: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -73,7 +73,7 @@ html, body {
 
 .app-title {
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 1.35rem;
+  font-size: 1.25rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--radiant-gold);
@@ -82,7 +82,7 @@ html, body {
 
 .app-subtitle {
   display: block;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--text-muted);
   letter-spacing: 0.03em;
 }
@@ -90,7 +90,7 @@ html, body {
 .hud-controls {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
@@ -98,11 +98,11 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
+  padding: 5px 12px;
   border-radius: 999px;
   background: var(--bg-tavern-card);
   border: 1px solid var(--border-brass);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   color: var(--text-parchment);
 }
 
@@ -152,18 +152,19 @@ html, body {
 .control-group {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   background: var(--bg-tavern-card);
-  padding: 5px 12px;
-  border-radius: 8px;
+  padding: 4px 10px;
+  border-radius: 7px;
   border: 1px solid rgba(138, 109, 47, 0.55);
 }
 
 .control-group label {
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
 .tavern-select {
@@ -171,10 +172,16 @@ html, body {
   color: var(--text-parchment);
   border: 1px solid var(--border-brass);
   border-radius: 5px;
-  padding: 3px 8px;
-  font-size: 0.82rem;
+  padding: 3px 7px;
+  font-size: 0.78rem;
   outline: none;
   cursor: pointer;
+  max-width: 190px;
+}
+
+.tavern-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .tavern-select:focus {
@@ -182,23 +189,23 @@ html, body {
 }
 
 .tavern-slider {
-  width: 90px;
+  width: 80px;
   accent-color: var(--radiant-gold);
   cursor: pointer;
 }
 
 .active-note-readout {
-  min-width: 190px;
+  min-width: 175px;
   text-align: right;
   background: var(--bg-tavern-card);
-  padding: 6px 14px;
+  padding: 5px 12px;
   border-radius: 8px;
   border: 1px solid var(--border-brass);
 }
 
 .readout-label {
   display: block;
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
@@ -206,12 +213,273 @@ html, body {
 
 .readout-value {
   font-family: 'Consolas', 'Courier New', monospace;
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   font-weight: 700;
   color: var(--radiant-gold);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Phase 2 & 3: Spell Scroll & Highway Control Bar */
+#spell-scroll-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 20px;
+  background: linear-gradient(180deg, #161129 0%, #0f0c1c 100%);
+  border-bottom: 2px solid var(--border-brass);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
+  z-index: 11;
+  flex-wrap: wrap;
+}
+
+.spell-actions,
+.transport-group,
+.highway-routing-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tavern-btn {
+  background: linear-gradient(180deg, #271f42 0%, #19132c 100%);
+  color: var(--text-parchment);
+  border: 1px solid var(--border-brass);
+  border-radius: 7px;
+  padding: 5px 11px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.tavern-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none !important;
+}
+
+.tavern-btn:not(:disabled):hover {
+  border-color: var(--radiant-gold);
+  color: var(--radiant-gold);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.2);
+}
+
+.tavern-btn-primary {
+  background: linear-gradient(180deg, #3b2d13 0%, #241b0a 100%);
+  border-color: var(--border-gold-bright);
+  color: var(--radiant-gold);
+}
+
+.tavern-btn-cast {
+  background: linear-gradient(180deg, #143b2d 0%, #0c241b 100%);
+  border-color: #36d399;
+  color: #6ee7b7;
+  min-width: 110px;
+}
+
+.tavern-btn-cast.playing {
+  background: linear-gradient(180deg, #473211 0%, #2b1d08 100%);
+  border-color: var(--radiant-gold);
+  color: var(--radiant-gold);
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.35);
+}
+
+.btn-toggle-active {
+  background: linear-gradient(180deg, #132f3d 0%, #0b1c26 100%);
+  border-color: var(--eldritch-blue);
+  color: #a5f3fc;
+}
+
+.btn-wait-active {
+  background: linear-gradient(180deg, #3f2b12 0%, #241707 100%);
+  border-color: var(--radiant-gold);
+  color: var(--radiant-gold);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.25);
+}
+
+.strike-status-pill {
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #141024;
+  border: 1px solid rgba(212, 175, 55, 0.45);
+  font-family: 'Consolas', monospace;
+  font-size: 0.76rem;
+  color: var(--text-parchment);
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.strike-status-pill.strike-waiting {
+  background: rgba(251, 189, 35, 0.18);
+  border-color: var(--radiant-gold);
+  color: var(--radiant-gold);
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.35);
+}
+
+.strike-status-pill.strike-hit {
+  background: rgba(54, 211, 153, 0.18);
+  border-color: #36d399;
+  color: #6ee7b7;
+}
+
+.strike-status-pill.strike-fumble {
+  background: rgba(248, 114, 114, 0.18);
+  border-color: #f87272;
+  color: #fca5a5;
+}
+
+.timeline-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-tavern-card);
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(138, 109, 47, 0.55);
+}
+
+.timeline-slider {
+  width: 120px;
+  accent-color: var(--radiant-gold);
+  cursor: pointer;
+}
+
+.timeline-slider:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.time-readout {
+  font-family: 'Consolas', monospace;
+  font-size: 0.76rem;
+  color: var(--text-parchment);
+  min-width: 72px;
+  text-align: center;
+}
+
+#spell-metadata-panel {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: rgba(30, 24, 51, 0.75);
+  border: 1px solid rgba(138, 109, 47, 0.45);
+  border-radius: 8px;
+  padding: 4px 12px;
+  min-width: 280px;
+}
+
+.spell-title-group {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.spell-label {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+#spell-name-display {
+  font-family: Georgia, serif;
+  font-size: 0.86rem;
+  color: var(--text-parchment);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spell-stats-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* D&D Spell Level Difficulty Badges */
+.difficulty-badge {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.diff-cantrip {
+  background: rgba(54, 211, 153, 0.16);
+  color: #5eead4;
+  border-color: #36d399;
+}
+
+.diff-level2 {
+  background: rgba(0, 229, 255, 0.16);
+  color: #67e8f9;
+  border-color: var(--eldritch-blue);
+}
+
+.diff-level5 {
+  background: rgba(255, 215, 0, 0.18);
+  color: var(--radiant-gold);
+  border-color: var(--radiant-gold);
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.25);
+}
+
+.diff-level9 {
+  background: rgba(244, 63, 94, 0.22);
+  color: #fda4af;
+  border-color: #f43f5e;
+  box-shadow: 0 0 12px rgba(244, 63, 94, 0.4);
+}
+
+.stat-chip {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #120e21;
+  border: 1px solid rgba(163, 151, 184, 0.25);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.stat-chip strong {
+  color: var(--text-parchment);
+}
+
+.chip-gold {
+  border-color: rgba(255, 215, 0, 0.5);
+}
+
+.chip-gold strong {
+  color: var(--radiant-gold);
+}
+
+.chip-blue {
+  border-color: rgba(0, 229, 255, 0.5);
+}
+
+.chip-blue strong {
+  color: var(--eldritch-blue);
+}
+
+.chip-folded {
+  border-color: rgba(192, 132, 252, 0.45);
+}
+
+.chip-folded strong {
+  color: #d8b4fe;
 }
 
 /* Main Stage & Canvas */
@@ -224,6 +492,11 @@ html, body {
   background: radial-gradient(circle at 50% 25%, #1a1333 0%, #0b0914 75%);
 }
 
+#stage-container.drag-over {
+  outline: 3px dashed var(--radiant-gold);
+  outline-offset: -8px;
+}
+
 #spell-canvas {
   display: block;
   width: 100%;
@@ -233,32 +506,34 @@ html, body {
 
 #phase1-helper-banner {
   position: absolute;
-  top: 16px;
-  left: 20px;
-  background: rgba(21, 17, 37, 0.86);
+  top: 12px;
+  left: 18px;
+  background: rgba(21, 17, 37, 0.84);
   border: 1px solid var(--border-brass);
   border-left: 3px solid var(--radiant-gold);
   border-radius: 8px;
-  padding: 10px 16px;
-  max-width: 760px;
+  padding: 8px 14px;
+  max-width: 680px;
   backdrop-filter: blur(6px);
   pointer-events: none;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  transition: opacity 0.3s ease;
+  z-index: 4;
 }
 
 .helper-title {
   font-family: Georgia, serif;
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   font-weight: 700;
   color: var(--radiant-gold);
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 
 .helper-body {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  font-size: 0.8rem;
+  gap: 2px;
+  font-size: 0.76rem;
   color: var(--text-parchment);
 }
 
@@ -270,3 +545,799 @@ html, body {
   font-family: 'Consolas', monospace;
 }
 
+/* ============================================================================
+   PHASE 5: LITRPG GAMIFICATION HUD (COMBOS, BARDIC INSPIRATION, XP & TITLES)
+   ============================================================================ */
+
+.btn-gold-outline {
+  background: linear-gradient(180deg, #2d2212 0%, #1a1309 100%);
+  border-color: var(--border-gold-bright);
+  color: var(--radiant-gold);
+}
+
+#litrpg-hud-card {
+  position: absolute;
+  top: 12px;
+  right: 18px;
+  width: 345px;
+  background: rgba(19, 15, 34, 0.90);
+  border: 1px solid var(--border-brass);
+  border-top: 2px solid var(--border-gold-bright);
+  border-radius: 10px;
+  padding: 10px 14px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+#litrpg-hud-card.bardic-inspiration-active {
+  border-color: #ffd700;
+  box-shadow:
+    0 0 22px rgba(255, 215, 0, 0.45),
+    0 0 38px rgba(192, 132, 252, 0.35),
+    inset 0 0 14px rgba(255, 215, 0, 0.12);
+}
+
+.litrpg-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bard-identity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.bard-level-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #ffd700 0%, #b8860b 100%);
+  color: #120d1f;
+  font-weight: 800;
+  font-size: 0.76rem;
+  letter-spacing: 0.05em;
+  padding: 3px 9px;
+  border-radius: 6px;
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.35);
+}
+
+.bard-title-wrap {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.bard-label {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+#hud-bard-title {
+  font-family: Georgia, serif;
+  font-size: 0.92rem;
+  color: var(--radiant-gold);
+  text-shadow: 0 0 8px rgba(255, 215, 0, 0.28);
+}
+
+.bard-career-xp {
+  text-align: right;
+  line-height: 1.15;
+}
+
+#hud-total-xp {
+  font-family: 'Consolas', monospace;
+  font-size: 0.85rem;
+  color: var(--text-parchment);
+}
+
+/* XP Bar */
+.xp-bar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.xp-bar-labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.71rem;
+  font-family: 'Consolas', monospace;
+  color: var(--text-parchment);
+}
+
+.song-xp-tag {
+  color: #5eead4;
+  font-weight: 700;
+}
+
+.xp-bar-track {
+  width: 100%;
+  height: 9px;
+  background: #0b0815;
+  border: 1px solid rgba(212, 175, 55, 0.45);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.xp-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #00e5ff 0%, #ffd700 65%, #fff3b0 100%);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.65);
+  border-radius: 999px;
+  transition: width 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Spell Chain & Multiplier Row */
+.spell-chain-row {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(12, 9, 22, 0.65);
+  border: 1px solid rgba(138, 109, 47, 0.4);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.chain-counter-box {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.chain-label {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.chain-number-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.chain-number {
+  font-family: 'Consolas', monospace;
+  font-size: 1.55rem;
+  font-weight: 800;
+  color: var(--radiant-gold);
+  text-shadow: 0 0 12px rgba(255, 215, 0, 0.45);
+  line-height: 1.05;
+}
+
+#litrpg-hud-card.bardic-inspiration-active .chain-number {
+  color: #fff3b0;
+  text-shadow: 0 0 16px #ffd700, 0 0 28px #c084fc;
+}
+
+.chain-max {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-family: 'Consolas', monospace;
+}
+
+.multiplier-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+}
+
+.multiplier-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 215, 0, 0.16);
+  border: 1px solid var(--radiant-gold);
+  color: var(--radiant-gold);
+  font-family: 'Consolas', monospace;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.last-xp-gain {
+  font-family: 'Consolas', monospace;
+  font-size: 0.7rem;
+  color: #6ee7b7;
+  max-width: 175px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.last-xp-gain.xp-fumbled {
+  color: #fca5a5;
+}
+
+/* Bardic Inspiration Status Banner */
+.inspiration-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: rgba(30, 24, 51, 0.85);
+  border: 1px solid rgba(163, 151, 184, 0.25);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+}
+
+.inspiration-banner.active {
+  background: linear-gradient(90deg, rgba(147, 51, 234, 0.32) 0%, rgba(255, 215, 0, 0.28) 100%);
+  border-color: #ffd700;
+  color: #fff3b0;
+  font-weight: 700;
+  box-shadow: 0 0 14px rgba(255, 215, 0, 0.35);
+}
+
+.btn-mini-sim {
+  background: rgba(255, 215, 0, 0.12);
+  border: 1px solid rgba(212, 175, 55, 0.55);
+  color: var(--radiant-gold);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.btn-mini-sim:hover {
+  background: rgba(255, 215, 0, 0.25);
+  border-color: var(--radiant-gold);
+}
+
+/* ============================================================================
+   PHASE 5: POST-SONG "PERFORMANCE CHECK" MODAL
+   ============================================================================ */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(7, 5, 14, 0.82);
+  backdrop-filter: blur(7px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 20px;
+}
+
+.performance-modal-card {
+  width: 100%;
+  max-width: 580px;
+  background: linear-gradient(180deg, #1e1736 0%, #110d20 100%);
+  border: 2px solid var(--border-gold-bright);
+  border-radius: 14px;
+  padding: 22px 26px;
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.85),
+    0 0 32px rgba(255, 215, 0, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  text-align: center;
+}
+
+.modal-header-ornament {
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  color: var(--radiant-gold);
+  font-weight: 700;
+}
+
+.modal-main-title {
+  font-family: Georgia, serif;
+  font-size: 1.55rem;
+  color: var(--text-parchment);
+  text-shadow: 0 0 14px rgba(255, 215, 0, 0.35);
+}
+
+.modal-song-subtitle {
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  margin-top: -6px;
+}
+
+.d20-grade-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(11, 9, 20, 0.75);
+  border: 1px solid var(--border-brass);
+  border-radius: 10px;
+  padding: 12px 16px;
+  text-align: left;
+}
+
+.d20-hex {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background: radial-gradient(circle at 30% 30%, #ffd700, #9a6f0a);
+  border: 2px solid #fff3b0;
+  color: #120d1f;
+  font-family: Georgia, serif;
+  font-size: 1.5rem;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 18px rgba(255, 215, 0, 0.55);
+  flex-shrink: 0;
+}
+
+.d20-grade-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.d20-Roll-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.d20-grade-title {
+  font-family: Georgia, serif;
+  font-size: 1.05rem;
+  color: var(--radiant-gold);
+}
+
+.d20-grade-flavor {
+  font-size: 0.76rem;
+  color: var(--text-parchment);
+  opacity: 0.9;
+}
+
+.levelup-banner {
+  background: linear-gradient(90deg, rgba(255, 215, 0, 0.22) 0%, rgba(54, 211, 153, 0.22) 100%);
+  border: 1px solid #ffd700;
+  border-radius: 8px;
+  padding: 8px 14px;
+  color: #fff3b0;
+  font-size: 0.88rem;
+  box-shadow: 0 0 16px rgba(255, 215, 0, 0.3);
+}
+
+.modal-xp-card {
+  background: rgba(21, 17, 37, 0.9);
+  border: 1px solid rgba(138, 109, 47, 0.55);
+  border-radius: 9px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.modal-xp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-rank-name {
+  font-family: Georgia, serif;
+  font-size: 0.95rem;
+  color: var(--radiant-gold);
+  margin-left: 8px;
+}
+
+.modal-xp-numbers {
+  font-family: 'Consolas', monospace;
+  font-size: 0.8rem;
+  color: var(--text-parchment);
+}
+
+.modal-xp-track {
+  height: 11px;
+}
+
+.modal-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.modal-stat-box {
+  background: rgba(12, 9, 22, 0.78);
+  border: 1px solid rgba(138, 109, 47, 0.45);
+  border-radius: 8px;
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.modal-stat-box.stat-box-gold {
+  border-color: var(--radiant-gold);
+  background: rgba(255, 215, 0, 0.08);
+}
+
+.modal-stat-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.modal-stat-value {
+  font-family: 'Consolas', monospace;
+  font-size: 1.02rem;
+  color: var(--text-parchment);
+}
+
+.modal-stat-box.stat-box-gold .modal-stat-value {
+  color: var(--radiant-gold);
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+/* ============================================================================
+   PHASE 6: THE GRIMOIRE (LOCAL SONG LIBRARY SIDEBAR & IMPORTS/ FOLDER WATCHER)
+   ============================================================================ */
+
+#workspace-row {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#grimoire-sidebar {
+  width: 315px;
+  min-width: 315px;
+  height: 100%;
+  background: linear-gradient(180deg, #161129 0%, #0d0a1a 100%);
+  border-right: 2px solid var(--border-brass);
+  box-shadow: 6px 0 22px rgba(0, 0, 0, 0.65);
+  display: flex;
+  flex-direction: column;
+  z-index: 9;
+  transition: margin-left 0.22s ease;
+}
+
+#grimoire-sidebar.collapsed {
+  display: none;
+}
+
+.grimoire-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(138, 109, 47, 0.55);
+  background: rgba(29, 23, 50, 0.75);
+}
+
+.grimoire-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.grimoire-title {
+  font-family: Georgia, serif;
+  font-size: 1.05rem;
+  color: var(--radiant-gold);
+  letter-spacing: 0.03em;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+}
+
+.watcher-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.68rem;
+  color: #6ee7b7;
+  font-family: 'Consolas', monospace;
+}
+
+.watcher-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #36d399;
+  box-shadow: 0 0 8px #36d399;
+}
+
+.grimoire-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(138, 109, 47, 0.35);
+}
+
+.grimoire-btn-full {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+}
+
+.grimoire-sub-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.grimoire-btn-half {
+  flex: 1;
+  font-size: 0.71rem;
+  padding: 5px 6px;
+  text-align: center;
+}
+
+.grimoire-filter-row {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(138, 109, 47, 0.35);
+}
+
+.grimoire-search {
+  flex: 1;
+  min-width: 0;
+  background: #100c1e;
+  color: var(--text-parchment);
+  border: 1px solid var(--border-brass);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 0.76rem;
+  outline: none;
+}
+
+.grimoire-search:focus {
+  border-color: var(--radiant-gold);
+}
+
+.grimoire-level-filter {
+  max-width: 105px;
+  font-size: 0.72rem;
+}
+
+.grimoire-spell-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.grimoire-spell-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.grimoire-spell-list::-webkit-scrollbar-thumb {
+  background: rgba(212, 175, 55, 0.4);
+  border-radius: 999px;
+}
+
+.grimoire-card {
+  background: rgba(26, 20, 46, 0.85);
+  border: 1px solid rgba(138, 109, 47, 0.55);
+  border-radius: 8px;
+  padding: 9px 11px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  transition: all 0.16s ease;
+  position: relative;
+}
+
+.grimoire-card:hover {
+  border-color: var(--radiant-gold);
+  background: rgba(38, 30, 66, 0.92);
+  box-shadow: 0 4px 14px rgba(255, 215, 0, 0.14);
+}
+
+.grimoire-card.active-spell {
+  border-color: var(--radiant-gold);
+  border-left: 4px solid var(--radiant-gold);
+  background: linear-gradient(90deg, rgba(255, 215, 0, 0.14) 0%, rgba(26, 20, 46, 0.92) 100%);
+  box-shadow: 0 0 14px rgba(255, 215, 0, 0.22);
+}
+
+.grimoire-card.newly-ingested {
+  border-color: #36d399;
+  box-shadow: 0 0 18px rgba(54, 211, 153, 0.45);
+}
+
+.grimoire-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.grimoire-card-title {
+  font-family: Georgia, serif;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--text-parchment);
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+.grimoire-card.active-spell .grimoire-card-title {
+  color: var(--radiant-gold);
+}
+
+.grimoire-delete-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.grimoire-delete-btn:hover {
+  color: #f87272;
+  border-color: rgba(248, 114, 114, 0.45);
+  background: rgba(248, 114, 114, 0.12);
+}
+
+.grimoire-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.grimoire-source-tag {
+  font-size: 0.63rem;
+  font-family: 'Consolas', monospace;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 229, 255, 0.12);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  color: #67e8f9;
+}
+
+.grimoire-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.69rem;
+  color: var(--text-muted);
+  font-family: 'Consolas', monospace;
+}
+
+.grimoire-empty {
+  text-align: center;
+  padding: 24px 12px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  border: 1px dashed rgba(138, 109, 47, 0.45);
+  border-radius: 8px;
+}
+
+.grimoire-footer {
+  padding: 8px 12px;
+  border-top: 1px solid rgba(138, 109, 47, 0.4);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-align: center;
+  background: rgba(14, 11, 26, 0.9);
+}
+
+.grimoire-footer code {
+  color: var(--radiant-gold);
+  font-family: 'Consolas', monospace;
+}
+
+.grimoire-toast {
+  position: absolute;
+  bottom: 225px;
+  left: 20px;
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.95) 0%, rgba(15, 118, 110, 0.95) 100%);
+  border: 1px solid #a7f3d0;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 8px 16px;
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 18px rgba(54, 211, 153, 0.5);
+  z-index: 25;
+  pointer-events: none;
+}
+
+/* ============================================================================
+   PHASE 7: TAVERN DARK MODE AESTHETIC POLISH & ARCANE ANIMATIONS
+   ============================================================================ */
+
+@keyframes arcaneCrestPulse {
+  0%, 100% {
+    box-shadow: 0 0 12px rgba(255, 215, 0, 0.55), inset 0 0 6px rgba(255, 255, 255, 0.35);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.85), 0 0 30px rgba(0, 229, 255, 0.35);
+    transform: scale(1.04);
+  }
+}
+
+@keyframes inspirationAuraPulse {
+  0%, 100% {
+    box-shadow:
+      0 0 22px rgba(255, 215, 0, 0.45),
+      0 0 38px rgba(192, 132, 252, 0.35),
+      inset 0 0 14px rgba(255, 215, 0, 0.14);
+  }
+  50% {
+    box-shadow:
+      0 0 30px rgba(255, 215, 0, 0.75),
+      0 0 54px rgba(232, 121, 249, 0.55),
+      inset 0 0 22px rgba(255, 215, 0, 0.25);
+  }
+}
+
+.arcane-crest {
+  animation: arcaneCrestPulse 3.6s ease-in-out infinite;
+}
+
+.app-title {
+  text-shadow:
+    0 0 12px rgba(255, 215, 0, 0.45),
+    0 2px 4px rgba(0, 0, 0, 0.9);
+}
+
+#tavern-header {
+  border-bottom: 1px solid var(--border-gold-bright);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.75),
+    inset 0 -1px 0 rgba(255, 215, 0, 0.18);
+}
+
+#spell-scroll-bar {
+  box-shadow:
+    0 6px 22px rgba(0, 0, 0, 0.65),
+    inset 0 1px 0 rgba(255, 215, 0, 0.08);
+}
+
+#stage-container::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 65px rgba(5, 3, 12, 0.78);
+  z-index: 2;
+}
+
+#litrpg-hud-card.bardic-inspiration-active {
+  animation: inspirationAuraPulse 2.0s ease-in-out infinite;
+}
+
+.tavern-btn {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  box-shadow: inset 0 1px 0 rgba(255, 243, 176, 0.12);
+}
