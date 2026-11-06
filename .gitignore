@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Python virtual environment & caches (Phase 8)
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Local user imports / temporary audio files
+Imports/*.wav
+Imports/*.mp3
+Imports/*.m4a
+Imports/*.webm
+
+# Build / packaging outputs
+dist/
+out/
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+
