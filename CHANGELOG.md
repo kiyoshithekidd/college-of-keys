@@ -11,6 +11,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.1.0] - 2026-11-07 — Phase 10: 2-Bar Conservatory UI/UX Overhaul (`Fixes #18–#22`)
+
+### Added & Changed
+- **Epic #22 & Issue #18 — 2-Bar Conservatory Layout & `⚙ Audio & Keys` Popover (`index.html`, `styles.css`, `renderer.js`):**
+  - Collapsed the 7-row top chrome into two sleek, non-wrapping bars (`#tavern-header` + `#spell-scroll-bar`), reclaiming vertical screen height so the 60 FPS Spell Highway and 61-key piano occupy **~82% of the viewport**.
+  - Added the **`⚙ Audio & Keys` popover (`#settings-popover`)** housing `Instrument Tone`, `Master Volume`, `Note Fall Speed`, `Highway MIDI Track`, `QWERTY Range (Z/X)`, `Show [A]–[;] Key Labels`, `Sustain Pedal`, and `Active Glyphs`, closing on outside click or `Escape`.
+- **Issue #19 — Zero Note-Lane Occlusion (Inline Bardic Character Banner + Translucent Center Highway HUD):**
+  - Moved the opaque 345px `#litrpg-hud-card` out of the upper-right Spell Highway (`F5–C7`) and embedded it into Bar 1 as a *Baldur's Gate 3*-style inline **Bardic Character Banner** (`LVL`, `Bardic Rank`, inline `XP Progress Bar`, `Total XP`, and `🏆 Rank & Stats`).
+  - Added a translucent, `pointer-events: none` **Top-Center Highway HUD Pill (`#highway-center-hud`)** displaying live `Spell Chain`, `Effective XP Multiplier`, `Wait Mode / Strike Zone Target` (`⏳ Waiting: ...`), and `Bardic Inspiration` right where the player's eyes focus on the highway without blocking a single note lane across `C2–C7`.
+- **Issue #20 — Unified 1-Click Practice Hand Selector (`#practice-mode-select`):**
+  - Replaced the separate `Hands` + `Accompaniment` dropdowns on Bar 2 with a single 1-click **`Practice` selector (`#practice-mode-select`)**:
+    - `🙌 Both Hands (RH Gold + LH Blue)`
+    - `🤚 Right Hand + Auto Left Hand`
+    - `🤚 Right Hand Solo (Mute Left)`
+    - `左手 Left Hand + Auto Right Hand`
+    - `左手 Left Hand Solo (Mute Right)`
+    - `🎧 Listen Only (Auto-Play Both)`
+- **Issue #21 — Spell Scroll Inspector (`ⓘ Details`) Popover & Smart QWERTY Key Label Toggle:**
+  - Moved diagnostic MIDI stats (`NPS`, `BPM`, `T1 (RH Gold)`, `T2 (LH Blue)`, `Band Tracks`, `Octave Folded`) and the `+25 Spell Chain Boost` testing shortcut into the **`ⓘ Details` popover (`#spell-details-popover`)** next to the Active Spell title and difficulty badge.
+  - Added `#toggle-qwerty-labels` (`Show [A]–[;] Key Labels`), which automatically hides `[A]–[;]` key labels when a physical Web MIDI keyboard is connected and shows them when using Mouse/QWERTY or pressing `Z`/`X`.
+
+---
+
 ## [1.0.1] - 2026-11-07 — Rhythm-Game & Piano-Pedagogy QA Remediation (`Fixes #9–#17`)
 
 ### Fixed

@@ -19,6 +19,7 @@
 | **Phase 7** | **Tavern Dark Mode UI Polish & Strike-Line Particle Bursts** | **Completed** |
 | **Phase 8** | **Decoupled Python ML Pipeline (`yt-dlp` + Spotify `basic-pitch` + Backing Track)** | **Completed** |
 | **Phase 9** | **"The Quest Board" (In-App YouTube-to-MIDI Sourcing & Quick Links)** | **Completed** |
+| **Phase 10** | **2-Bar Conservatory UI/UX Overhaul (`v1.1.0` — Inline Bard Banner, Popovers & 1-Click Practice Selector)** | **Completed** |
 
 ---
 

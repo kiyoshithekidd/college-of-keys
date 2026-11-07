@@ -11,7 +11,7 @@
 ## Core State Machine
 - Modes: Wait Mode (pauses at strike line) vs. Arcade Mode (continuous)
 - Play-Along Routing:
-  - Hand Isolation (`Track 1`, `Track 2`, `Both`) + Left-Hand Accompaniment Toggle (`Mute` vs. `Auto-Play`)
+  - Unified 1-Click Practice Mode Selector (`#practice-mode-select`: Both Hands, Right Hand + Auto Left, Right Hand Solo, Left Hand + Auto Right, Left Hand Solo, Listen Only)
   - Backing Band Toggle (`Solo Piano` vs. `Full Band / Song Play-Along` like Rock Band)
 - Chord Forgiveness: 100ms grace window
 - Difficulty: Notes Per Second (NPS) -> Cantrip to 9th-Level Spell

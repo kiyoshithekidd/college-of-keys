@@ -38,80 +38,97 @@ html, body {
   height: 100vh;
 }
 
-/* Tavern Header Bar */
+/* Phase 10 (v1.1.0): 2-Bar Conservatory Layout — Bar 1: Tavern Header */
 #tavern-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 8px 20px;
+  gap: 8px;
+  padding: 5px 12px;
   background: linear-gradient(180deg, #1d1732 0%, #120e21 100%);
   border-bottom: 1px solid var(--border-brass);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
-  z-index: 12;
+  z-index: 30;
+  flex-wrap: nowrap;
+}
+
+.header-left-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .brand-block {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 7px;
+  flex-shrink: 0;
 }
 
 .arcane-crest {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
   background: radial-gradient(circle at 30% 30%, #ffd700, #8a6d2f);
   color: #120e21;
-  font-size: 20px;
+  font-size: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 0 12px var(--radiant-gold-glow);
+  box-shadow: 0 0 10px var(--radiant-gold-glow);
   border: 1px solid var(--radiant-gold);
 }
 
 .app-title {
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 1.25rem;
+  font-size: 0.96rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   color: var(--radiant-gold);
   text-shadow: 0 0 10px rgba(255, 215, 0, 0.35);
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 .app-subtitle {
-  display: block;
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  letter-spacing: 0.03em;
+  display: none;
 }
 
 .hud-controls {
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .status-pill {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 12px;
+  gap: 5px;
+  padding: 3px 8px;
   border-radius: 999px;
   background: var(--bg-tavern-card);
   border: 1px solid var(--border-brass);
-  font-size: 0.8rem;
+  font-size: 0.71rem;
   color: var(--text-parchment);
+  white-space: nowrap;
+}
+
+#midi-status-text {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-dot {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--status-waiting);
   box-shadow: 0 0 8px var(--status-waiting);
+  flex-shrink: 0;
 }
 
 .status-pill.status-connected .status-dot {
@@ -134,14 +151,15 @@ html, body {
   border: 1px solid rgba(212, 175, 55, 0.35);
   color: var(--radiant-gold);
   border-radius: 4px;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 
 .btn-icon:hover {
@@ -152,18 +170,19 @@ html, body {
 .control-group {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   background: var(--bg-tavern-card);
-  padding: 4px 10px;
-  border-radius: 7px;
+  padding: 3px 7px;
+  border-radius: 6px;
   border: 1px solid rgba(138, 109, 47, 0.55);
+  flex-shrink: 0;
 }
 
 .control-group label {
-  font-size: 0.72rem;
+  font-size: 0.65rem;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   white-space: nowrap;
 }
 
@@ -172,11 +191,21 @@ html, body {
   color: var(--text-parchment);
   border: 1px solid var(--border-brass);
   border-radius: 5px;
-  padding: 3px 7px;
-  font-size: 0.78rem;
+  padding: 2px 5px;
+  font-size: 0.73rem;
   outline: none;
   cursor: pointer;
   max-width: 190px;
+}
+
+.practice-select {
+  max-width: 175px;
+  font-weight: 600;
+  color: #fff3b0;
+}
+
+.tempo-select {
+  max-width: 62px;
 }
 
 .tavern-select:disabled {
@@ -189,49 +218,41 @@ html, body {
 }
 
 .tavern-slider {
-  width: 80px;
+  width: 110px;
   accent-color: var(--radiant-gold);
   cursor: pointer;
 }
 
-.active-note-readout {
-  min-width: 175px;
-  text-align: right;
-  background: var(--bg-tavern-card);
-  padding: 5px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border-brass);
-}
-
-.readout-label {
-  display: block;
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
+.tavern-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--radiant-gold);
+  cursor: pointer;
 }
 
 .readout-value {
   font-family: 'Consolas', 'Courier New', monospace;
-  font-size: 0.88rem;
+  font-size: 0.82rem;
   font-weight: 700;
   color: var(--radiant-gold);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 170px;
 }
 
-/* Phase 2 & 3: Spell Scroll & Highway Control Bar */
+/* Phase 10 (v1.1.0): Bar 2 — Slim Single-Row Spell Scroll & Transport Deck */
 #spell-scroll-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 20px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 12px;
   background: linear-gradient(180deg, #161129 0%, #0f0c1c 100%);
   border-bottom: 2px solid var(--border-brass);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
-  z-index: 11;
-  flex-wrap: wrap;
+  z-index: 25;
+  flex-wrap: nowrap;
 }
 
 .spell-actions,
@@ -239,21 +260,28 @@ html, body {
 .highway-routing-controls {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 5px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
 }
 
 .tavern-btn {
   background: linear-gradient(180deg, #271f42 0%, #19132c 100%);
   color: var(--text-parchment);
   border: 1px solid var(--border-brass);
-  border-radius: 7px;
-  padding: 5px 11px;
-  font-size: 0.78rem;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 0.72rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn-compact {
+  padding: 3px 8px;
+  font-size: 0.7rem;
 }
 
 .tavern-btn:disabled {
@@ -278,7 +306,7 @@ html, body {
   background: linear-gradient(180deg, #143b2d 0%, #0c241b 100%);
   border-color: #36d399;
   color: #6ee7b7;
-  min-width: 110px;
+  min-width: 88px;
 }
 
 .tavern-btn-cast.playing {
@@ -302,32 +330,32 @@ html, body {
 }
 
 .strike-status-pill {
-  padding: 4px 12px;
+  padding: 3px 12px;
   border-radius: 999px;
-  background: #141024;
-  border: 1px solid rgba(212, 175, 55, 0.45);
+  background: rgba(20, 16, 36, 0.88);
+  border: 1px solid rgba(212, 175, 55, 0.55);
   font-family: 'Consolas', monospace;
-  font-size: 0.76rem;
+  font-size: 0.75rem;
   color: var(--text-parchment);
   white-space: nowrap;
   transition: all 0.15s ease;
 }
 
 .strike-status-pill.strike-waiting {
-  background: rgba(251, 189, 35, 0.18);
+  background: rgba(251, 189, 35, 0.22);
   border-color: var(--radiant-gold);
   color: var(--radiant-gold);
   box-shadow: 0 0 12px rgba(255, 215, 0, 0.35);
 }
 
 .strike-status-pill.strike-hit {
-  background: rgba(54, 211, 153, 0.18);
+  background: rgba(54, 211, 153, 0.22);
   border-color: #36d399;
   color: #6ee7b7;
 }
 
 .strike-status-pill.strike-fumble {
-  background: rgba(248, 114, 114, 0.18);
+  background: rgba(248, 114, 114, 0.22);
   border-color: #f87272;
   color: #fca5a5;
 }
@@ -335,15 +363,16 @@ html, body {
 .timeline-box {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   background: var(--bg-tavern-card);
-  padding: 4px 10px;
-  border-radius: 7px;
+  padding: 3px 8px;
+  border-radius: 6px;
   border: 1px solid rgba(138, 109, 47, 0.55);
+  flex-shrink: 0;
 }
 
 .timeline-slider {
-  width: 120px;
+  width: 95px;
   accent-color: var(--radiant-gold);
   cursor: pointer;
 }
@@ -355,45 +384,57 @@ html, body {
 
 .time-readout {
   font-family: 'Consolas', monospace;
-  font-size: 0.76rem;
+  font-size: 0.71rem;
   color: var(--text-parchment);
-  min-width: 72px;
+  min-width: 62px;
   text-align: center;
 }
 
 #spell-metadata-panel {
-  flex: 1;
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 6px;
   background: rgba(30, 24, 51, 0.75);
   border: 1px solid rgba(138, 109, 47, 0.45);
-  border-radius: 8px;
-  padding: 4px 12px;
-  min-width: 280px;
+  border-radius: 7px;
+  padding: 3px 9px;
+  min-width: 0;
 }
 
 .spell-title-group {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
 .spell-label {
-  font-size: 0.62rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
+  display: none;
 }
 
 #spell-name-display {
   font-family: Georgia, serif;
-  font-size: 0.86rem;
+  font-size: 0.8rem;
   color: var(--text-parchment);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: block;
+  width: 100%;
+}
+
+.btn-info-pill {
+  width: auto;
+  height: 21px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+  background: rgba(18, 14, 33, 0.85);
+  flex-shrink: 0;
 }
 
 .spell-stats-badges {
@@ -403,19 +444,102 @@ html, body {
   flex-wrap: wrap;
 }
 
+/* Popover Menus (Audio & Keys Gear Popover + Spell Inspector (i) Popover) */
+.popover-anchor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.btn-settings-gear.active,
+.btn-info-pill.active {
+  border-color: var(--radiant-gold);
+  color: var(--radiant-gold);
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.35);
+}
+
+.conservatory-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 340px;
+  background: linear-gradient(180deg, #1f1837 0%, #120d22 100%);
+  border: 1px solid var(--border-gold-bright);
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow:
+    0 16px 42px rgba(0, 0, 0, 0.85),
+    0 0 24px rgba(255, 215, 0, 0.18);
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.conservatory-popover.popover-left {
+  right: auto;
+  left: 0;
+  width: 350px;
+}
+
+.popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(138, 109, 47, 0.45);
+  font-family: Georgia, serif;
+  font-size: 0.86rem;
+  color: var(--radiant-gold);
+}
+
+.popover-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.popover-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.76rem;
+  color: var(--text-parchment);
+}
+
+.popover-row label,
+.popover-row > span {
+  color: var(--text-muted);
+  font-size: 0.73rem;
+}
+
+.popover-row code {
+  color: var(--radiant-gold);
+  font-family: 'Consolas', monospace;
+}
+
+.popover-divider {
+  height: 1px;
+  background: rgba(138, 109, 47, 0.35);
+  margin: 2px 0;
+}
+
 .hidden {
   display: none !important;
 }
 
 /* D&D Spell Level Difficulty Badges */
 .difficulty-badge {
-  padding: 3px 9px;
+  padding: 2px 8px;
   border-radius: 999px;
-  font-size: 0.74rem;
+  font-size: 0.71rem;
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   border: 1px solid transparent;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .diff-cantrip {
@@ -445,7 +569,7 @@ html, body {
 }
 
 .stat-chip {
-  padding: 2px 8px;
+  padding: 3px 8px;
   border-radius: 6px;
   background: #120e21;
   border: 1px solid rgba(163, 151, 184, 0.25);
@@ -515,7 +639,7 @@ html, body {
 }
 
 /* ============================================================================
-   PHASE 5: LITRPG GAMIFICATION HUD (COMBOS, BARDIC INSPIRATION, XP & TITLES)
+   PHASE 5 & 10: INLINE BARDIC CHARACTER BANNER + TRANSLUCENT CENTER HIGHWAY PILL
    ============================================================================ */
 
 .btn-gold-outline {
@@ -524,44 +648,33 @@ html, body {
   color: var(--radiant-gold);
 }
 
-#litrpg-hud-card {
-  position: absolute;
-  top: 12px;
-  right: 18px;
-  width: 345px;
-  background: rgba(19, 15, 34, 0.90);
-  border: 1px solid var(--border-brass);
-  border-top: 2px solid var(--border-gold-bright);
-  border-radius: 10px;
-  padding: 10px 14px;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65);
-  z-index: 6;
+#litrpg-hud-card.bard-banner-inline {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 8px;
+  background: rgba(21, 16, 38, 0.92);
+  border: 1px solid rgba(212, 175, 55, 0.55);
+  border-radius: 8px;
+  padding: 3px 9px;
+  box-shadow: inset 0 1px 0 rgba(255, 243, 176, 0.12);
   transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 #litrpg-hud-card.bardic-inspiration-active {
   border-color: #ffd700;
   box-shadow:
-    0 0 22px rgba(255, 215, 0, 0.45),
-    0 0 38px rgba(192, 132, 252, 0.35),
-    inset 0 0 14px rgba(255, 215, 0, 0.12);
-}
-
-.litrpg-header-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+    0 0 18px rgba(255, 215, 0, 0.45),
+    0 0 30px rgba(192, 132, 252, 0.35),
+    inset 0 0 12px rgba(255, 215, 0, 0.14);
 }
 
 .bard-identity {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .bard-level-pill {
@@ -571,58 +684,64 @@ html, body {
   background: linear-gradient(135deg, #ffd700 0%, #b8860b 100%);
   color: #120d1f;
   font-weight: 800;
-  font-size: 0.76rem;
-  letter-spacing: 0.05em;
-  padding: 3px 9px;
-  border-radius: 6px;
-  box-shadow: 0 0 10px rgba(255, 215, 0, 0.35);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 5px;
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.35);
+  white-space: nowrap;
 }
 
 .bard-title-wrap {
   display: flex;
   flex-direction: column;
-  line-height: 1.15;
+  line-height: 1.05;
 }
 
 .bard-label {
-  font-size: 0.62rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
+  display: none;
 }
 
 #hud-bard-title {
   font-family: Georgia, serif;
-  font-size: 0.92rem;
+  font-size: 0.8rem;
   color: var(--radiant-gold);
   text-shadow: 0 0 8px rgba(255, 215, 0, 0.28);
+  white-space: nowrap;
 }
 
 .bard-career-xp {
-  text-align: right;
-  line-height: 1.15;
+  display: none;
 }
 
 #hud-total-xp {
   font-family: 'Consolas', monospace;
-  font-size: 0.85rem;
+  font-size: 0.76rem;
   color: var(--text-parchment);
+  white-space: nowrap;
 }
 
-/* XP Bar */
+/* Inline XP Bar inside Bar 1 */
 .xp-bar-section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+  width: clamp(110px, 11vw, 150px);
+  flex: 1 1 115px;
+  min-width: 100px;
+  overflow: hidden;
 }
 
 .xp-bar-labels {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.71rem;
+  gap: 6px;
+  font-size: 0.64rem;
   font-family: 'Consolas', monospace;
   color: var(--text-parchment);
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .song-xp-tag {
@@ -632,7 +751,7 @@ html, body {
 
 .xp-bar-track {
   width: 100%;
-  height: 9px;
+  height: 7px;
   background: #0b0815;
   border: 1px solid rgba(212, 175, 55, 0.45);
   border-radius: 999px;
@@ -647,22 +766,35 @@ html, body {
   transition: width 0.25s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Spell Chain & Multiplier Row */
-.spell-chain-row {
-  display: flex;
-  align-items: stretch;
-  justify-content: space-between;
-  gap: 8px;
-  background: rgba(12, 9, 22, 0.65);
-  border: 1px solid rgba(138, 109, 47, 0.4);
-  border-radius: 8px;
-  padding: 6px 10px;
-}
-
-.chain-counter-box {
+/* Issue #19: Translucent Top-Center Highway HUD Pill (Zero Note-Lane Occlusion) */
+#highway-center-hud {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  pointer-events: none;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  align-items: center;
+  gap: 5px;
+}
+
+.center-combo-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: rgba(14, 11, 26, 0.72);
+  border: 1px solid rgba(212, 175, 55, 0.42);
+  backdrop-filter: blur(4px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+
+.hud-divider {
+  color: rgba(163, 151, 184, 0.45);
+  font-size: 0.75rem;
 }
 
 .chain-label {
@@ -672,48 +804,29 @@ html, body {
   color: var(--text-muted);
 }
 
-.chain-number-wrap {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
 .chain-number {
   font-family: 'Consolas', monospace;
-  font-size: 1.55rem;
+  font-size: 1.18rem;
   font-weight: 800;
   color: var(--radiant-gold);
-  text-shadow: 0 0 12px rgba(255, 215, 0, 0.45);
-  line-height: 1.05;
-}
-
-#litrpg-hud-card.bardic-inspiration-active .chain-number {
-  color: #fff3b0;
-  text-shadow: 0 0 16px #ffd700, 0 0 28px #c084fc;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.45);
+  line-height: 1;
 }
 
 .chain-max {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: var(--text-muted);
   font-family: 'Consolas', monospace;
 }
 
-.multiplier-box {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 2px;
-}
-
 .multiplier-pill {
-  padding: 2px 8px;
+  padding: 1px 7px;
   border-radius: 999px;
   background: rgba(255, 215, 0, 0.16);
   border: 1px solid var(--radiant-gold);
   color: var(--radiant-gold);
   font-family: 'Consolas', monospace;
-  font-size: 0.74rem;
+  font-size: 0.7rem;
   font-weight: 700;
 }
 
@@ -721,7 +834,7 @@ html, body {
   font-family: 'Consolas', monospace;
   font-size: 0.7rem;
   color: #6ee7b7;
-  max-width: 175px;
+  max-width: 210px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -731,36 +844,35 @@ html, body {
   color: #fca5a5;
 }
 
-/* Bardic Inspiration Status Banner */
+/* Bardic Inspiration Status Banner (Only prominent when active or subtly shown below pill) */
 .inspiration-banner {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
   gap: 6px;
-  padding: 4px 9px;
-  border-radius: 6px;
-  background: rgba(30, 24, 51, 0.85);
-  border: 1px solid rgba(163, 151, 184, 0.25);
-  font-size: 0.7rem;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(20, 15, 36, 0.62);
+  border: 1px solid rgba(163, 151, 184, 0.2);
+  font-size: 0.65rem;
   color: var(--text-muted);
   transition: all 0.2s ease;
 }
 
 .inspiration-banner.active {
-  background: linear-gradient(90deg, rgba(147, 51, 234, 0.32) 0%, rgba(255, 215, 0, 0.28) 100%);
+  background: linear-gradient(90deg, rgba(147, 51, 234, 0.48) 0%, rgba(255, 215, 0, 0.42) 100%);
   border-color: #ffd700;
   color: #fff3b0;
   font-weight: 700;
-  box-shadow: 0 0 14px rgba(255, 215, 0, 0.35);
+  box-shadow: 0 0 14px rgba(255, 215, 0, 0.45);
 }
 
 .btn-mini-sim {
-  background: rgba(255, 215, 0, 0.12);
-  border: 1px solid rgba(212, 175, 55, 0.55);
+  background: rgba(255, 215, 0, 0.14);
+  border: 1px solid rgba(212, 175, 55, 0.65);
   color: var(--radiant-gold);
-  border-radius: 4px;
-  padding: 2px 6px;
-  font-size: 0.66rem;
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 0.7rem;
   font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
@@ -768,7 +880,7 @@ html, body {
 }
 
 .btn-mini-sim:hover {
-  background: rgba(255, 215, 0, 0.25);
+  background: rgba(255, 215, 0, 0.28);
   border-color: var(--radiant-gold);
 }
 

@@ -96,6 +96,16 @@ const qwertyOctaveLabel = document.getElementById('qwerty-octave-label');
 const btnQwertyDown = document.getElementById('btn-qwerty-down');
 const btnQwertyUp = document.getElementById('btn-qwerty-up');
 
+// DOM Elements — Phase 10 (2-Bar Conservatory Layout, Popovers & Unified Practice Selector)
+const btnToggleSettings = document.getElementById('btn-toggle-settings');
+const settingsPopover = document.getElementById('settings-popover');
+const btnCloseSettings = document.getElementById('btn-close-settings');
+const toggleQwertyLabelsCheckbox = document.getElementById('toggle-qwerty-labels');
+const btnSpellDetails = document.getElementById('btn-spell-details');
+const spellDetailsPopover = document.getElementById('spell-details-popover');
+const btnCloseSpellDetails = document.getElementById('btn-close-spell-details');
+const practiceModeSelect = document.getElementById('practice-mode-select');
+
 // DOM Elements — Phase 2, 3 & 4 (MIDI Loader, Transport, Wait Mode, Hand Isolation & Backing Band)
 const midiFileInput = document.getElementById('midi-file-input');
 const btnLoadMidi = document.getElementById('btn-load-midi');
@@ -282,6 +292,8 @@ let lastParticleFrameMs = performance.now();
 let isMouseDown = false;
 let currentMouseMidi = null;
 let qwertyBaseMidi = 60; // Defaults to C4 (Middle C)
+let showQwertyKeyLabels = true; // Auto-hides when physical MIDI controller connects (Issue #21)
+let userManuallyToggledQwertyLabels = false;
 const pressedQwertyKeys = new Map(); // key -> midiNote
 
 const QWERTY_OFFSETS = {
@@ -1252,8 +1264,9 @@ function updateLitrpgHUD() {
   hudTotalXp.textContent = `${bardProfile.totalXp.toLocaleString()} XP`;
 
   const nextLvl = bardProfile.level + 1;
-  hudXpProgressText.textContent = `${bardProfile.xpIntoLevel.toLocaleString()} / ${bardProfile.xpForNextLevel.toLocaleString()} XP to Lvl ${nextLvl}`;
-  hudSongXp.textContent = `+${songSessionStats.songXpEarned.toLocaleString()} XP this song`;
+  hudXpProgressText.textContent = `${bardProfile.xpIntoLevel.toLocaleString()} / ${bardProfile.xpForNextLevel.toLocaleString()} XP`;
+  hudXpProgressText.title = `${bardProfile.xpIntoLevel.toLocaleString()} / ${bardProfile.xpForNextLevel.toLocaleString()} XP to Level ${nextLvl} (Career Total: ${bardProfile.totalXp.toLocaleString()} XP)`;
+  hudSongXp.textContent = `+${songSessionStats.songXpEarned.toLocaleString()} XP`;
 
   const pct = bardProfile.xpForNextLevel > 0
     ? Math.min(100, Math.max(0, (bardProfile.xpIntoLevel / bardProfile.xpForNextLevel) * 100))
@@ -3208,7 +3221,7 @@ function renderCanvas() {
     const state = activeNotes.get(key.midi);
     const isPressed = Boolean(state);
     const guide = strikeLineGuides.get(key.midi);
-    const isInQwertyRange = key.midi >= qwertyBaseMidi && key.midi <= qwertyHighMidi;
+    const isInQwertyRange = showQwertyKeyLabels && key.midi >= qwertyBaseMidi && key.midi <= qwertyHighMidi;
     const qwertyChar = isInQwertyRange ? OFFSET_TO_QWERTY_LABEL[key.midi - qwertyBaseMidi] : null;
 
     ctx.save();
@@ -3244,8 +3257,8 @@ function renderCanvas() {
       ctx.fillText(`[${qwertyChar}]`, key.x + key.width / 2, key.y + key.height - 28);
     }
 
-    if (key.midi % 12 === 0 || guide || key.midi === qwertyBaseMidi) {
-      ctx.fillStyle = isPressed || guide ? '#1a1200' : (key.midi === qwertyBaseMidi ? '#b45309' : '#4a3d66');
+    if (key.midi % 12 === 0 || guide || (showQwertyKeyLabels && key.midi === qwertyBaseMidi)) {
+      ctx.fillStyle = isPressed || guide ? '#1a1200' : (showQwertyKeyLabels && key.midi === qwertyBaseMidi ? '#b45309' : '#4a3d66');
       ctx.font = `bold ${Math.max(10, Math.min(13, Math.floor(key.width * 0.42)))}px "Segoe UI", sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillText(key.name, key.x + key.width / 2, key.y + key.height - 12);
@@ -3258,7 +3271,7 @@ function renderCanvas() {
     const state = activeNotes.get(key.midi);
     const isPressed = Boolean(state);
     const guide = strikeLineGuides.get(key.midi);
-    const isInQwertyRange = key.midi >= qwertyBaseMidi && key.midi <= qwertyHighMidi;
+    const isInQwertyRange = showQwertyKeyLabels && key.midi >= qwertyBaseMidi && key.midi <= qwertyHighMidi;
     const qwertyChar = isInQwertyRange ? OFFSET_TO_QWERTY_LABEL[key.midi - qwertyBaseMidi] : null;
 
     ctx.save();
@@ -3346,16 +3359,26 @@ function bindMidiInputs(midiAccess) {
   }
 
   if (connectedNames.length > 0) {
-    setMidiStatus('connected', `MIDI: ${connectedNames.join(', ')}`);
+    const namesStr = connectedNames.join(', ');
+    setMidiStatus('connected', `MIDI: ${namesStr}`, `Connected Web MIDI Controller: ${namesStr}`);
+    if (!userManuallyToggledQwertyLabels) {
+      showQwertyKeyLabels = false;
+      if (toggleQwertyLabelsCheckbox) toggleQwertyLabelsCheckbox.checked = false;
+    }
   } else {
-    setMidiStatus('waiting', 'No MIDI Keyboard Detected (Mouse/QWERTY Active)');
+    setMidiStatus('waiting', 'QWERTY / Mouse', 'No Physical MIDI Keyboard Detected — Mouse & QWERTY Piano Active');
+    if (!userManuallyToggledQwertyLabels) {
+      showQwertyKeyLabels = true;
+      if (toggleQwertyLabelsCheckbox) toggleQwertyLabelsCheckbox.checked = true;
+    }
   }
 }
 
-function setMidiStatus(state, message) {
+function setMidiStatus(state, message, tooltipText = '') {
   midiStatusPill.classList.remove('status-connected', 'status-waiting', 'status-error');
   midiStatusPill.classList.add(`status-${state}`);
   midiStatusText.textContent = message;
+  midiStatusPill.title = tooltipText || message;
 }
 
 function onMidiMessage(event) {
@@ -3426,16 +3449,38 @@ function shiftQwertyOctave(semitoneDelta) {
     handleNoteOff(midi);
   }
 
+  // Ensure QWERTY labels are visible when user shifts octave via Z/X
+  showQwertyKeyLabels = true;
+  if (toggleQwertyLabelsCheckbox) toggleQwertyLabelsCheckbox.checked = true;
+
   const nextBase = Math.max(MIN_MIDI, Math.min(MAX_MIDI - 12, qwertyBaseMidi + semitoneDelta));
   qwertyBaseMidi = nextBase;
   updateQwertyOctaveLabel(true);
 }
 
+function closeAllConservatoryPopovers() {
+  if (settingsPopover) settingsPopover.classList.add('hidden');
+  if (btnToggleSettings) {
+    btnToggleSettings.classList.remove('active');
+    btnToggleSettings.setAttribute('aria-expanded', 'false');
+  }
+  if (spellDetailsPopover) spellDetailsPopover.classList.add('hidden');
+  if (btnSpellDetails) {
+    btnSpellDetails.classList.remove('active');
+    btnSpellDetails.setAttribute('aria-expanded', 'false');
+  }
+}
+
 window.addEventListener('keydown', (e) => {
+  // Close open popovers on Escape
+  if (e.key === 'Escape') {
+    closeAllConservatoryPopovers();
+  }
+
   // Only block keyboard shortcuts when typing in text inputs (Issue #3 / H3)
   const tag = e.target?.tagName;
   const inputType = (e.target?.type || '').toLowerCase();
-  if (tag === 'TEXTAREA' || (tag === 'INPUT' && inputType !== 'range' && inputType !== 'file' && inputType !== 'button')) {
+  if (tag === 'TEXTAREA' || (tag === 'INPUT' && inputType !== 'range' && inputType !== 'file' && inputType !== 'button' && inputType !== 'checkbox')) {
     if (e.key === 'Escape') {
       e.target.blur();
     }
@@ -3571,6 +3616,65 @@ btnRestart.addEventListener('click', () => {
   resetPlaybackToStart();
 });
 
+/**
+ * Sync the Unified 1-Click Practice Mode Selector (#practice-mode-select, Issue #20)
+ * from playbackState.handIsolation and playbackState.accompanimentMode.
+ */
+function syncPracticeModeDropdownFromState() {
+  if (!practiceModeSelect) return;
+  const hand = playbackState.handIsolation;
+  const acc = playbackState.accompanimentMode;
+
+  if (acc === 'auto-both') {
+    practiceModeSelect.value = 'preview';
+  } else if (hand === 'both') {
+    practiceModeSelect.value = 'both';
+  } else if (hand === 'track1') {
+    practiceModeSelect.value = acc === 'mute-other' ? 'rh-solo' : 'rh-auto';
+  } else if (hand === 'track2') {
+    practiceModeSelect.value = acc === 'mute-other' ? 'lh-solo' : 'lh-auto';
+  }
+}
+
+/**
+ * Apply a 1-click Practice Mode preset (#practice-mode-select, Issue #20)
+ */
+function applyPracticeMode(mode) {
+  if (mode === 'both') {
+    playbackState.handIsolation = 'both';
+    playbackState.accompanimentMode = 'auto-other';
+  } else if (mode === 'rh-auto') {
+    playbackState.handIsolation = 'track1';
+    playbackState.accompanimentMode = 'auto-other';
+  } else if (mode === 'rh-solo') {
+    playbackState.handIsolation = 'track1';
+    playbackState.accompanimentMode = 'mute-other';
+  } else if (mode === 'lh-auto') {
+    playbackState.handIsolation = 'track2';
+    playbackState.accompanimentMode = 'auto-other';
+  } else if (mode === 'lh-solo') {
+    playbackState.handIsolation = 'track2';
+    playbackState.accompanimentMode = 'mute-other';
+  } else if (mode === 'preview') {
+    playbackState.handIsolation = 'both';
+    playbackState.accompanimentMode = 'auto-both';
+    if (playbackState.waitMode) {
+      playbackState.waitMode = false;
+      waitModeStateText.textContent = 'OFF';
+      btnWaitMode.classList.remove('btn-wait-active');
+      playbackState.isWaitingForStrike = false;
+      playbackState.waitStartedAtMs = null;
+      playbackState.activeStrikeGroup = null;
+      playbackState.lastFrameTimestamp = performance.now();
+      setStrikeStatusBadge('ready', 'Listen Only Mode (Auto-Playing Both Hands)');
+    }
+  }
+
+  if (handIsolationSelect) handIsolationSelect.value = playbackState.handIsolation;
+  if (accompanimentSelect) accompanimentSelect.value = playbackState.accompanimentMode;
+  resetSongProgressFlags(playbackState.currentTime);
+}
+
 btnWaitMode.addEventListener('click', () => {
   playbackState.waitMode = !playbackState.waitMode;
   waitModeStateText.textContent = playbackState.waitMode ? 'ON' : 'OFF';
@@ -3579,6 +3683,7 @@ btnWaitMode.addEventListener('click', () => {
   if (playbackState.waitMode && playbackState.accompanimentMode === 'auto-both') {
     playbackState.accompanimentMode = 'auto-other';
     accompanimentSelect.value = 'auto-other';
+    syncPracticeModeDropdownFromState();
   }
 
   if (!playbackState.waitMode) {
@@ -3615,16 +3720,92 @@ playableTrackSelect.addEventListener('change', (e) => {
   e.target.blur();
 });
 
+if (practiceModeSelect) {
+  practiceModeSelect.addEventListener('change', (e) => {
+    applyPracticeMode(e.target.value);
+    e.target.blur();
+  });
+}
+
 handIsolationSelect.addEventListener('change', (e) => {
   playbackState.handIsolation = e.target.value;
+  syncPracticeModeDropdownFromState();
   resetSongProgressFlags(playbackState.currentTime);
   e.target.blur();
 });
 
 accompanimentSelect.addEventListener('change', (e) => {
   playbackState.accompanimentMode = e.target.value;
+  syncPracticeModeDropdownFromState();
   resetSongProgressFlags(playbackState.currentTime);
   e.target.blur();
+});
+
+// Phase 10 Popovers & QWERTY Key Label Toggle (Issues #18 & #21)
+if (toggleQwertyLabelsCheckbox) {
+  toggleQwertyLabelsCheckbox.addEventListener('change', (e) => {
+    userManuallyToggledQwertyLabels = true;
+    showQwertyKeyLabels = Boolean(e.target.checked);
+    e.target.blur();
+  });
+}
+
+if (btnToggleSettings && settingsPopover) {
+  btnToggleSettings.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willOpen = settingsPopover.classList.contains('hidden');
+    closeAllConservatoryPopovers();
+    if (willOpen) {
+      settingsPopover.classList.remove('hidden');
+      btnToggleSettings.classList.add('active');
+      btnToggleSettings.setAttribute('aria-expanded', 'true');
+    }
+  });
+}
+
+if (btnCloseSettings) {
+  btnCloseSettings.addEventListener('click', () => {
+    closeAllConservatoryPopovers();
+  });
+}
+
+if (btnSpellDetails && spellDetailsPopover) {
+  btnSpellDetails.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willOpen = spellDetailsPopover.classList.contains('hidden');
+    closeAllConservatoryPopovers();
+    if (willOpen) {
+      spellDetailsPopover.classList.remove('hidden');
+      btnSpellDetails.classList.add('active');
+      btnSpellDetails.setAttribute('aria-expanded', 'true');
+    }
+  });
+}
+
+if (btnCloseSpellDetails) {
+  btnCloseSpellDetails.addEventListener('click', () => {
+    closeAllConservatoryPopovers();
+  });
+}
+
+document.addEventListener('click', (e) => {
+  const target = e.target;
+  if (
+    settingsPopover &&
+    !settingsPopover.classList.contains('hidden') &&
+    !settingsPopover.contains(target) &&
+    target !== btnToggleSettings
+  ) {
+    closeAllConservatoryPopovers();
+  }
+  if (
+    spellDetailsPopover &&
+    !spellDetailsPopover.classList.contains('hidden') &&
+    !spellDetailsPopover.contains(target) &&
+    target !== btnSpellDetails
+  ) {
+    closeAllConservatoryPopovers();
+  }
 });
 
 btnBackingBand.addEventListener('click', () => {

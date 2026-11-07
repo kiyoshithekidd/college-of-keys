@@ -13,3 +13,4 @@ NEVER execute multiple phases at once. Stop at the end of each phase, provide te
 - [x] Phase 7: UI Polish & Particle Effects
 - [x] Phase 8: Python ML Extraction (yt-dlp + basic-pitch CLI)
 - [x] Phase 9: "The Quest Board" (In-App Sourcing)
+- [x] Phase 10: 2-Bar Conservatory UI/UX Overhaul (v1.1.0 — Issues #18–#22) (Completed & Verified)
