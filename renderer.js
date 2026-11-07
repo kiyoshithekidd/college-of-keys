@@ -714,12 +714,13 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     ? Math.round(midiData.header.tempos[0].bpm)
     : 120;
 
-  const timeSig = midiData.header.timeSignatures.length > 0
-    ? `${midiData.header.timeSignatures[0].timeSignature[0]}/${midiData.header.timeSignatures[0].timeSignature[1]}`
-    : '4/4';
-  const beatsPerMeasure = midiData.header.timeSignatures.length > 0
-    ? Math.max(1, Number(midiData.header.timeSignatures[0].timeSignature[0]) || 4)
-    : 4;
+  const timeSigHeader = midiData.header.timeSignatures.length > 0
+    ? midiData.header.timeSignatures[0].timeSignature
+    : [4, 4];
+  const timeSigNumerator = Math.max(1, Number(timeSigHeader[0]) || 4);
+  const timeSigDenominator = Math.max(1, Number(timeSigHeader[1]) || 4);
+  const timeSig = `${timeSigNumerator}/${timeSigDenominator}`;
+  const beatsPerMeasure = timeSigNumerator;
 
   const rawTracks = midiData.tracks
     .map((t, idx) => {
@@ -811,6 +812,8 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     rawBuffer: Buffer.from(arrayBuffer),
     bpm,
     timeSignature: timeSig,
+    timeSigNumerator,
+    timeSigDenominator,
     beatsPerMeasure,
     duration,
     ppq: midiData.header.ppq || 480,
@@ -2994,9 +2997,10 @@ function drawFallingSpellHighway(strikeLineY, width) {
   const fallSpeed = playbackState.fallSpeedPxPerSec;
   const visibleTimeWindow = (strikeLineY + 40) / fallSpeed;
 
-  // 1. Draw scrolling horizontal beat/measure grid lines (honoring parsed time signature, Issue #37)
-  const beatDur = 60 / Math.max(30, currentSong.bpm);
-  const beatsPerMeasure = Math.max(1, currentSong.beatsPerMeasure || 4);
+  // 1. Draw scrolling horizontal beat/measure grid lines (honoring compound time signatures, Issue #37, Fixes #59)
+  const denominator = Math.max(1, currentSong.timeSigDenominator || 4);
+  const beatDur = (60 / Math.max(30, currentSong.bpm)) * (4 / denominator);
+  const beatsPerMeasure = Math.max(1, currentSong.beatsPerMeasure || currentSong.timeSigNumerator || 4);
   const firstBeatIdx = Math.max(0, Math.floor(curTime / beatDur));
   const lastBeatIdx = Math.ceil((curTime + visibleTimeWindow) / beatDur);
 
