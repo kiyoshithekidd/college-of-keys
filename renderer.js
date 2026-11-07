@@ -1321,6 +1321,7 @@ function updateLitrpgHUD() {
  */
 function openPerformanceCheckModal() {
   pausePlayback();
+  closeAllConservatoryPopovers();
 
   const totalAttempts =
     songSessionStats.cleanNotesHit +
@@ -1700,7 +1701,9 @@ function evaluateStrikeZoneInput(midi) {
         if (isCleanChordRoll) {
           setStrikeStatusBadge(
             'hit',
-            `✓ Clean Chord Roll! (${group.requiredPitches.size} notes in ${totalRollMs}ms ≤ 100ms)`
+            totalRollMs <= CHORD_GRACE_PERIOD_MS
+              ? `✓ Clean Chord Roll! (${group.requiredPitches.size} notes in ${totalRollMs}ms ≤ 100ms)`
+              : `✓ Clean Chord Roll! (${group.requiredPitches.size} notes • ${totalRollMs}ms total, fingers ≤ 100ms)`
           );
         } else {
           setStrikeStatusBadge(
@@ -2003,7 +2006,9 @@ function animationLoop(timestamp) {
               setStrikeStatusBadge(
                 'hit',
                 isCleanChordRoll
-                  ? `✓ Clean Chord Roll! (${nextGroup.requiredPitches.size} notes in ${totalRollMs}ms ≤ 100ms)`
+                  ? totalRollMs <= CHORD_GRACE_PERIOD_MS
+                    ? `✓ Clean Chord Roll! (${nextGroup.requiredPitches.size} notes in ${totalRollMs}ms ≤ 100ms)`
+                    : `✓ Clean Chord Roll! (${nextGroup.requiredPitches.size} notes • ${totalRollMs}ms total, fingers ≤ 100ms)`
                   : `✓ Chord Unlocked (${nextGroup.requiredPitches.size} notes • ${totalRollMs}ms roll)`
               );
             } else {
@@ -4209,6 +4214,7 @@ let lastQuestTranscribedMidiPath = null;
 
 function openQuestBoardModal() {
   pausePlayback();
+  closeAllConservatoryPopovers();
   if (questBoardModal) {
     questBoardModal.classList.remove('hidden');
   }
@@ -4229,6 +4235,7 @@ function resolvePythonExecutable() {
   const candidates = [
     path.join(localAppData, 'Python', 'pythoncore-3.14-64', 'python.exe'),
     path.join(localAppData, 'Programs', 'Python', 'Python314', 'python.exe'),
+    path.join(localAppData, 'Programs', 'Python', 'Python313', 'python.exe'),
     path.join(localAppData, 'Programs', 'Python', 'Python312', 'python.exe'),
     path.join(localAppData, 'Programs', 'Python', 'Python311', 'python.exe'),
     path.join(localAppData, 'Programs', 'Python', 'Python310', 'python.exe')

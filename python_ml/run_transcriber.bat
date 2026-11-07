@@ -3,6 +3,16 @@ setlocal
 set "PYTHON_EXE="
 if exist "%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe" (
     set "PYTHON_EXE=%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe"
+) else if exist "%LOCALAPPDATA%\Programs\Python\Python314\python.exe" (
+    set "PYTHON_EXE=%LOCALAPPDATA%\Programs\Python\Python314\python.exe"
+) else if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" (
+    set "PYTHON_EXE=%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+) else if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" (
+    set "PYTHON_EXE=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+) else if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
+    set "PYTHON_EXE=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+) else if exist "%LOCALAPPDATA%\Programs\Python\Python310\python.exe" (
+    set "PYTHON_EXE=%LOCALAPPDATA%\Programs\Python\Python310\python.exe"
 ) else (
     set "PYTHON_EXE=python"
 )
