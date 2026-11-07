@@ -281,3 +281,17 @@ In addition to the libraries in the PRD (`Tone.js`, `@tonejs/midi`, `atosystem/m
     - Added `#qwerty-pill` (`QWERTY: C4–E5` with `Z ◀` / `▶ X` buttons) in the top header, capture-phase `KeyZ`/`KeyX` handling, and on-key `[A]`–`[;]` labels + gold range bar on the 61-key piano that slide across octaves (`C2–E3` to `C6–C7`) with floating runes.
     - Packaged standalone Windows x64 release (`College-of-Keys-v1.0.0-win32-x64.zip`) and published GitHub Release `v1.0.0`.
 - **Current status:** `v1.0.0` verified, packaged, and released on GitHub (`"Testing successful"`).
+
+### 2026-11-07 — Session 12: Rhythm-Game & Piano-Pedagogy QA Review (`Issues #9`–`#17`) & `v1.0.1` Patch
+- **What we did:**
+  - Conducted a specialized Rhythm-Game & Piano-Pedagogy QA code review and logged 9 GitHub Issues (`#9` through `#17`) on https://github.com/kiyoshithekidd/college-of-keys/issues.
+  - Implemented fixes for all 9 issues in `v1.0.1`:
+    1. **Issue #9 (`High`):** Prevented held keys (`consumedByStrikeGroup`) and Sustain Pedal (`sustainedOnly`) from auto-clearing repeated notes in Wait Mode.
+    2. **Issue #10 (`High`):** Synchronized Wait Mode accompaniment & backing band triggers at `anchorTime` so they sound when the player unlocks the gated chord rather than firing early while frozen.
+    3. **Issue #11 (`High`):** Added off-key strike penalties in Arcade Mode (`Wait Mode: OFF`) and atomic missed-chord expiration.
+    4. **Issue #12 (`High`):** Ignored duplicate re-strikes of already-locked chord notes and honored `!group.hasSlowRoll` for `100ms` chord roll forgiveness.
+    5. **Issue #13 (`Medium`):** Ordered backing audio copy before `.mid` creation in `python_ml/transcribe_quest.py` and added late backing-audio detection in `scanWatchedDirectories()`.
+    6. **Issue #14 (`Medium`):** Deduplicated simultaneous same-pitch notes created by 61-key Octave Folding (`foldAndFormat`).
+    7. **Issue #15 (`Medium`):** Eliminated per-note `createLinearGradient` allocations inside `drawFallingSpellHighway()`.
+    8. **Issue #16 (`Medium`):** Added `window` `blur` cleanup for held QWERTY and mouse keys.
+    9. **Issue #17 (`Low`):** Added `window` `beforeunload` cleanup for `activeQuestChildProcess`.

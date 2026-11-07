@@ -671,28 +671,8 @@ def main():
             has_pcm_wav = convert_audio_to_pcm_wav(source_audio_path, pcm_wav)
             inference_audio_path = pcm_wav if has_pcm_wav else source_audio_path
 
-            # 2. Run Spotify basic-pitch neural network (ONNXRuntime) first
-            used_basic_pitch = try_basic_pitch_transcription(
-                inference_audio_path,
-                dest_midi_path,
-                song_title=title,
-            )
-
-            # 3. Fallback to built-in Polyphonic DSP Transcriber only if basic-pitch is unavailable
-            if not used_basic_pitch:
-                if has_pcm_wav:
-                    transcribe_wav_polyphonic_dsp(pcm_wav, dest_midi_path, song_title=title)
-                else:
-                    log_status(
-                        "transcribing",
-                        "Generating playable 61-key MIDI arrangement from downloaded stream...",
-                        70,
-                    )
-                    seed_wav = tmp_dir / "harmonic_seed.wav"
-                    generate_self_test_wav(seed_wav)
-                    transcribe_wav_polyphonic_dsp(seed_wav, dest_midi_path, song_title=title)
-
-            # 4. Copy synced backing audio into ../Imports alongside the .mid file
+            # 2. Copy synced backing audio into ../Imports BEFORE writing the .mid file (Issue #13)
+            #    so that when fs.watch detects the new .mid file, the paired backing track is already on disk!
             if not args.no_backing:
                 try:
                     ext_lower = source_audio_path.suffix.lower()
@@ -705,6 +685,27 @@ def main():
                         shutil.copy2(source_audio_path, dest_backing_path)
                 except Exception:
                     pass
+
+            # 3. Run Spotify basic-pitch neural network (ONNXRuntime) first
+            used_basic_pitch = try_basic_pitch_transcription(
+                inference_audio_path,
+                dest_midi_path,
+                song_title=title,
+            )
+
+            # 4. Fallback to built-in Polyphonic DSP Transcriber only if basic-pitch is unavailable
+            if not used_basic_pitch:
+                if has_pcm_wav:
+                    transcribe_wav_polyphonic_dsp(pcm_wav, dest_midi_path, song_title=title)
+                else:
+                    log_status(
+                        "transcribing",
+                        "Generating playable 61-key MIDI arrangement from downloaded stream...",
+                        70,
+                    )
+                    seed_wav = tmp_dir / "harmonic_seed.wav"
+                    generate_self_test_wav(seed_wav)
+                    transcribe_wav_polyphonic_dsp(seed_wav, dest_midi_path, song_title=title)
 
             log_status(
                 "complete",

@@ -513,15 +513,17 @@ function handleNoteOn(midi, velocity = 100, source = 'midi') {
     }
   }
 
+  // Phase 4: Evaluate key press against active Strike Zone / Wait Mode chord group
+  const matchedStrikeZone = evaluateStrikeZoneInput(midi);
+
   sustainedNotes.delete(midi);
   activeNotes.set(midi, {
     velocity,
     source,
-    sustainedOnly: false
+    sustainedOnly: false,
+    pressedAtMs: performance.now(),
+    consumedByStrikeGroup: Boolean(matchedStrikeZone)
   });
-
-  // Phase 4: Evaluate key press against active Strike Zone / Wait Mode chord group
-  const matchedStrikeZone = evaluateStrikeZoneInput(midi);
 
   // Phase 7: If playing freely (or outside an active strike-zone gate), spawn an immediate key spark burst!
   if (!matchedStrikeZone) {
@@ -919,7 +921,7 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
   let foldedCount = 0;
 
   const foldAndFormat = (noteArr, handTrack) => {
-    return noteArr
+    const sorted = noteArr
       .map((n) => {
         const { foldedMidi, wasFolded, semitoneShift } = foldMidiNoteDetails(n.originalMidi);
         if (wasFolded) foldedCount++;
@@ -936,6 +938,23 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
         };
       })
       .sort((a, b) => a.time - b.time || a.midi - b.midi);
+
+    // Deduplicate simultaneous same-pitch notes produced by octave folding (Issue #14)
+    const deduped = [];
+    for (const note of sorted) {
+      const prevSamePitch = deduped.length > 0
+        ? deduped.slice(Math.max(0, deduped.length - 8)).find((p) => p.midi === note.midi && Math.abs(note.time - p.time) <= 0.025)
+        : null;
+      if (prevSamePitch) {
+        const mergedEnd = Math.max(prevSamePitch.time + prevSamePitch.duration, note.time + note.duration);
+        prevSamePitch.duration = Math.max(0.05, mergedEnd - prevSamePitch.time);
+        prevSamePitch.velocity = Math.max(prevSamePitch.velocity, note.velocity);
+        prevSamePitch.wasFolded = prevSamePitch.wasFolded || note.wasFolded;
+      } else {
+        deduped.push(note);
+      }
+    }
+    return deduped;
   };
 
   currentSong.track1Notes = foldAndFormat(track1Raw, 1);
@@ -1520,6 +1539,11 @@ function evaluateStrikeZoneInput(midi) {
   const nowMs = performance.now();
 
   if (group.requiredPitches.has(midi)) {
+    // Ignore duplicate re-strikes of a pitch that was already locked in for this chord (Issue #12)
+    if (group.satisfiedPitches.has(midi)) {
+      return true;
+    }
+
     // Player pressed a required pitch of the current note/chord!
     if (group.satisfiedPitches.size === 0) {
       group.firstStrikeMs = nowMs;
@@ -1557,14 +1581,20 @@ function evaluateStrikeZoneInput(midi) {
         : 0;
 
       const isChord = group.requiredPitches.size > 1;
-      const isCleanChordRoll = isChord && totalRollMs <= CHORD_GRACE_PERIOD_MS && !group.wrongKeyDuringRoll;
+      const isCleanChordRoll = isChord && (!group.hasSlowRoll || totalRollMs <= CHORD_GRACE_PERIOD_MS) && !group.wrongKeyDuringRoll;
       const isFumbledPause = playbackState.waitMode && waitPauseSec > FUMBLE_PAUSE_THRESHOLD_SEC;
 
       // Resume playback immediately!
+      const wasWaiting = playbackState.isWaitingForStrike;
       playbackState.isWaitingForStrike = false;
       playbackState.waitStartedAtMs = null;
       playbackState.activeStrikeGroup = null;
       playbackState.lastFrameTimestamp = nowMs;
+
+      // If we were waiting at anchorTime, fire any accompaniment / backing band notes at anchorTime now in harmony! (Issue #10)
+      if (wasWaiting) {
+        processSongAudioTriggers(group.anchorTime - 0.01, group.anchorTime + 0.005);
+      }
 
       // Phase 5: Award XP, increment Spell Chain & evaluate Bardic Inspiration
       recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll);
@@ -1597,8 +1627,8 @@ function evaluateStrikeZoneInput(midi) {
       spawnKeyParticleBurst(midi, 'roll', 14, true);
     }
     return true;
-  } else if (playbackState.isWaitingForStrike) {
-    // Wrong key pressed while halted at the strike line -> breaks Spell Chain!
+  } else {
+    // Wrong key pressed inside the active strike window (Wait Mode or Arcade Mode) -> breaks Spell Chain! (Issue #11)
     group.wrongKeyDuringRoll = true;
     recordSpellChainBreak(`✗ Chain Broken! (${midiToNoteName(midi)})`);
     spawnKeyParticleBurst(midi, 'fumble', 10, false);
@@ -1778,11 +1808,19 @@ function animationLoop(timestamp) {
       const nextGroup = getNextUnsatisfiedStrikeGroup();
 
       if (nextGroup) {
-        // Check if any of the required keys are ALREADY freshly held down right as the note arrives
+        // Only allow a key pressed freshly within the early-strike window (not sustainedOnly or already consumed)
+        // to satisfy a new note onset on arrival (Fixes Issue #9)
         if (proposedTime >= nextGroup.anchorTime - 0.02) {
           for (const reqMidi of nextGroup.requiredPitches) {
-            if (activeNotes.has(reqMidi) && !nextGroup.satisfiedPitches.has(reqMidi)) {
-              // Key was pressed slightly early and held into the strike zone
+            const heldState = activeNotes.get(reqMidi);
+            const isFreshEarlyPress = Boolean(
+              heldState &&
+              !heldState.sustainedOnly &&
+              !heldState.consumedByStrikeGroup &&
+              (timestamp - heldState.pressedAtMs) <= (EARLY_STRIKE_WINDOW_SEC * 1000 + 80)
+            );
+            if (isFreshEarlyPress && !nextGroup.satisfiedPitches.has(reqMidi)) {
+              heldState.consumedByStrikeGroup = true;
               if (nextGroup.satisfiedPitches.size === 0) {
                 nextGroup.firstStrikeMs = timestamp;
                 nextGroup.lastStrikeMs = timestamp;
@@ -1834,35 +1872,47 @@ function animationLoop(timestamp) {
         }
       }
     } else {
-      // Arcade Mode: mark past notes as satisfied; if a player-controlled note passed unhit, break Spell Chain.
-      // Preserve activeStrikeGroup while inside the 100ms chord roll window so rolled chords work in Arcade Mode too!
+      // Arcade Mode: mark past notes as satisfied; if a player-controlled note/chord passed unhit, break Spell Chain once per chord (Issue #11).
       playbackState.isWaitingForStrike = false;
+      let missedPlayerChord = false;
+
       if (
         playbackState.activeStrikeGroup &&
         proposedTime > playbackState.activeStrikeGroup.anchorTime + 0.18
       ) {
+        for (const n of playbackState.activeStrikeGroup.notes) {
+          n.satisfied = true;
+          n.lockedInWait = false;
+        }
         playbackState.activeStrikeGroup = null;
+        missedPlayerChord = true;
       }
-      let missedPlayerNote = false;
+
       for (const n of currentSong.track1Notes) {
         if (!n.satisfied && n.time < proposedTime - 0.18) {
           n.satisfied = true;
-          if (isPlayerControlledHand(1)) missedPlayerNote = true;
+          n.lockedInWait = false;
+          if (isPlayerControlledHand(1)) missedPlayerChord = true;
         }
       }
       for (const n of currentSong.track2Notes) {
         if (!n.satisfied && n.time < proposedTime - 0.18) {
           n.satisfied = true;
-          if (isPlayerControlledHand(2)) missedPlayerNote = true;
+          n.lockedInWait = false;
+          if (isPlayerControlledHand(2)) missedPlayerChord = true;
         }
       }
-      if (missedPlayerNote) {
+      if (missedPlayerChord) {
         recordSpellChainBreak('✗ Missed Note (Arcade)');
       }
     }
 
     playbackState.currentTime = proposedTime;
-    processSongAudioTriggers(prevTime, proposedTime);
+    // Hold accompaniment & backing band notes at anchorTime while frozen in Wait Mode until the player strikes (Issue #10)
+    const audioTriggerEnd = playbackState.isWaitingForStrike ? (proposedTime - 0.005) : proposedTime;
+    if (audioTriggerEnd >= prevTime) {
+      processSongAudioTriggers(prevTime, audioTriggerEnd);
+    }
     updateTimelineUI();
 
     if (playbackState.currentTime >= currentSong.duration + 0.4) {
@@ -2175,6 +2225,18 @@ function scanWatchedDirectories(notifyOnNew = false) {
 
         const existing = grimoireSpells.get(key);
         if (existing && existing.mtimeMs === stat.mtimeMs && existing.fileSize === stat.size) {
+          // If backing audio arrived slightly after the .mid file was indexed, attach it (Issue #13)
+          if (!existing.backingAudioPath) {
+            const base = file.replace(/\.(mid|midi)$/i, '');
+            for (const ext of ['.mp3', '.wav', '.ogg', '.m4a']) {
+              const candidate = path.join(dir, `${base}${ext}`);
+              if (fs.existsSync(candidate)) {
+                existing.backingAudioPath = candidate;
+                changed = true;
+                break;
+              }
+            }
+          }
           continue;
         }
 
@@ -2767,29 +2829,30 @@ function drawFallingSpellHighway(strikeLineY, width) {
       const x = geom.x + padX;
       const w = Math.max(4, geom.width - padX * 2);
 
-      // If this note is part of a chord and has already been locked in while waiting for the rest of the chord,
-      // render it in bright Emerald Arcane Green so the player sees it's checked off!
-      const grad = ctx.createLinearGradient(x, topY, x, bottomY);
-      if (note.lockedInWait) {
-        grad.addColorStop(0, '#a7f3d0');
-        grad.addColorStop(1, '#10b981');
-      } else {
-        grad.addColorStop(0, topHex);
-        grad.addColorStop(1, primaryHex);
-      }
-
-      ctx.fillStyle = grad;
+      // Render falling note with zero per-frame LinearGradient allocations (Issue #15)
+      ctx.fillStyle = note.lockedInWait ? '#10b981' : primaryHex;
       ctx.strokeStyle = note.lockedInWait
         ? '#ffffff'
         : (isAtStrikeLine ? '#ffffff' : (note.wasFolded ? '#d8b4fe' : borderHex));
       ctx.lineWidth = isAtStrikeLine ? 2.2 : 1.2;
-      ctx.shadowColor = note.lockedInWait ? 'rgba(54, 211, 153, 0.85)' : glowRgba;
-      ctx.shadowBlur = isAtStrikeLine ? 18 : 10;
+      if (isAtStrikeLine || note.lockedInWait) {
+        ctx.shadowColor = note.lockedInWait ? 'rgba(54, 211, 153, 0.85)' : glowRgba;
+        ctx.shadowBlur = 16;
+      } else {
+        ctx.shadowBlur = 0;
+      }
 
       ctx.beginPath();
       ctx.roundRect(x, topY, w, rectH, 5);
       ctx.fill();
       ctx.stroke();
+
+      // Crisp top specular highlight cap on the falling glyph
+      if (rectH >= 10) {
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = note.lockedInWait ? '#a7f3d0' : topHex;
+        ctx.fillRect(x + 1.5, topY + 1.5, Math.max(2, w - 3), Math.min(5, rectH * 0.28));
+      }
 
       if (rectH >= 22 && w >= 16) {
         ctx.shadowBlur = 0;
@@ -4025,6 +4088,33 @@ window.addEventListener('drop', async (e) => {
 
 window.addEventListener('resize', () => {
   computeKeyGeometry();
+});
+
+// Release any held QWERTY or mouse notes if the window loses focus (Alt+Tab) (Issue #16)
+window.addEventListener('blur', () => {
+  for (const [k, midi] of Array.from(pressedQwertyKeys.entries())) {
+    pressedQwertyKeys.delete(k);
+    handleNoteOff(midi);
+  }
+  if (isMouseDown) {
+    isMouseDown = false;
+    if (currentMouseMidi !== null) {
+      handleNoteOff(currentMouseMidi);
+      currentMouseMidi = null;
+    }
+  }
+});
+
+// Terminate any active background Python transcription child process on window close/reload (Issue #17)
+window.addEventListener('beforeunload', () => {
+  if (activeQuestChildProcess) {
+    try {
+      activeQuestChildProcess.kill();
+    } catch {
+      // Ignore kill errors
+    }
+    activeQuestChildProcess = null;
+  }
 });
 
 // Boot Application & Start 60 FPS Spell Highway Loop

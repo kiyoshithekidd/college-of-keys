@@ -11,6 +11,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.0.1] - 2026-11-07 — Rhythm-Game & Piano-Pedagogy QA Remediation (`Fixes #9–#17`)
+
+### Fixed
+- **Issue #9 (`High`):** Prevented held keys (`consumedByStrikeGroup`) and Sustain Pedal (`sustainedOnly: true`) notes from auto-clearing subsequent notes of the same pitch in Wait Mode, requiring genuine re-articulation on repeated notes while preserving the `130ms` early-strike window.
+- **Issue #10 (`High`):** Held auto-played Accompaniment (`Track 2`) and Backing Band triggers at `anchorTime` while frozen in Wait Mode until the player unlocks the gated chord so both hands sound together on strike.
+- **Issue #11 (`High`):** Enabled off-key strike penalties inside the strike window in Arcade Mode (`Wait Mode: OFF`) and prevented staggered missed chords from firing multiple Spell Chain breaks across consecutive frames.
+- **Issue #12 (`High`):** Ignored duplicate re-strikes of already-locked chord pitches during a roll and wired `!group.hasSlowRoll` into `isCleanChordRoll` so 3- and 4-note rolled chords within `100ms` per finger register reliably.
+- **Issue #13 (`Medium`):** Moved backing audio copy before `.mid` creation in `python_ml/transcribe_quest.py` and added late backing-audio detection in `scanWatchedDirectories()` so The Grimoire never misses paired `.wav`/`.mp3` files.
+- **Issue #14 (`Medium`):** Deduplicated simultaneous same-pitch notes (within `25ms` on the same hand) produced by 61-key Octave Folding (`foldAndFormat`) to prevent `2x` XP inflation and `Tone.Sampler` phasing.
+- **Issue #15 (`Medium`):** Replaced per-note `ctx.createLinearGradient()` and unconditional `shadowBlur` inside `drawFallingSpellHighway()` with a two-tone body + top specular cap and strike-line-only glow (`0` gradient allocations per frame).
+- **Issue #16 (`Medium`):** Added a `window.addEventListener('blur')` handler to release held QWERTY and mouse keys when switching windows (`Alt+Tab`).
+- **Issue #17 (`Low`):** Added a `window.addEventListener('beforeunload')` handler to terminate `activeQuestChildProcess` if the window closes or reloads mid-transcription.
+
+---
+
 ## [1.0.0] - 2026-11-07 — First Official Release (Complete 9-Phase MVP + Code Review Remediation)
 
 ### Added & Changed
