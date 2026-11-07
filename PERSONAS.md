@@ -1,1 +1,191 @@
-IyBDb2xsZWdlIG9mIEtleXM6IFBlcnNvbmFzCgpQZXJzb25hcyBmb3IgQ29sbGVnZSBvZiBLZXlzLCB0aGUgRCZEIGJhcmQgcGlhbm8gYXBwLiBVc2UgdGhpcyBkb2N1bWVudCB0byBtYWtlIHByb2R1Y3QgY2hvaWNlcyBhbmQgdG8gd3JpdGUgc3RvcmllcyB0aGF0IHNlcnZlIHJlYWwgdXNlcnMuIFdoZW4gYSBmZWF0dXJlIGRlY2lzaW9uIGlzIHVuY2xlYXIsIGFzayB3aGljaCBwZXJzb25hIGl0IHNlcnZlcyBhbmQgaG93LiBJZiBpdCBzZXJ2ZXMgbm9uZSBvZiB0aGVtLCBpdCBwcm9iYWJseSBkb2VzIG5vdCBiZWxvbmcgaW4gdGhlIGFwcC4KClRoaXMgZG9jdW1lbnQgaXMgd3JpdHRlbiB0byBsaXZlIGluIHRoZSByZXBvIGFzIGBQRVJTT05BUy5tZGAsIGFsb25nc2lkZSB0aGUgb3RoZXIgcHJvamVjdCBkb2NzLCBzbyB0aGUgcGVvcGxlIGFuZCBhZ2VudHMgYnVpbGRpbmcgdGhlIGFwcCByZWFkIGl0IGFzIHBhcnQgb2YgdGhlIHNvdXJjZSBvZiB0cnV0aC4KCiMjIFJ1bGVzIHRoYXQgYXBwbHkgdG8gZXZlcnkgcGVyc29uYQoKVGhlc2UgcnVsZXMgY2FtZSBvdXQgb2YgdGhlIHBlcnNvbmEgaW50ZXJ2aWV3cy4gVGhleSBob2xkIGFjcm9zcyB0aGUgd2hvbGUgc2V0LgoKLSAqKlRoZXkgYWxsIGxvdmUgRCZELioqIEV2ZXJ5IHBlcnNvbmEgaGVyZSBpcyBhIEQmRCBwZXJzb24uIFRoYXQgaXMgdGhlIHNoYXJlZCBncm91bmQsIG5vdCBhIG5pY2hlIGV4dHJhLgoKLSAqKlRoZSBmbGF2b3IgaXMgdGhlIGFwcC4qKiBUaGUgRCZEIGZsYXZvciBpcyBub3QgYSBza2luIG9uIHRvcCBvZiBhIHBpYW5vIGFwcC4gVGhlIGZsYXZvciwgdGhlIGRpY2UsIGFuZCB0aGUgdmlzdWFscyBhcmUgdGhlIGFwcCBpdHNlbGYuIElmIHRoZXkgd2VyZSBtaXNzaW5nLCBpdCB3b3VsZCBmZWVsIHdyb25nLiBBbnkgZmVhdHVyZSB0aGF0IGNhbm5vdCB3ZWFyIHRoZSBiYXJkIHNraW4gZG9lcyBub3QgYmVsb25nLgoKLSAqKkJhcmQgaXMgdGhlIG9ubHkgY2xhc3MgdGhhdCBtYXR0ZXJzLioqIENvbGxlZ2Ugb2YgS2V5cyBpcyBhIGJhcmQgYXBwLiBGcmFtZSBwcm9ncmVzcywgdGl0bGVzLCBhbmQgcmV3YXJkcyBpbiBiYXJkIHRlcm1zLgoKLSAqKlRoZXkgcGljayB0aGVpciBvd24gc29uZ3MuKiogRm9yY2VkIGNhdGFsb2dzIGFuZCBjbGFzc2ljcy1vbmx5IGxlc3NvbnMgYXJlIHRoZSByZWFzb24gdGhlc2UgdXNlcnMgcXVpdCBvdGhlciBhcHBzLiBTb25nIGNob2ljZSBpcyBhIGNvcmUgbmVlZCwgbm90IGEgbmljZSBleHRyYS4KCi0gKipEaWZmaWN1bHR5IGlzIGNob3Nlbiwgbm90IGFzc2lnbmVkLioqIFBsYXllcnMgcGljayBhIGhhcmRlciB2ZXJzaW9uIG9mIGEgc29uZyB0aGVtc2VsdmVzIHdoZW4gdGhleSBhcmUgcmVhZHkuIERvIG5vdCBhdXRvLXByb21vdGUgdGhlbS4KCi0gKipGdW4gY29tZXMgYmVmb3JlIHJpZ29yLioqIFRoZXNlIHVzZXJzIHJldHVybiBmb3IgcHJvZ3Jlc3MgdGhleSBjYW4gZmVlbCwgc29uZ3MgdGhleSBsb3ZlLCBhbmQgcGxheSB3aXRoIG90aGVyIHBlb3BsZS4gRHJ5IGluc3RydWN0aW9uIGxvc2VzIHRoZW0sIGV2ZW4gd2hlbiBpdCB0ZWFjaGVzIHRoZW0gc29tZXRoaW5nIHJlYWwuCgojIyBUaGUgcGVyc29uYXMgYXQgYSBnbGFuY2UKCnwgUGVyc29uYSB8IFByaW9yaXR5IHwgT25lLWxpbmUgc3VtbWFyeSB8CnwtLS18LS0tfC0tLXwKfCBUaGUgUmV0dXJuaW5nIEFkdWx0IHwgTWFpbiB8IEJ1c3kgYWR1bHQgYmVnaW5uZXIgd2hvIG5lZWRzIHJlYWwgc29uZ3MgYW5kIGdhbWUgcHJvZ3Jlc3MgdG8ga2VlcCBjb21pbmcgYmFjayB8CnwgVGhlIEdhbWVyIEJhcmQgfCBNYWluIHwgSGVyZSBmb3IgdGhlIFJQRyBsYXllciBmaXJzdCwgd2l0aCB0aGUga2V5Ym9hcmQgYXMgdGhlIGNvbnRyb2xsZXIgfAp8IFRoZSBSb2NrIEJhbmQgUGxheWVyIHwgTWFpbiB8IFJoeXRobSBnYW1lIHZldGVyYW4gd2hvIGp1ZGdlcyBnYW1lIGZlZWwsIHBvbGlzaCwgYW5kIHNjb3JpbmcgZmlyc3QgfAp8IFRoZSBDYXN1YWwgU29uZyBQbGF5ZXIgfCBDbG9zZSBzZWNvbmQgfCBKdXN0IHdhbnRzIHRvIHBsYXkgZmF2b3JpdGUgc29uZ3MsIHdpdGggdGhlIGxlYXN0IGZyaWN0aW9uIHBvc3NpYmxlIHwKfCBUaGUgWW91bmcgTGVhcm5lciB8IFRlbnRhdGl2ZSB8IE11c2ljYWwgdGVlbmFnZXIsIG5ldyB0byBwaWFubywgd2hvIGFscmVhZHkgZ2FtZXMgYW5kIHBsYXlzIEQmRCB8CnwgVGhlIENvbnNlcnZhdG9yeSBQdXJpc3QgfCBBbnRpLXBlcnNvbmEgfCBXYW50cyBzdHJpY3QgcGVkYWdvZ3kgb25seSwgYW5kIGlzIG5vdCB3aG8gdGhpcyBhcHAgaXMgZm9yIHwKCiMjIE1haW4gcGVyc29uYTogVGhlIFJldHVybmluZyBBZHVsdAoKVGhpcyBwZXJzb25hIGlzIEtpeW9zaGkgaGltc2VsZjogMzcsIGJ1c3ksIGxlYXJuaW5nIHBpYW5vIGFzIGFuIGFkdWx0IHdpdGggYSA2MS1rZXkgZm9sZGFibGUgcGlhbm8sIGFuIGlQYWQsIGFuZCBhIFBDLiBIZSBpcyB0aGUgcHJpbWFyeSB1c2VyIHRvZGF5LCBhbmQgdGhlIGFwcCBoYXMgdG8gd29yayBmb3IgaGltIGZpcnN0LgoKIyMjIFdoYXQgaGlzIGxhc3QgcHJhY3RpY2UgbG9va2VkIGxpa2UKCkhpcyBsYXN0IHNlc3Npb24gd2FzIG9uIEZsb3drZXkgb24gdGhlIGlQYWQuIEhlIGhpdCB0aGUgc3Vic2NyaWJlIHBheXdhbGwgYWZ0ZXIgYWJvdXQgMjAgbWludXRlcywgbW92ZWQgdG8gYW5vdGhlciBhcHAsIGFuZCB3YWxrZWQgdGhyb3VnaCBiYXNpYyBsZXNzb25zIHRoZXJlLiBCb3RoIGFwcHMgdGF1Z2h0IGhpbSBzb21ldGhpbmcgcmVhbDogaGUgbGVhcm5lZCBzb21lIGJhc2ljIGtleXMgYW5kIG5vdGUgcmVhZGluZywgYW5kIGhlIGxpa2VkIHRoYXQuIEhlIHN0aWxsIHF1aXQgYm90aC4KCiMjIyBXaHkgaGUgcXVpdAoKLSBUaGV5IHdlcmUgZHJ5LgotIEhlIGNvdWxkIG5vdCBwaWNrIGhpcyBvd24gc29uZ3MuCi0gVGhlIGNsYXNzaWNzIGFyZSBib3JpbmcgdG8gaGltLgotIE5vdGhpbmcga2VwdCBoaW0gZW5nYWdlZCBvciBnYXZlIGhpbSBhIHJlYXNvbiB0byByZXR1cm4uCgojIyMgV2hhdCBrZWVwcyBoaW0gY29taW5nIGJhY2sKCi0gR2FtaWZpZWQgcHJvZ3Jlc3MgbGlrZSBEdW9saW5nbzogdmlzaWJsZSBwcm9ncmVzcywgbGV2ZWxzLCBhbmQgYSByZWFzb24gdG8gb3BlbiB0aGUgYXBwIGFnYWluIHRvbW9ycm93LgotIFJlYWwgc29uZ3MgaGUgYWxyZWFkeSBsb3Zlcywgbm90IGV4ZXJjaXNlcyBkcmVzc2VkIHVwIGFzIHNvbmdzLgotIFNob3J0IHByYWN0aWNlIGJ1cnN0cyB0aGF0IGZpdCBhIGJ1c3kgbGlmZSwgbm90IGxvbmcgZm9ybWFsIGxlc3NvbnMuCgojIyMgSGlzIG11c2ljCgotIFBvcDogQ2hhcHBlbGwgUm9hbiwgU2FicmluYSBDYXJwZW50ZXIsIEpvaG4gTGVnZW5kLCBTYW0gU21pdGgsIFRlZGR5IFN3aW1zLCBCcnVubyBNYXJzLgotIFBvcCBwdW5rOiBQYXJhbW9yZSwgTGlua2luIFBhcmssIFNsZWVwIFRva2VuLCBibGluay0xODIsIFdlZXplci4KLSBNdXNpY2FsczogSGFtaWx0b24sIE1lYW4gR2lybHMsIEhlYXRoZXJzLCBEZWFkIE1vbSBmcm9tIEJlZXRsZWp1aWNlLCBEZWFyIEV2YW4gSGFuc2VuLgoKSWYgYSBzb25nIGlzIG5vdCBpbiB0aGVzZSB3b3JsZHMsIGl0IGlzIHByb2JhYmx5IG5vdCBhIHN0YXJ0ZXIgc29uZyBmb3IgaGltLgoKIyMjIFRoZSBkaWZmaWN1bHR5IGxhZGRlciBoZSBuZWVkcwoKSGUgZG9lcyBub3QganVzdCB3YW50IGVhc3kgdmVyc2lvbnMuIEhlIHdhbnRzIGEgbGFkZGVyIGZvciBlYWNoIHNvbmc6CgoxLiBTdGFydCB3aXRoIGEgc2ltcGxpZmllZCB2ZXJzaW9uIGhlIGNhbiBhY3R1YWxseSBwbGF5LgoyLiBMYXllciBvbiBkaWZmaWN1bHR5IGFuZCBtb3JlIG5vdGVzIGFzIGhlIGltcHJvdmVzLgozLiBFbmQgdXAgcGxheWluZyB0aGUgcmVhbCB0aGluZy4KCllvdVR1YmUgaGFzIGVhc3kgdHV0b3JpYWxzLCBidXQgdGhlIHBhdGggZnJvbSBlYXN5IHRvIHJlYWwgaXMgdW5jbGVhci4gQ29sbGVnZSBvZiBLZXlzIHNob3VsZCBtYWtlIHRoYXQgcGF0aCB2aXNpYmxlIGZvciBhIHNpbmdsZSBzb25nLCBhbmQgaGUgcGlja3Mgd2hlbiB0byBjbGltYiBpdCBoaW1zZWxmLgoKIyMjIEhpcyBzdGFydGluZyBwb2ludCwgc3RhdGVkIHBsYWlubHkKCkV2ZXJ5IHNvbmcgc3RhcnRzIGZyb20gc2NyYXRjaCBmb3IgaGltIHJpZ2h0IG5vdywgYmVjYXVzZSBoZSBwbGF5cyBieSBmb2xsb3dpbmcgdGhlIGhpZ2h3YXkuIEhlIGNhbiBiYXJlbHkgZmluZCB0aGUga2V5cyB0b2RheS4gVGhhdCBpcyBleGFjdGx5IHdoeSByZWFkaW5nIG11c2ljIG1hdHRlcnMgYXMgYSBsb25nLXRlcm0gc2tpbGw6IGl0IGlzIHRoZSBvbmUgc2tpbGwgdGhhdCB0cmFuc2ZlcnMsIHNvIHRoZSBuZXh0IHNvbmcgaXMgbm90IGEgZnJlc2ggY2xpbWIuIFRoZSBzaGVldCBtdXNpYyB2aWV3IGFuZCBub3RhdGlvbiB3b3JrIHNlcnZlIHRoaXMgcGVyc29uYSBkaXJlY3RseS4KCiMjIyBEZXNpZ24gY2hlY2tzIGZvciB0aGlzIHBlcnNvbmEKCi0gQ2FuIGhlIHN0YXJ0IGEgc29uZyBoZSBsb3ZlcyB3aXRoaW4gYSBtaW51dGUgb2Ygb3BlbmluZyB0aGUgYXBwPwotIENhbiBoZSBzZWUgdGhlIG5leHQgaGFyZGVyIHZlcnNpb24gb2YgdGhhdCBzYW1lIHNvbmcsIGFuZCBjaG9vc2UgaXQgaGltc2VsZj8KLSBEb2VzIGEgc2hvcnQgc2Vzc2lvbiBzdGlsbCBtb3ZlIGhpcyBsZXZlbCwgWFAsIG9yIHF1ZXN0IHByb2dyZXNzPwotIElzIGFueXRoaW5nIGluIHRoZSBmbG93IGRyeSwgbG9ja2VkIGJlaGluZCBhIHBheXdhbGwtc3R5bGUgd2FsbCwgb3IgY2xhc3NpY3Mtb25seT8gSWYgc28sIGl0IGZhaWxzIGhpbS4KCiMjIE1haW4gcGVyc29uYTogVGhlIEdhbWVyIEJhcmQKClRoZSBHYW1lciBCYXJkIGlzIGhlcmUgZm9yIHRoZSBSUEcgbGF5ZXIgZmlyc3QgYW5kIHRoZSBwaWFubyBzZWNvbmQuIFhQLCBsZXZlbHMsIHF1ZXN0cywgdGl0bGVzLCBhbmQgdGhlIHRhdmVybiBhcmUgdGhlIG1vdGl2YXRpb24uIFRoZSBrZXlib2FyZCBpcyB0aGUgY29udHJvbGxlci4KCiMjIyBXaGF0IGhlIGNhcmVzIGFib3V0CgotIEEgY2hhcmFjdGVyIHdobyBncm93czogbGV2ZWwsIHRpdGxlLCBhbmQgWFAgdGhhdCByZWZsZWN0IHJlYWwgcHJhY3RpY2UuCi0gUXVlc3RzIGFuZCBnb2FscyB0aGF0IGdpdmUgYSBzZXNzaW9uIGEgcHVycG9zZSBiZXlvbmQgcGxheWluZyBhIHNvbmcgb25jZS4KLSBEaWNlIG1vbWVudHMgYW5kIGJhcmQgZmxhdm9yIGluIHRoZSBmZWVkYmFjayBpdHNlbGYsIHN1Y2ggYXMgYSBwZXJmb3JtYW5jZSBjaGVjayBhdCB0aGUgZW5kIG9mIGEgc29uZy4KLSBBIHdvcmxkIHRoYXQgZmVlbHMgY29uc2lzdGVudDogdGhlIHRhdmVybiwgdGhlIEdyaW1vaXJlLCBhbmQgdGhlIFF1ZXN0IEJvYXJkIGFzIHBsYWNlcywgbm90IG1lbnUgbGFiZWxzLgoKIyMjIFdoYXQgbG9zZXMgaGltCgotIEEgcGxhaW4gcGlhbm8gdHV0b3Igd2l0aCBhIGZldyBiYWRnZXMgcGFzdGVkIG9uLiBIZSBjYW4gdGVsbCB0aGUgZGlmZmVyZW5jZSwgYW5kIGl0IGZlZWxzIHdyb25nIHRvIGhpbS4KLSBSZXdhcmRzIHRoYXQgaGF2ZSBub3RoaW5nIHRvIGRvIHdpdGggcGxheWluZy4gUHJvZ3Jlc3Mgc2hvdWxkIGNvbWUgZnJvbSBzb25ncyBwbGF5ZWQsIG5vdCBmcm9tIGNsaWNraW5nIGFyb3VuZC4KLSBGbGF2b3IgdGhhdCBzdG9wcyBhdCB0aGUgbWVudS4gSWYgdGhlIHByYWN0aWNlIHNjcmVlbiBpdHNlbGYgZHJvcHMgdGhlIGJhcmQgZnJhbWluZywgdGhlIHNwZWxsIGJyZWFrcy4KCiMjIyBEZXNpZ24gY2hlY2tzIGZvciB0aGlzIHBlcnNvbmEKCi0gRG9lcyBmaW5pc2hpbmcgYSBzb25nIGZlZWwgbGlrZSBmaW5pc2hpbmcgYSBwZXJmb3JtYW5jZSwgd2l0aCBhIHJlc3VsdCBoZSBjYXJlcyBhYm91dD8KLSBEb2VzIGhpcyBiYXJkIHZpc2libHkgZ3JvdyBvdmVyIHdlZWtzLCBub3QganVzdCBvdmVyIG9uZSBzZXNzaW9uPwotIElzIGV2ZXJ5IG5ldyBzeXN0ZW0gbmFtZWQsIHNob3duLCBhbmQgcmV3YXJkZWQgaW4gYmFyZCB0ZXJtcz8KCiMjIE1haW4gcGVyc29uYTogVGhlIFJvY2sgQmFuZCBQbGF5ZXIKClRoZSBSb2NrIEJhbmQgUGxheWVyIGFscmVhZHkgc3BlYWtzIHJoeXRobSBnYW1lcyBmbHVlbnRseS4gSGUgaGFzIHBsYXllZCBHdWl0YXIgSGVybywgUm9jayBCYW5kLCBhbmQgREogSGVybywgc3RpbGwgcGxheXMgUm9jayBCYW5kIG5vdywgYW5kIGFsc28gcGxheXMgSnVzdCBEYW5jZSBhbmQgUmh5dGhtIEhlYXZlbi4gSGUgbW9kZGVkIGEgV2lpIHRvIHBsYXkgdGhlIGRhbmNlIGdhbWVzIHRoZXJlLiBIZSB3aWxsIGp1ZGdlIENvbGxlZ2Ugb2YgS2V5cyBhcyBhIGdhbWUgZmlyc3QgYW5kIGFzIGEgbGVhcm5pbmcgdG9vbCBzZWNvbmQsIHdoaWNoIG1ha2VzIGhpbSB0aGUgcXVhbGl0eSBiYXIgZm9yIGdhbWUgZmVlbDogaWYgaXQgZmVlbHMgZ29vZCB0byBoaW0sIGl0IGZlZWxzIGdvb2QgdG8gZXZlcnlvbmUuCgojIyMgV2hhdCBtYWtlcyBhIHJoeXRobSBnYW1lIGZlZWwgZ29vZCB0byBoaW0KCi0gVmlzdWFsIHBvbGlzaC4gV2VhayBncmFwaGljcyBtYWRlIHNvbWUgZ2FtZXMgZmVlbCBjaGVhcCB0byBoaW0sIGFuZCBjaGVhcCByZWFkcyBhcyBsb3cgcXVhbGl0eSBiZWZvcmUgaGUgaGFzIHBsYXllZCBhIG5vdGUuCi0gQ2xlYXIgdGltaW5nLCBzY29yaW5nLCBhbmQgZ3JhZGVzIGhlIGNhbiBjaGFzZS4KLSBEaWZmaWN1bHR5IHRpZXJzIGhlIHVuZGVyc3RhbmRzIGFuZCBjYW4gY2hvb3NlIGJldHdlZW4uCi0gQSBzZXRsaXN0IG9mIHNvbmdzIGhlIGFjdHVhbGx5IHdhbnRzIHRvIHBsYXkuCgojIyMgVGhlIHBlb3BsZSBiZWhpbmQgdGhpcyBwZXJzb25hCgpLaXlvc2hpJ3MgZnJpZW5kcyBhcmUgdGhpcyBwZXJzb25hIGluIHJlYWwgbGlmZS4gVGhleSBhbHJlYWR5IHBsYXkgaW5zdHJ1bWVudHMsIG1vc3RseSBndWl0YXIsIHdoaWxlIGhlIGlzIHRoZSBvbmUgbm9uLW11c2ljaWFuIGluIHRoZSBncm91cC4gVGhleSBsb3ZlIFJvY2sgQmFuZCwgcGxheSBvbiBFeHBlcnQsIGFuZCBsZWFuIHRvd2FyZCBtZXRhbCwgd2hpbGUgaGUgcGxheXMgdGhlIHBvcCBwdW5rIHNvbmdzLiBPbmUgZnJpZW5kIGhhcyBqdXN0IHN0YXJ0ZWQgcGlhbm8sIHNvIHRoZXJlIGlzIGFsc28gYSBwZWVyIGxlYXJuZXIgaW4gdGhlIGdyb3VwLiBUaGVzZSBhcmUgdGhlIGZyaWVuZHMgS2l5b3NoaSB3YW50cyB0byB0cnkgdGhlIGFwcCBzb21lZGF5LCBzbyB0aGlzIHBlcnNvbmEgaGFzIHRvIHJlc3BlY3QgcmVhbCBtdXNpY2lhbnMgd2l0aG91dCBwdW5pc2hpbmcgYmVnaW5uZXJzLgoKIyMjIFdoYXQgTGlwcyB0YXVnaHQgaGltIGFib3V0IHNpbmdpbmcgZ2FtZXMKCkhpcyBmYXZvcml0ZSBzaW5naW5nIGdhbWUgd2FzIExpcHMgb24gWGJveCwgYW5kIHRoZXJlIGlzIG5vdGhpbmcgcXVpdGUgbGlrZSBpdCBub3cuIFdoYXQgbWFkZSBpdCB3b3JrIHdhcyBoZWFkLXRvLWhlYWQgcGxheSB3aXRoIGhpcyB3aWZlIEFtYmVyLCBwbGFpbiBmdW4sIG1pY3MgdGhhdCBkb3VibGVkIGFzIGluc3RydW1lbnRzIHdoZW4geW91IHNob29rIHRoZW0sIGFuZCBhIGZhbnRhc3RpYyBzb25nIGxpc3Qgd2hlcmUgdGhleSBhbHdheXMgaGFkIHNvbWV0aGluZyB0aGV5IHdhbnRlZCB0byBzaW5nLiBDb21wZXRpdGlvbiBhbmQgYSBncmVhdCBzb25nIGxpc3QgYmVhdCB0ZWNobmljYWwgZGVwdGguIFRoYXQgbGVzc29uIGFwcGxpZXMgdG8gYW55IGZ1dHVyZSB2b2NhbHMgb3IgbXVsdGlwbGF5ZXIgd29yazogcGxheSB0b2dldGhlciwga2VlcCBpdCBqb3lmdWwsIGFuZCBzdG9jayBzb25ncyBwZW9wbGUgbG92ZS4KCiMjIyBEZXNpZ24gY2hlY2tzIGZvciB0aGlzIHBlcnNvbmEKCi0gRG9lcyB0aGUgdGltaW5nIGZlZWwgZmFpciwgYW5kIGRvZXMgdGhlIHNjb3JpbmcgdGVsbCBoaW0gaG93IHRvIGdldCBiZXR0ZXI/Ci0gRG9lcyB0aGUgYXBwIGxvb2sgcG9saXNoZWQgZW5vdWdoIHRoYXQgaGUgdHJ1c3RzIGl0IGluIHRoZSBmaXJzdCB0ZW4gc2Vjb25kcz8KLSBDYW4gYW4gRXhwZXJ0LWxldmVsIHBsYXllciBmaW5kIGEgdGllciB0aGF0IGNoYWxsZW5nZXMgaGltLCB3aGlsZSBhIGJlZ2lubmVyIGluIHRoZSBzYW1lIGFwcCBpcyBub3QgY3J1c2hlZD8KLSBDb3VsZCBoZSBoYW5kIHRoaXMgdG8gYSBmcmllbmQgd2hvIHBsYXlzIHJlYWwgZ3VpdGFyIGFuZCBub3QgYmUgZW1iYXJyYXNzZWQgYnkgdGhlIGdhbWUgZmVlbD8KCiMjIENsb3NlIHNlY29uZDogVGhlIENhc3VhbCBTb25nIFBsYXllcgoKVGhlIENhc3VhbCBTb25nIFBsYXllciBqdXN0IHdhbnRzIHRvIHBsYXkgZmF2b3JpdGUgc29uZ3MsIG9mdGVuIHNvdXJjZWQgZnJvbSBZb3VUdWJlLiBIZSBkb2VzIG5vdCBjYXJlIGFib3V0IHRoZW9yeSwgbGV2ZWxzLCBvciByZWFkaW5nIG11c2ljLCBhbmQgaGUgd2lsbCBub3QgZG8gaG9tZXdvcmsgdG8gZ2V0IHRvIGEgc29uZy4KCiMjIyBXaGF0IGhlIGNhcmVzIGFib3V0CgotIFRoZSBzaG9ydGVzdCBwYXRoIGZyb20gaGVhcmluZyBhIHNvbmcgdG8gcGxheWluZyBhIHZlcnNpb24gb2YgaXQuCi0gU29uZ3MgaGUgY2hvc2UsIGluIHRoZSBnZW5yZXMgaGUgYWxyZWFkeSBsaXN0ZW5zIHRvLgotIEEgcmVzdWx0IHRoYXQgc291bmRzIGxpa2UgdGhlIHNvbmcsIGV2ZW4gaW4gYSBzaW1wbGlmaWVkIGZvcm0uCgojIyMgV2hhdCBsb3NlcyBoaW0KCi0gTGVzc29ucywgdGhlb3J5IGdhdGVzLCBvciBsZXZlbCByZXF1aXJlbWVudHMgc3RhbmRpbmcgYmV0d2VlbiBoaW0gYW5kIGEgc29uZy4KLSBTZXR1cCBmcmljdGlvbi4gRXZlcnkgZXh0cmEgc3RlcCBiZWZvcmUgdGhlIGZpcnN0IG5vdGUgY29zdHMgdXNlcnMuCgojIyMgRGVzaWduIGNoZWNrcyBmb3IgdGhpcyBwZXJzb25hCgotIENhbiBoZSBnbyBmcm9tIGEgWW91VHViZSBsaW5rIHRvIHBsYXlpbmcgaW4gYSBmZXcgc3RlcHMsIHdpdGggbm8gbGVzc29uIGluIGJldHdlZW4/Ci0gRG9lcyB0aGUgYXBwIHN0YXkgb3V0IG9mIGhpcyB3YXkgaWYgaGUgaWdub3JlcyBYUCwgcXVlc3RzLCBhbmQgbm90YXRpb24gZW50aXJlbHk/CgpUaGlzIHBlcnNvbmEgaXMgYSBjbG9zZSBzZWNvbmQsIG5vdCBhIG1haW4sIHNvIGhpcyBuZWVkcyBzaGFwZSB0aGUgZW50cnkgcGF0aCBidXQgZG8gbm90IG92ZXJyaWRlIHRoZSBtYWlucy4gSWYgYSBjaG9pY2UgaGVscHMgaGltIGJ5IHN0cmlwcGluZyBvdXQgdGhlIFJQRyBsYXllciwgaXQgaXMgdGhlIHdyb25nIGNob2ljZS4KCiMjIFRlbnRhdGl2ZSBwZXJzb25hOiBUaGUgWW91bmcgTGVhcm5lcgoKVGhlIFlvdW5nIExlYXJuZXJzIGFyZSBLaXlvc2hpJ3MgdGVlbmFnZXJzLCB3aG8gbWF5IHRyeSB0aGUgYXBwIHNvbWVkYXkuIFRoZXkgYXJlIG5vdCBibGFuay1zbGF0ZSBiZWdpbm5lcnMsIGFuZCB0aGV5IHNob3VsZCBub3QgYmUgZGVzaWduZWQgZm9yIGFzIGlmIHRoZXkgd2VyZSB5b3VuZyBjaGlsZHJlbi4KCiMjIyBXaG8gdGhleSBhcmUKCi0gVGhleSBkbyBub3QgcGxheSBwaWFuby4gUGlhbm8gd291bGQgYmUgYSBuZXcgaW5zdHJ1bWVudCBmb3IgdGhlbS4KLSBUaGV5IGFyZSBhbHJlYWR5IG11c2ljYWw6IGJvdGggYXJlIGluIGNob3J1cyBhbmQgZG8gdGhlYXRlciwgYW5kIG9uZSB1c2VkIHRvIHBsYXkgcGVyY3Vzc2lvbi4KLSBUaGV5IGxpa2UgZ2FtZXMgYW5kIHRoZXkgcGxheSBEJkQgd2l0aCB0aGVpciBkYWQuCgojIyMgV2hhdCB0aGF0IG1lYW5zIGZvciBkZXNpZ24KCi0gTXVzaWNhbCBiYXNpY3MgYXJlIG5vdCBmb3JlaWduIHRvIHRoZW0uIFJoeXRobSwgc2luZ2luZywgYW5kIHBlcmZvcm1pbmcgb24gc3RhZ2UgYXJlIGZhbWlsaWFyIGdyb3VuZC4KLSBUaGUgZ2FtZSBsYXllciBhbmQgdGhlIEQmRCBmbGF2b3IgYXJlIHRoZSBpbnZpdGF0aW9uLCB0aGUgc2FtZSBhcyBmb3IgdGhlIG90aGVyIHBlcnNvbmFzLgotIFJlYWRhYmlsaXR5LCBjbGVhciBkaWZmaWN1bHR5IHN0ZXBzLCBhbmQgc2hvcnQgc2Vzc2lvbnMgbWF0dGVyLCBidXQgbm90aGluZyBzaG91bGQgYmUgZHVtYmVkIGRvd24gb3IgbWFkZSBjaGlsZGlzaCBmb3IgdGhlbS4KCiMjIyBEZXNpZ24gY2hlY2tzIGZvciB0aGlzIHBlcnNvbmEKCi0gQ291bGQgYSBtdXNpY2FsIHRlZW5hZ2VyIHN0YXJ0IGEgZmlyc3Qgc29uZyB3aXRob3V0IGEgcGFyZW50IHdhbGtpbmcgdGhlbSB0aHJvdWdoIHNldHVwPwotIERvZXMgdGhlIGFwcCByZXNwZWN0IHRoYXQgdGhleSBhcmUgcGVyZm9ybWVycyBhbHJlYWR5LCBqdXN0IG5ldyB0byB0aGlzIGluc3RydW1lbnQ/CgpUaGlzIHBlcnNvbmEgaXMgdGVudGF0aXZlLiBLZWVwIGl0IGluIG1pbmQgZm9yIGRpZmZpY3VsdHkgYW5kIHJlYWRhYmlsaXR5LCBidXQgZG8gbm90IGxldCBpdCBwdWxsIHNjb3BlIGFoZWFkIG9mIHRoZSB0aHJlZSBtYWlucy4KCiMjIEFudGktcGVyc29uYTogVGhlIENvbnNlcnZhdG9yeSBQdXJpc3QKClRoZSBDb25zZXJ2YXRvcnkgUHVyaXN0IHdhbnRzIHN0cmljdCBwZWRhZ29neSBhbmQgc3RhbmRhcmQgbm90YXRpb24gb25seSwgaW4gYSBzZXQgb3JkZXIsIHdpdGggbm8gZ2FtZSBsYXllci4gQ29sbGVnZSBvZiBLZXlzIGlzIG5vdCBidWlsdCBmb3IgaGltLgoKTmFtaW5nIGhpbSBtYXR0ZXJzIGJlY2F1c2UgaXQgdGVsbHMgYnVpbGRlcnMgd2hhdCBub3QgdG8gYnVpbGQ6IG5vIG1hbmRhdG9yeSBsZXNzb24gdHJhY2tzIGJlZm9yZSBzb25ncywgbm8gbm90YXRpb24tb25seSBtb2RlIGFzIHRoZSBwcmljZSBvZiBlbnRyeSwgYW5kIG5vIHN0cmlwcGluZyB0aGUgYmFyZCBmbGF2b3IgdG8gbG9vayBtb3JlIHNlcmlvdXMuIE5vdGF0aW9uIGlzIGluIHRoZSBhcHAgYmVjYXVzZSBpdCBoZWxwcyB0aGUgUmV0dXJuaW5nIEFkdWx0IHN0b3Agc3RhcnRpbmcgZXZlcnkgc29uZyBmcm9tIHNjcmF0Y2gsIG5vdCBiZWNhdXNlIHRoZSBQdXJpc3QgZGVtYW5kcyBpdC4KCiMjIEhvdyB0byB1c2UgdGhlc2UgcGVyc29uYXMgaW4gYSBzdG9yeQoKQmVmb3JlIGEgc3RvcnkgaXMgYWNjZXB0ZWQsIGl0IHNob3VsZCBuYW1lIHRoZSBwZXJzb25hIG9yIHBlcnNvbmFzIGl0IHNlcnZlcyBhbmQgcGFzcyB0aGVpciBkZXNpZ24gY2hlY2tzLiBBIGZldyBzdGFuZGluZyBydWxlcyBmb3Igc3Rvcnkgd3JpdGluZzoKCi0gQSBzdG9yeSB0aGF0IHNlcnZlcyBubyBuYW1lZCBwZXJzb25hIGdldHMgcXVlc3Rpb25lZCBiZWZvcmUgaXQgZ2V0cyBidWlsdC4KLSBBIHN0b3J5IHRoYXQgaGVscHMgb25lIHBlcnNvbmEgYnkgYnJlYWtpbmcgYSBzaGFyZWQgcnVsZSwgc3VjaCBhcyByZW1vdmluZyBzb25nIGNob2ljZSBvciBhdXRvLXJhaXNpbmcgZGlmZmljdWx0eSwgbmVlZHMgYW4gZXhwbGljaXQgZGVjaXNpb24sIG5vdCBhIHF1aWV0IHRyYWRlLgotIFRoZSB0aHJlZSBtYWlucyBvdXRyYW5rIHRoZSBjbG9zZSBzZWNvbmQsIGFuZCB0aGUgY2xvc2Ugc2Vjb25kIG91dHJhbmtzIHRoZSB0ZW50YXRpdmUgcGVyc29uYSwgd2hlbiBuZWVkcyBjb25mbGljdC4KLSBOZXcgaW50ZXJ2aWV3IGRldGFpbCBiZWF0cyB0aGlzIGRvY3VtZW50LiBXaGVuIGEgcmVhbCB1c2VyIHNheXMgc29tZXRoaW5nIHRoYXQgY2hhbmdlcyBhIHBlcnNvbmEsIHVwZGF0ZSB0aGlzIGZpbGUgaW4gdGhlIHNhbWUgcGFzcyBhcyB0aGUgd29yayBpdCBhZmZlY3RzLgo=
+# College of Keys: Personas
+
+Personas for College of Keys, the D&D bard piano app. Use this document to make product choices and to write stories that serve real users. When a feature decision is unclear, ask which persona it serves and how. If it serves none of them, it probably does not belong in the app.
+
+This document is written to live in the repo as `PERSONAS.md`, alongside the other project docs, so the people and agents building the app read it as part of the source of truth.
+
+## Rules that apply to every persona
+
+These rules came out of the persona interviews. They hold across the whole set.
+
+- **They all love D&D.** Every persona here is a D&D person. That is the shared ground, not a niche extra.
+
+- **The flavor is the app.** The D&D flavor is not a skin on top of a piano app. The flavor, the dice, and the visuals are the app itself. If they were missing, it would feel wrong. Any feature that cannot wear the bard skin does not belong.
+
+- **Bard is the only class that matters.** College of Keys is a bard app. Frame progress, titles, and rewards in bard terms.
+
+- **They pick their own songs.** Forced catalogs and classics-only lessons are the reason these users quit other apps. Song choice is a core need, not a nice extra.
+
+- **Difficulty is chosen, not assigned.** Players pick a harder version of a song themselves when they are ready. Do not auto-promote them.
+
+- **Fun comes before rigor.** These users return for progress they can feel, songs they love, and play with other people. Dry instruction loses them, even when it teaches them something real.
+
+## The personas at a glance
+
+| Persona | Priority | One-line summary |
+|---|---|---|
+| The Returning Adult | Main | Busy adult beginner who needs real songs and game progress to keep coming back |
+| The Gamer Bard | Main | Here for the RPG layer first, with the keyboard as the controller |
+| The Rock Band Player | Main | Rhythm game veteran who judges game feel, polish, and scoring first |
+| The Casual Song Player | Close second | Just wants to play favorite songs, with the least friction possible |
+| The Young Learner | Tentative | Musical teenager, new to piano, who already games and plays D&D |
+| The Conservatory Purist | Anti-persona | Wants strict pedagogy only, and is not who this app is for |
+
+## Main persona: The Returning Adult
+
+This persona is Kiyoshi himself: 37, busy, learning piano as an adult with a 61-key foldable piano, an iPad, and a PC. He is the primary user today, and the app has to work for him first.
+
+### What his last practice looked like
+
+His last session was on Flowkey on the iPad. He hit the subscribe paywall after about 20 minutes, moved to another app, and walked through basic lessons there. Both apps taught him something real: he learned some basic keys and note reading, and he liked that. He still quit both.
+
+### Why he quit
+
+- They were dry.
+- He could not pick his own songs.
+- The classics are boring to him.
+- Nothing kept him engaged or gave him a reason to return.
+
+### What keeps him coming back
+
+- Gamified progress like Duolingo: visible progress, levels, and a reason to open the app again tomorrow.
+- Real songs he already loves, not exercises dressed up as songs.
+- Short practice bursts that fit a busy life, not long formal lessons.
+
+### His music
+
+- Pop: Chappell Roan, Sabrina Carpenter, John Legend, Sam Smith, Teddy Swims, Bruno Mars.
+- Pop punk: Paramore, Linkin Park, Sleep Token, blink-182, Weezer.
+- Musicals: Hamilton, Mean Girls, Heathers, Dead Mom from Beetlejuice, Dear Evan Hansen.
+
+If a song is not in these worlds, it is probably not a starter song for him.
+
+### The difficulty ladder he needs
+
+He does not just want easy versions. He wants a ladder for each song:
+
+1. Start with a simplified version he can actually play.
+2. Layer on difficulty and more notes as he improves.
+3. End up playing the real thing.
+
+YouTube has easy tutorials, but the path from easy to real is unclear. College of Keys should make that path visible for a single song, and he picks when to climb it himself.
+
+### His starting point, stated plainly
+
+Every song starts from scratch for him right now, because he plays by following the highway. He can barely find the keys today. That is exactly why reading music matters as a long-term skill: it is the one skill that transfers, so the next song is not a fresh climb. The sheet music view and notation work serve this persona directly.
+
+### Design checks for this persona
+
+- Can he start a song he loves within a minute of opening the app?
+- Can he see the next harder version of that same song, and choose it himself?
+- Does a short session still move his level, XP, or quest progress?
+- Is anything in the flow dry, locked behind a paywall-style wall, or classics-only? If so, it fails him.
+
+## Main persona: The Gamer Bard
+
+The Gamer Bard is here for the RPG layer first and the piano second. XP, levels, quests, titles, and the tavern are the motivation. The keyboard is the controller.
+
+### What he cares about
+
+- A character who grows: level, title, and XP that reflect real practice.
+- Quests and goals that give a session a purpose beyond playing a song once.
+- Dice moments and bard flavor in the feedback itself, such as a performance check at the end of a song.
+- A world that feels consistent: the tavern, the Grimoire, and the Quest Board as places, not menu labels.
+
+### What loses him
+
+- A plain piano tutor with a few badges pasted on. He can tell the difference, and it feels wrong to him.
+- Rewards that have nothing to do with playing. Progress should come from songs played, not from clicking around.
+- Flavor that stops at the menu. If the practice screen itself drops the bard framing, the spell breaks.
+
+### Design checks for this persona
+
+- Does finishing a song feel like finishing a performance, with a result he cares about?
+- Does his bard visibly grow over weeks, not just over one session?
+- Is every new system named, shown, and rewarded in bard terms?
+
+## Main persona: The Rock Band Player
+
+The Rock Band Player already speaks rhythm games fluently. He has played Guitar Hero, Rock Band, and DJ Hero, still plays Rock Band now, and also plays Just Dance and Rhythm Heaven. He modded a Wii to play the dance games there. He will judge College of Keys as a game first and as a learning tool second, which makes him the quality bar for game feel: if it feels good to him, it feels good to everyone.
+
+### What makes a rhythm game feel good to him
+
+- Visual polish. Weak graphics made some games feel cheap to him, and cheap reads as low quality before he has played a note.
+- Clear timing, scoring, and grades he can chase.
+- Difficulty tiers he understands and can choose between.
+- A setlist of songs he actually wants to play.
+
+### The people behind this persona
+
+Kiyoshi's friends are this persona in real life. They already play instruments, mostly guitar, while he is the one non-musician in the group. They love Rock Band, play on Expert, and lean toward metal, while he plays the pop punk songs. One friend has just started piano, so there is also a peer learner in the group. These are the friends Kiyoshi wants to try the app someday, so this persona has to respect real musicians without punishing beginners.
+
+### What Lips taught him about singing games
+
+His favorite singing game was Lips on Xbox, and there is nothing quite like it now. What made it work was head-to-head play with his wife Amber, plain fun, mics that doubled as instruments when you shook them, and a fantastic song list where they always had something they wanted to sing. Competition and a great song list beat technical depth. That lesson applies to any future vocals or multiplayer work: play together, keep it joyful, and stock songs people love.
+
+### Design checks for this persona
+
+- Does the timing feel fair, and does the scoring tell him how to get better?
+- Does the app look polished enough that he trusts it in the first ten seconds?
+- Can an Expert-level player find a tier that challenges him, while a beginner in the same app is not crushed?
+- Could he hand this to a friend who plays real guitar and not be embarrassed by the game feel?
+
+## Close second: The Casual Song Player
+
+The Casual Song Player just wants to play favorite songs, often sourced from YouTube. He does not care about theory, levels, or reading music, and he will not do homework to get to a song.
+
+### What he cares about
+
+- The shortest path from hearing a song to playing a version of it.
+- Songs he chose, in the genres he already listens to.
+- A result that sounds like the song, even in a simplified form.
+
+### What loses him
+
+- Lessons, theory gates, or level requirements standing between him and a song.
+- Setup friction. Every extra step before the first note costs users.
+
+### Design checks for this persona
+
+- Can he go from a YouTube link to playing in a few steps, with no lesson in between?
+- Does the app stay out of his way if he ignores XP, quests, and notation entirely?
+
+This persona is a close second, not a main, so his needs shape the entry path but do not override the mains. If a choice helps him by stripping out the RPG layer, it is the wrong choice.
+
+## Tentative persona: The Young Learner
+
+The Young Learners are Kiyoshi's teenagers, who may try the app someday. They are not blank-slate beginners, and they should not be designed for as if they were young children.
+
+### Who they are
+
+- They do not play piano. Piano would be a new instrument for them.
+- They are already musical: both are in chorus and do theater, and one used to play percussion.
+- They like games and they play D&D with their dad.
+
+### What that means for design
+
+- Musical basics are not foreign to them. Rhythm, singing, and performing on stage are familiar ground.
+- The game layer and the D&D flavor are the invitation, the same as for the other personas.
+- Readability, clear difficulty steps, and short sessions matter, but nothing should be dumbed down or made childish for them.
+
+### Design checks for this persona
+
+- Could a musical teenager start a first song without a parent walking them through setup?
+- Does the app respect that they are performers already, just new to this instrument?
+
+This persona is tentative. Keep it in mind for difficulty and readability, but do not let it pull scope ahead of the three mains.
+
+## Anti-persona: The Conservatory Purist
+
+The Conservatory Purist wants strict pedagogy and standard notation only, in a set order, with no game layer. College of Keys is not built for him.
+
+Naming him matters because it tells builders what not to build: no mandatory lesson tracks before songs, no notation-only mode as the price of entry, and no stripping the bard flavor to look more serious. Notation is in the app because it helps the Returning Adult stop starting every song from scratch, not because the Purist demands it.
+
+## How to use these personas in a story
+
+Before a story is accepted, it should name the persona or personas it serves and pass their design checks. A few standing rules for story writing:
+
+- A story that serves no named persona gets questioned before it gets built.
+- A story that helps one persona by breaking a shared rule, such as removing song choice or auto-raising difficulty, needs an explicit decision, not a quiet trade.
+- The three mains outrank the close second, and the close second outranks the tentative persona, when needs conflict.
+- New interview detail beats this document. When a real user says something that changes a persona, update this file in the same pass as the work it affects.
