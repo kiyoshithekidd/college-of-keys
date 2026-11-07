@@ -2435,6 +2435,16 @@ function scanWatchedDirectories(notifyOnNew = false) {
     }
   }
 
+  // Prune deleted files from The Grimoire (Fixes #57)
+  for (const [key, entry] of grimoireSpells.entries()) {
+    if (entry.filePath && entry.filePath !== 'BUILTIN_DEMO' && (entry.sourceTag === 'Imports/' || entry.sourceTag === 'Test Library')) {
+      if (!fs.existsSync(entry.filePath)) {
+        grimoireSpells.delete(key);
+        changed = true;
+      }
+    }
+  }
+
   if (changed) {
     persistGrimoireIndex();
     renderGrimoireSidebar();
@@ -2678,11 +2688,19 @@ function removeGrimoireEntry(entry) {
       if (currentSong?.backingAudioPath === entry.backingAudioPath && currentSong.backingAudioEl) {
         currentSong.backingAudioEl.pause();
         currentSong.backingAudioEl.src = '';
+        currentSong.backingAudioEl = null;
+        currentSong.backingAudioPath = null;
       }
       fs.unlinkSync(entry.backingAudioPath);
     }
   } catch {
     // Ignore backing audio unlink error
+  }
+  if (currentSong?.filePath === entry.filePath && currentSong.backingAudioEl) {
+    currentSong.backingAudioEl.pause();
+    currentSong.backingAudioEl.src = '';
+    currentSong.backingAudioEl = null;
+    currentSong.backingAudioPath = null;
   }
   grimoireSpells.delete(entry.id);
   persistGrimoireIndex();
