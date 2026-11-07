@@ -1736,11 +1736,22 @@ function evaluateStrikeZoneInput(midi) {
 }
 
 function clearAllHeldInputNotes() {
+  const inst = getActiveInstrument();
+  if (inst) {
+    for (const midi of activeNotes.keys()) {
+      try {
+        inst.triggerRelease(midiToNoteName(midi), Tone.now());
+      } catch {
+        // Ignore audio release errors
+      }
+    }
+  }
   pressedQwertyKeys.clear();
   activeNotes.clear();
   sustainedNotes.clear();
   isMouseDown = false;
   currentMouseMidi = null;
+  handleSustainPedal(false);
   updateActiveNotesHUD();
 }
 
@@ -3569,6 +3580,7 @@ function bindMidiInputs(midiAccess) {
       if (toggleQwertyLabelsCheckbox) toggleQwertyLabelsCheckbox.checked = false;
     }
   } else {
+    clearAllHeldInputNotes();
     setMidiStatus('waiting', 'QWERTY / Mouse', 'No Physical MIDI Keyboard Detected — Mouse & QWERTY Piano Active');
     if (!userManuallyToggledQwertyLabels) {
       showQwertyKeyLabels = true;
@@ -3587,6 +3599,11 @@ function setMidiStatus(state, message, tooltipText = '') {
 function onMidiMessage(event) {
   const data = event.data;
   if (!data || data.length < 2) return;
+
+  // Ignore MIDI input while modal dialogs are open or if event originates on Channel 10 (drums/percussion) (Issue #58)
+  if (isAnyModalOpen()) return;
+  const channel = data[0] & 0x0f;
+  if (channel === 9) return;
 
   const status = data[0] & 0xf0;
   const data1 = data[1];
