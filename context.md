@@ -21,3 +21,14 @@
 - Follow Micro-Targeted Operations: edit only requested files.
 - Consult and update `Gemini.md`, `progress.md`, `context.md`, `README.md`, and `CHANGELOG.md` at every phase.
 - Wait for explicit user confirmation ("Testing successful") before advancing phases.
+
+## Personas & Story Tagging Policy
+- Consult `PERSONAS.md` as the primary source of truth for all feature and architecture decisions.
+- Every GitHub issue, bug, or backlog item MUST be tagged with its corresponding persona label:
+  - `persona: returning-adult` (Main — busy adult beginner, song ladder, short sessions, Duolingo-style habit)
+  - `persona: gamer-bard` (Main — RPG progression, level titles, quests, d20 performance check)
+  - `persona: rock-band` (Main — rhythm game feel, timing fairness, 100ms chord roll, scoring)
+  - `persona: casual-player` (Close second — shortest path from song to play, zero friction)
+  - `persona: young-learner` (Tentative — musical teens, clear steps, clean visuals)
+- Stories that do not serve a persona must be challenged before being built.
+
