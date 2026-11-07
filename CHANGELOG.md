@@ -11,6 +11,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.1.2] - 2026-11-07 — Deep-Dive Code Review Remediation (`Fixes #44–#51`)
+
+### Fixed
+- **Issue #44 (`High`):** Extracted shared `foldAndDeduplicateHandNotes()` helper used by both `assignSongTracksAndDifficulty()` and `extractGrimoireEntryFromBuffer()` so Grimoire cards and the Active Spell HUD always report identical octave-folded note counts, NPS, and Spell Level tiers.
+- **Issue #45 (`High`):** Updated the held-key arrival check (`isFreshEarlyPress`) in `animationLoop()` to track `firstStrikeMs`, `lastStrikeMs`, and `hasSlowRoll`, validate `100ms` chord rolls (`isCleanChordRoll`) using the same rules as `evaluateStrikeZoneInput()`, and update `setStrikeStatusBadge()`.
+- **Issue #46 (`High`):** Updated Arcade Mode (`Wait Mode: OFF`) in `animationLoop()` to cluster earliest unsatisfied player notes via `getNextUnsatisfiedStrikeGroup()` so unstruck staggered chords expire atomically once per chord rather than firing multiple Spell Chain breaks across consecutive frames, and updated `setStrikeStatusBadge('fumble', ...)`.
+- **Issue #47 (`Medium`):** Reset `songSessionStats` (`resetSongSessionStats()`) when `startPlayback()` rewinds a finished song to the start, and reset `songSessionStats.hasShownEndModal = false` when scrubbing `#song-progress-slider` backwards so the Post-Song Performance Check Modal opens reliably on subsequent playthroughs.
+- **Issue #48 (`Medium`):** Updated `saveActiveSpellToGrimoire()` to copy any paired backing audio track (`currentSong.backingAudioPath`) into `./Imports/` alongside the saved `.mid` file, and passed `{ preserveTriggeredAtTarget: true }` in `assignSongTracksAndDifficulty()`.
+- **Issue #49 (`Medium`):** Updated `python_ml/transcribe_quest.py` to support 8-bit, 16-bit, 24-bit, and 32-bit PCM `.wav` files in `read_wav_mono_float()` and `convert_audio_to_pcm_wav()`, and ensured `write_standard_midi_file()` always writes a valid non-empty primary track with tempo metadata.
+- **Issue #50 (`Medium`):** Added `clearAllHeldInputNotes()` and invoked it inside `resetPlaybackToStart()` to clear `pressedQwertyKeys`, `activeNotes`, `sustainedNotes`, and mouse state when loading a new song or restarting playback.
+- **Issue #51 (`Low`):** Dismissed open Conservatory popovers on `canvas` `mousedown` and refined `renderGrimoireSidebar()` `.active-spell` matching to compare resolved `filePath` values when available.
+
+---
+
 ## [1.1.1] - 2026-11-07 — Post-Overhaul Code Review Remediation (`Fixes #31–#38`)
 
 ### Fixed

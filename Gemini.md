@@ -309,3 +309,16 @@ In addition to the libraries in the PRD (`Tone.js`, `@tonejs/midi`, `atosystem/m
     7. **Issue #37 (`Medium`):** Dynamic time-signature measure lines (`beatsPerMeasure` from `midiData.header.timeSignatures`) in `drawFallingSpellHighway()` and `file.path` forwarding for File Picker / Drag-and-Drop backing audio discovery.
     8. **Issue #38 (`Low`):** Portable `start.bat` Electron path resolution, `'—'` accuracy display when `0` notes are attempted in `#performance-check-modal`, and `URL.revokeObjectURL()` cleanup inside `grandPianoSampler`'s `onload` callback.
 
+### 2026-11-07 — Session 14: Deep-Dive Code Review & `v1.1.2` Remediation (`Issues #44`–`#51`)
+- **What we did:**
+  - Conducted a follow-up deep-dive code review across `renderer.js`, `index.html`, `styles.css`, `main.js`, and `python_ml/transcribe_quest.py`, logging 8 GitHub Issues (`#44` through `#51`) on https://github.com/kiyoshithekidd/college-of-keys/issues and implementing all fixes in **`v1.1.2`**:
+    1. **Issue #44 (`High`):** Extracted shared `foldAndDeduplicateHandNotes()` helper used by both `assignSongTracksAndDifficulty()` and `extractGrimoireEntryFromBuffer()` so Grimoire cards and the Active Spell HUD always report identical octave-folded note counts, NPS, and Spell Level tiers.
+    2. **Issue #45 (`High`):** Updated the held-key arrival check (`isFreshEarlyPress`) in `animationLoop()` to track `firstStrikeMs`, `lastStrikeMs`, and `hasSlowRoll`, validate `100ms` chord rolls (`isCleanChordRoll`), and update `setStrikeStatusBadge()`.
+    3. **Issue #46 (`High`):** Updated Arcade Mode (`Wait Mode: OFF`) in `animationLoop()` to cluster earliest unsatisfied player notes via `getNextUnsatisfiedStrikeGroup()` so unstruck staggered chords expire atomically once per chord.
+    4. **Issue #47 (`Medium`):** Reset `songSessionStats` when `startPlayback()` rewinds a finished song and cleared `songSessionStats.hasShownEndModal = false` when scrubbing `#song-progress-slider` backwards.
+    5. **Issue #48 (`Medium`):** Copied paired backing audio (`currentSong.backingAudioPath`) into `./Imports/` inside `saveActiveSpellToGrimoire()` and preserved triggered note state at `currentTime` in `assignSongTracksAndDifficulty()`.
+    6. **Issue #49 (`Medium`):** Added 8/16/24/32-bit PCM `.wav` decoding in `python_ml/transcribe_quest.py` (`read_wav_mono_float()` & `convert_audio_to_pcm_wav()`) and guarded `write_standard_midi_file()` against empty tracks or 0-note MIDI output.
+    7. **Issue #50 (`Medium`):** Added `clearAllHeldInputNotes()` in `resetPlaybackToStart()` so held keys and sustain state are cleared when loading a new song or restarting playback.
+    8. **Issue #51 (`Low`):** Dismissed open popovers on `canvas` `mousedown` and refined `.active-spell` path matching in `renderGrimoireSidebar()`.
+
+

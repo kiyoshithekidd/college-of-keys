@@ -856,6 +856,45 @@ function populateTrackSelectorDropdown(song) {
   });
 }
 
+function foldAndDeduplicateHandNotes(noteArr, handTrack) {
+  let foldedCount = 0;
+  const sorted = noteArr
+    .map((n) => {
+      const { foldedMidi, wasFolded, semitoneShift } = foldMidiNoteDetails(n.originalMidi);
+      if (wasFolded) foldedCount++;
+      return {
+        ...n,
+        midi: foldedMidi,
+        foldedName: midiToNoteName(foldedMidi),
+        wasFolded,
+        semitoneShift,
+        handTrack, // 1 = Right Hand (Radiant Gold), 2 = Left Hand (Eldritch Blue)
+        autoTriggered: false,
+        satisfied: false,
+        lockedInWait: false
+      };
+    })
+    .sort((a, b) => a.time - b.time || a.midi - b.midi);
+
+  // Deduplicate simultaneous same-pitch notes produced by octave folding (Issue #14 & Issue #39)
+  const deduped = [];
+  for (const note of sorted) {
+    const prevSamePitch = deduped.length > 0
+      ? deduped.slice(Math.max(0, deduped.length - 8)).find((p) => p.midi === note.midi && Math.abs(note.time - p.time) <= 0.025)
+      : null;
+    if (prevSamePitch) {
+      const mergedEnd = Math.max(prevSamePitch.time + prevSamePitch.duration, note.time + note.duration);
+      prevSamePitch.duration = Math.max(0.05, mergedEnd - prevSamePitch.time);
+      prevSamePitch.velocity = Math.max(prevSamePitch.velocity, note.velocity);
+      prevSamePitch.wasFolded = prevSamePitch.wasFolded || note.wasFolded;
+    } else {
+      deduped.push(note);
+    }
+  }
+
+  return { notes: deduped, foldedCount };
+}
+
 function assignSongTracksAndDifficulty(mode = 'auto-piano') {
   if (!currentSong) return;
   currentSong.selectedTrackMode = mode;
@@ -945,48 +984,12 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
     }
   }
 
-  let foldedCount = 0;
+  const foldedT1 = foldAndDeduplicateHandNotes(track1Raw, 1);
+  const foldedT2 = foldAndDeduplicateHandNotes(track2Raw, 2);
 
-  const foldAndFormat = (noteArr, handTrack) => {
-    const sorted = noteArr
-      .map((n) => {
-        const { foldedMidi, wasFolded, semitoneShift } = foldMidiNoteDetails(n.originalMidi);
-        if (wasFolded) foldedCount++;
-        return {
-          ...n,
-          midi: foldedMidi,
-          foldedName: midiToNoteName(foldedMidi),
-          wasFolded,
-          semitoneShift,
-          handTrack, // 1 = Right Hand (Radiant Gold), 2 = Left Hand (Eldritch Blue)
-          autoTriggered: false,
-          satisfied: false,
-          lockedInWait: false
-        };
-      })
-      .sort((a, b) => a.time - b.time || a.midi - b.midi);
-
-    // Deduplicate simultaneous same-pitch notes produced by octave folding (Issue #14)
-    const deduped = [];
-    for (const note of sorted) {
-      const prevSamePitch = deduped.length > 0
-        ? deduped.slice(Math.max(0, deduped.length - 8)).find((p) => p.midi === note.midi && Math.abs(note.time - p.time) <= 0.025)
-        : null;
-      if (prevSamePitch) {
-        const mergedEnd = Math.max(prevSamePitch.time + prevSamePitch.duration, note.time + note.duration);
-        prevSamePitch.duration = Math.max(0.05, mergedEnd - prevSamePitch.time);
-        prevSamePitch.velocity = Math.max(prevSamePitch.velocity, note.velocity);
-        prevSamePitch.wasFolded = prevSamePitch.wasFolded || note.wasFolded;
-      } else {
-        deduped.push(note);
-      }
-    }
-    return deduped;
-  };
-
-  currentSong.track1Notes = foldAndFormat(track1Raw, 1);
-  currentSong.track2Notes = foldAndFormat(track2Raw, 2);
-  currentSong.foldedNotesCount = foldedCount;
+  currentSong.track1Notes = foldedT1.notes;
+  currentSong.track2Notes = foldedT2.notes;
+  currentSong.foldedNotesCount = foldedT1.foldedCount + foldedT2.foldedCount;
 
   currentSong.backingBandTracks = rawTracks.filter((t, idx) => !chosenPlayableIndices.has(idx) && !t.isDuplicate);
 
@@ -1016,7 +1019,7 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
 
   currentSong.difficulty = calculateSpellDifficulty(allPlayable.length, activeDuration);
 
-  resetSongProgressFlags(playbackState.currentTime);
+  resetSongProgressFlags(playbackState.currentTime, { preserveTriggeredAtTarget: true });
   updateSpellInspectorHUD();
   updateLitrpgHUD();
 }
@@ -1732,8 +1735,18 @@ function evaluateStrikeZoneInput(midi) {
   return false;
 }
 
+function clearAllHeldInputNotes() {
+  pressedQwertyKeys.clear();
+  activeNotes.clear();
+  sustainedNotes.clear();
+  isMouseDown = false;
+  currentMouseMidi = null;
+  updateActiveNotesHUD();
+}
+
 function resetPlaybackToStart() {
   pausePlayback();
+  clearAllHeldInputNotes();
   playbackState.currentTime = -playbackState.leadInSeconds;
   resetSongProgressFlags(-playbackState.leadInSeconds);
   resetSongSessionStats();
@@ -1762,6 +1775,7 @@ async function startPlayback() {
   if (playbackState.currentTime >= currentSong.duration) {
     playbackState.currentTime = -playbackState.leadInSeconds;
     resetSongProgressFlags(-playbackState.leadInSeconds);
+    resetSongSessionStats();
   }
 
   playbackState.isPlaying = true;
@@ -1918,7 +1932,7 @@ function animationLoop(timestamp) {
 
       if (nextGroup) {
         // Only allow a key pressed freshly within the early-strike window (not sustainedOnly or already consumed)
-        // to satisfy a new note onset on arrival (Fixes Issue #9)
+        // to satisfy a new note onset on arrival (Fixes Issue #9 & Issue #45)
         if (proposedTime >= nextGroup.anchorTime - 0.02) {
           for (const reqMidi of nextGroup.requiredPitches) {
             const heldState = activeNotes.get(reqMidi);
@@ -1930,9 +1944,17 @@ function animationLoop(timestamp) {
             );
             if (isFreshEarlyPress && !nextGroup.satisfiedPitches.has(reqMidi)) {
               heldState.consumedByStrikeGroup = true;
+              const strikeTs = heldState.pressedAtMs || timestamp;
               if (nextGroup.satisfiedPitches.size === 0) {
-                nextGroup.firstStrikeMs = timestamp;
-                nextGroup.lastStrikeMs = timestamp;
+                nextGroup.firstStrikeMs = strikeTs;
+                nextGroup.lastStrikeMs = strikeTs;
+              } else {
+                const stepDeltaMs = Math.abs(strikeTs - nextGroup.lastStrikeMs);
+                nextGroup.firstStrikeMs = Math.min(nextGroup.firstStrikeMs, strikeTs);
+                nextGroup.lastStrikeMs = Math.max(nextGroup.lastStrikeMs, strikeTs);
+                if (stepDeltaMs > CHORD_GRACE_PERIOD_MS) {
+                  nextGroup.hasSlowRoll = true;
+                }
               }
               nextGroup.satisfiedPitches.add(reqMidi);
               for (const n of nextGroup.notes) {
@@ -1945,10 +1967,31 @@ function animationLoop(timestamp) {
               n.satisfied = true;
               n.lockedInWait = false;
             }
+            const totalRollMs = nextGroup.firstStrikeMs !== null
+              ? Math.max(0, Math.round(nextGroup.lastStrikeMs - nextGroup.firstStrikeMs))
+              : 0;
+            const isChord = nextGroup.requiredPitches.size > 1;
+            const isCleanChordRoll =
+              isChord &&
+              (!nextGroup.hasSlowRoll || totalRollMs <= CHORD_GRACE_PERIOD_MS) &&
+              !nextGroup.wrongKeyDuringRoll;
+
             playbackState.isWaitingForStrike = false;
             playbackState.waitStartedAtMs = null;
             playbackState.activeStrikeGroup = null;
-            recordStrikeGroupCompletion(nextGroup, false, nextGroup.requiredPitches.size > 1);
+            recordStrikeGroupCompletion(nextGroup, false, isCleanChordRoll);
+
+            if (isChord) {
+              setStrikeStatusBadge(
+                'hit',
+                isCleanChordRoll
+                  ? `✓ Clean Chord Roll! (${nextGroup.requiredPitches.size} notes in ${totalRollMs}ms ≤ 100ms)`
+                  : `✓ Chord Unlocked (${nextGroup.requiredPitches.size} notes • ${totalRollMs}ms roll)`
+              );
+            } else {
+              const singleMidi = Array.from(nextGroup.requiredPitches)[0];
+              setStrikeStatusBadge('hit', `✓ Clean Strike: ${midiToNoteName(singleMidi)}`);
+            }
           }
         }
 
@@ -1981,38 +2024,39 @@ function animationLoop(timestamp) {
         }
       }
     } else {
-      // Arcade Mode: mark past notes as satisfied; if a player-controlled note/chord passed unhit, break Spell Chain once per chord (Issue #11).
+      // Arcade Mode: cluster earliest unsatisfied player notes via getNextUnsatisfiedStrikeGroup()
+      // so staggered chords expire atomically once per chord rather than across consecutive frames (Fixes #46).
       playbackState.isWaitingForStrike = false;
       let missedPlayerChord = false;
 
-      if (
-        playbackState.activeStrikeGroup &&
-        proposedTime > playbackState.activeStrikeGroup.anchorTime + 0.18
-      ) {
-        for (const n of playbackState.activeStrikeGroup.notes) {
-          n.satisfied = true;
-          n.lockedInWait = false;
+      if (playbackState.accompanimentMode !== 'auto-both') {
+        let nextArcadeGroup = getNextUnsatisfiedStrikeGroup();
+        while (nextArcadeGroup && proposedTime > nextArcadeGroup.anchorTime + 0.18) {
+          for (const n of nextArcadeGroup.notes) {
+            n.satisfied = true;
+            n.lockedInWait = false;
+          }
+          playbackState.activeStrikeGroup = null;
+          missedPlayerChord = true;
+          nextArcadeGroup = getNextUnsatisfiedStrikeGroup();
         }
-        playbackState.activeStrikeGroup = null;
-        missedPlayerChord = true;
       }
 
       for (const n of currentSong.track1Notes) {
         if (!n.satisfied && n.time < proposedTime - 0.18) {
           n.satisfied = true;
           n.lockedInWait = false;
-          if (isPlayerControlledHand(1)) missedPlayerChord = true;
         }
       }
       for (const n of currentSong.track2Notes) {
         if (!n.satisfied && n.time < proposedTime - 0.18) {
           n.satisfied = true;
           n.lockedInWait = false;
-          if (isPlayerControlledHand(2)) missedPlayerChord = true;
         }
       }
       if (missedPlayerChord) {
         recordSpellChainBreak('✗ Missed Note (Arcade)');
+        setStrikeStatusBadge('fumble', '✗ Missed Note (Arcade Mode — Spell Chain Reset)');
       }
     }
 
@@ -2203,19 +2247,37 @@ function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceT
     candidates = nonPercTracks.filter((t) => !t.isDuplicate);
   }
 
-  let selectedNotes = [];
+  let track1Raw = [];
+  let track2Raw = [];
   if (candidates.length >= 2) {
     const treble = candidates.filter((t) => t.avgPitch >= 62).sort((a, b) => b.notes.length - a.notes.length);
     const bass = candidates.filter((t) => t.avgPitch < 62).sort((a, b) => b.notes.length - a.notes.length);
     if (treble.length > 0 && bass.length > 0) {
-      selectedNotes = [...treble[0].notes, ...bass[0].notes];
+      track1Raw = treble[0].notes;
+      track2Raw = bass[0].notes;
     } else {
-      const topTwo = candidates.slice().sort((a, b) => b.notes.length - a.notes.length).slice(0, 2);
-      selectedNotes = [...topTwo[0].notes, ...topTwo[1].notes];
+      const topTwo = candidates
+        .slice()
+        .sort((a, b) => b.notes.length - a.notes.length)
+        .slice(0, 2)
+        .sort((a, b) => b.avgPitch - a.avgPitch);
+      track1Raw = topTwo[0].notes;
+      track2Raw = topTwo[1].notes;
     }
   } else if (candidates.length === 1) {
-    selectedNotes = candidates[0].notes;
+    for (const n of candidates[0].notes) {
+      const foldedCheck = foldMidiTo61Keys(n.originalMidi);
+      if (foldedCheck >= MIDDLE_C) {
+        track1Raw.push(n);
+      } else {
+        track2Raw.push(n);
+      }
+    }
   }
+
+  const foldedT1 = foldAndDeduplicateHandNotes(track1Raw, 1);
+  const foldedT2 = foldAndDeduplicateHandNotes(track2Raw, 2);
+  const selectedNotes = [...foldedT1.notes, ...foldedT2.notes];
 
   const playableNoteCount = selectedNotes.length;
   let activeDuration = duration;
@@ -2472,9 +2534,12 @@ function renderGrimoireSidebar() {
   }
 
   for (const entry of entries) {
-    const isActive = currentSong &&
-      (currentSong.filePath === entry.filePath ||
-        currentSong.fileName.toLowerCase() === entry.fileName.toLowerCase());
+    const isActive = Boolean(
+      currentSong &&
+      (currentSong.filePath && entry.filePath
+        ? path.resolve(String(currentSong.filePath)) === path.resolve(String(entry.filePath))
+        : currentSong.fileName.toLowerCase() === entry.fileName.toLowerCase())
+    );
 
     const card = document.createElement('div');
     card.className = `grimoire-card${isActive ? ' active-spell' : ''}${entry.newlyIngested ? ' newly-ingested' : ''}`;
@@ -2567,6 +2632,21 @@ function saveActiveSpellToGrimoire() {
     }
     const safeName = currentSong.fileName.replace(/[^a-zA-Z0-9._ -]/g, '_');
     const destPath = path.join(IMPORTS_DIR, safeName);
+
+    // Copy paired backing audio track into ./Imports before writing .mid (Issue #48)
+    if (currentSong.backingAudioPath && fs.existsSync(currentSong.backingAudioPath)) {
+      try {
+        const ext = path.extname(currentSong.backingAudioPath);
+        const safeBase = safeName.replace(/\.(mid|midi)$/i, '');
+        const destAudioPath = path.join(IMPORTS_DIR, `${safeBase}${ext}`);
+        if (path.resolve(currentSong.backingAudioPath) !== path.resolve(destAudioPath)) {
+          fs.copyFileSync(currentSong.backingAudioPath, destAudioPath);
+        }
+        currentSong.backingAudioPath = destAudioPath;
+      } catch {
+        // Ignore backing audio copy errors
+      }
+    }
 
     fs.writeFileSync(destPath, currentSong.rawBuffer);
     currentSong.filePath = destPath;
@@ -3508,6 +3588,7 @@ function onMidiMessage(event) {
 
 // Mouse & QWERTY Event Listeners
 canvas.addEventListener('mousedown', (e) => {
+  closeAllConservatoryPopovers();
   if (document.activeElement && document.activeElement !== document.body) {
     document.activeElement.blur();
   }
@@ -3838,6 +3919,9 @@ songProgressSlider.addEventListener('input', (e) => {
   if (!currentSong) return;
   const ratio = Number(e.target.value) / 1000;
   playbackState.currentTime = ratio * currentSong.duration;
+  if (playbackState.currentTime < currentSong.duration) {
+    songSessionStats.hasShownEndModal = false;
+  }
   resetSongProgressFlags(playbackState.currentTime);
   if (currentSong.backingAudioEl) {
     try {

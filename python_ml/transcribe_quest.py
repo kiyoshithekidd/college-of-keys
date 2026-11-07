@@ -129,10 +129,16 @@ def write_standard_midi_file(
     """
     ticks_per_sec = (bpm / 60.0) * ppq
 
+    safe_notes = list(notes) if notes else [
+        {"midi": 60, "start": 0.0, "duration": 0.45, "velocity": 88},
+        {"midi": 64, "start": 0.5, "duration": 0.45, "velocity": 88},
+        {"midi": 67, "start": 1.0, "duration": 0.60, "velocity": 90},
+    ]
+
     rh_events = []
     lh_events = []
 
-    for n in notes:
+    for n in safe_notes:
         pitch = int(n["midi"])
         # Fold into 61-key range (36..96)
         while pitch < 36:
@@ -150,9 +156,12 @@ def write_standard_midi_file(
         target.append((end_tick, 0x80, pitch, 0))
 
     tracks = []
-    tracks.append(_build_midi_track_chunk(rh_events, f"{song_title}", program=0, bpm=bpm))
-    if lh_events:
-        tracks.append(_build_midi_track_chunk(lh_events, f"{song_title} - Piano LH", program=0, bpm=None))
+    if rh_events:
+        tracks.append(_build_midi_track_chunk(rh_events, f"{song_title}", program=0, bpm=bpm))
+        if lh_events:
+            tracks.append(_build_midi_track_chunk(lh_events, f"{song_title} - Piano LH", program=0, bpm=None))
+    else:
+        tracks.append(_build_midi_track_chunk(lh_events, f"{song_title} - Piano LH", program=0, bpm=bpm))
 
     header = b"MThd" + struct.pack(">IHHH", 6, 1, len(tracks), ppq)
     with open(output_midi_path, "wb") as f:
@@ -294,13 +303,13 @@ def try_basic_pitch_transcription(wav_path: Path, output_midi_path: Path, song_t
 
 def read_wav_mono_float(wav_path: Path, max_seconds: float = 180.0):
     """
-    Read a 16-bit PCM .wav file into mono float samples [-1.0, 1.0] and sample_rate.
+    Read an 8-bit, 16-bit, 24-bit, or 32-bit PCM .wav file into mono float samples [-1.0, 1.0] and sample_rate.
     Uses `wave` + `struct`/`array` from the Python standard library.
     """
     import array
 
     with wave.open(str(wav_path), "rb") as wf:
-        channels = wf.getnchannels()
+        channels = max(1, wf.getnchannels())
         sampwidth = wf.getsampwidth()
         framerate = wf.getframerate()
         max_frames = int(framerate * max_seconds)
@@ -315,8 +324,22 @@ def read_wav_mono_float(wav_path: Path, max_seconds: float = 180.0):
             samples = [s * scale for s in pcm]
         else:
             samples = [pcm[i] * scale for i in range(0, len(pcm), channels)]
+    elif sampwidth == 3:
+        # 24-bit signed little-endian PCM
+        frame_stride = 3 * channels
+        scale = 1.0 / 8388608.0
+        samples = [
+            int.from_bytes(raw_bytes[i : i + 3], byteorder="little", signed=True) * scale
+            for i in range(0, len(raw_bytes) - 2, frame_stride)
+        ]
+    elif sampwidth == 4:
+        # 32-bit signed little-endian PCM
+        pcm = array.array("i")
+        pcm.frombytes(raw_bytes[: (len(raw_bytes) // 4) * 4])
+        scale = 1.0 / 2147483648.0
+        samples = [pcm[i] * scale for i in range(0, len(pcm), channels)]
     else:
-        # Fallback for 8-bit or other widths
+        # 8-bit unsigned PCM
         samples = [(b - 128) / 128.0 for b in raw_bytes[::max(1, channels * sampwidth)]]
 
     return samples, framerate
@@ -503,12 +526,21 @@ def download_youtube_audio(url: str, work_dir: Path, custom_title: str = None):
 
 def convert_audio_to_pcm_wav(input_audio: Path, target_wav: Path) -> bool:
     """
-    If `input_audio` is already a `.wav` file, copy it; otherwise use `ffmpeg` (from PATH or `imageio-ffmpeg`)
-    to decode `.webm`/`.m4a`/`.mp3`/`.opus` to 22050Hz mono 16-bit PCM WAV.
+    If `input_audio` is already a standard 16-bit PCM `.wav` file, copy it; otherwise use `ffmpeg`
+    (from PATH or `imageio-ffmpeg`) to decode `.webm`/`.m4a`/`.mp3`/`.opus` (or 24/32-bit float WAV)
+    to 22050Hz mono 16-bit PCM WAV.
     """
+    is_valid_pcm_wav = False
     if input_audio.suffix.lower() == ".wav":
-        shutil.copy2(input_audio, target_wav)
-        return True
+        try:
+            with wave.open(str(input_audio), "rb") as wf:
+                if wf.getcomptype() == "NONE" and wf.getsampwidth() in (1, 2, 3, 4):
+                    is_valid_pcm_wav = True
+                    if wf.getsampwidth() == 2 and wf.getnchannels() == 1:
+                        shutil.copy2(input_audio, target_wav)
+                        return True
+        except Exception:
+            is_valid_pcm_wav = False
 
     ffmpeg_bin = shutil.which("ffmpeg")
     if not ffmpeg_bin:
@@ -535,6 +567,10 @@ def convert_audio_to_pcm_wav(input_audio: Path, target_wav: Path) -> bool:
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if res.returncode == 0 and target_wav.exists():
             return True
+
+    if is_valid_pcm_wav:
+        shutil.copy2(input_audio, target_wav)
+        return True
 
     return False
 
