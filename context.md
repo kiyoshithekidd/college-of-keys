@@ -35,3 +35,13 @@
   - `persona: young-learner` (Tentative — musical teens, clear steps, clean visuals)
 - Stories that do not serve a persona must be challenged before being built.
 
+## Bug Fix Execution Protocol
+Always follow this strict micro-targeted execution standard when resolving bugs:
+1. Work bugs **ONE at a time**.
+2. **Scan**: Read the issue description for the target issue and locate the specific files in the workspace related to the failure.
+3. **Isolate**: Do NOT read or modify files outside the direct execution path of the bug.
+4. **Fix**: Apply the exact, minimal code change required to resolve the issue. Do NOT refactor surrounding code, change architecture, or optimize unrelated functions.
+5. **Output**: Always provide a one-sentence explanation of the root cause, followed by the exact code blocks needed to patch it.
+6. Commit with `(Fixes #X)` and verify the issue is closed on GitHub.
+
+
