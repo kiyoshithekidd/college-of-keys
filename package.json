@@ -1,6 +1,6 @@
 {
   "name": "college-of-keys",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "description": "College of Keys — A D&D 5E Bard LitRPG Piano Practice App",
   "main": "main.js",
   "scripts": {

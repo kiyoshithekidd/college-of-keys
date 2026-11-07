@@ -414,6 +414,12 @@ function getVoicedVelocity(midi, velocity = 100) {
   return Math.max(0.08, rawVel * registerScale);
 }
 
+function getBackingAudioVolumeFromSlider() {
+  const db = Number(masterVolumeSlider?.value ?? -2);
+  if (db <= -30) return 0;
+  return Math.max(0, Math.min(1.0, 0.48 * Math.pow(10, db / 20)));
+}
+
 function applySynthPreset(presetName) {
   if (!masterVol) initAudioEngine();
 
@@ -757,7 +763,7 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     try {
       backingAudioEl = new Audio(pathToFileURL(backingAudioPath).href);
       backingAudioEl.preload = 'auto';
-      backingAudioEl.volume = 0.48;
+      backingAudioEl.volume = getBackingAudioVolumeFromSlider();
     } catch {
       backingAudioEl = null;
     }
@@ -1823,9 +1829,15 @@ function animationLoop(timestamp) {
         }
       }
     } else {
-      // Arcade Mode: mark past notes as satisfied; if a player-controlled note passed unhit, break Spell Chain
+      // Arcade Mode: mark past notes as satisfied; if a player-controlled note passed unhit, break Spell Chain.
+      // Preserve activeStrikeGroup while inside the 100ms chord roll window so rolled chords work in Arcade Mode too!
       playbackState.isWaitingForStrike = false;
-      playbackState.activeStrikeGroup = null;
+      if (
+        playbackState.activeStrikeGroup &&
+        proposedTime > playbackState.activeStrikeGroup.anchorTime + 0.18
+      ) {
+        playbackState.activeStrikeGroup = null;
+      }
       let missedPlayerNote = false;
       for (const n of currentSong.track1Notes) {
         if (!n.satisfied && n.time < proposedTime - 0.18) {
@@ -1992,28 +2004,68 @@ function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceT
   const duration = Math.max(1, midiData.duration || 1);
   const cleanTitle = midiData.name?.trim() || fileName.replace(/\.(mid|midi)$/i, '');
 
-  const nonPercTracks = midiData.tracks.filter(
-    (t) => t.notes.length > 0 && !(t.instrument?.percussion || t.channel === 9)
-  );
-  const activeTracks = nonPercTracks.length > 0
-    ? nonPercTracks
-    : midiData.tracks.filter((t) => t.notes.length > 0);
+  const nonPercTracks = midiData.tracks
+    .filter((t) => t.notes.length > 0 && !(t.instrument?.percussion || t.channel === 9))
+    .map((t) => {
+      const avgPitch = t.notes.reduce((sum, n) => sum + n.midi, 0) / t.notes.length;
+      const notes = t.notes.map((n) => ({
+        originalMidi: n.midi,
+        time: n.time,
+        duration: n.duration
+      }));
+      return {
+        name: t.name,
+        instrument: t.instrument,
+        avgPitch,
+        notes,
+        isPianoCandidate: isPianoCandidateTrack(t),
+        isDuplicate: false
+      };
+    });
 
-  // Estimate playable note count from top 2 non-duplicate piano/melody tracks
-  const sortedByNotes = activeTracks
-    .slice()
-    .sort((a, b) => b.notes.length - a.notes.length);
-
-  let playableNoteCount = 0;
-  if (sortedByNotes.length >= 2) {
-    const tA = sortedByNotes[0];
-    const tB = sortedByNotes.find((t) => t !== tA && t.notes.length !== tA.notes.length) || sortedByNotes[1];
-    playableNoteCount = tA.notes.length + (tB && tB !== tA ? tB.notes.length : 0);
-  } else if (sortedByNotes.length === 1) {
-    playableNoteCount = sortedByNotes[0].notes.length;
+  for (let i = 0; i < nonPercTracks.length; i++) {
+    for (let j = 0; j < i; j++) {
+      if (areTracksDuplicates(nonPercTracks[i], nonPercTracks[j])) {
+        nonPercTracks[i].isDuplicate = true;
+        break;
+      }
+    }
   }
 
-  const diff = calculateSpellDifficulty(playableNoteCount, duration);
+  let candidates = nonPercTracks.filter((t) => t.isPianoCandidate && !t.isDuplicate);
+  if (candidates.length === 0) {
+    candidates = nonPercTracks.filter((t) => !t.isDuplicate);
+  }
+
+  let selectedNotes = [];
+  if (candidates.length >= 2) {
+    const treble = candidates.filter((t) => t.avgPitch >= 62).sort((a, b) => b.notes.length - a.notes.length);
+    const bass = candidates.filter((t) => t.avgPitch < 62).sort((a, b) => b.notes.length - a.notes.length);
+    if (treble.length > 0 && bass.length > 0) {
+      selectedNotes = [...treble[0].notes, ...bass[0].notes];
+    } else {
+      const topTwo = candidates.slice().sort((a, b) => b.notes.length - a.notes.length).slice(0, 2);
+      selectedNotes = [...topTwo[0].notes, ...topTwo[1].notes];
+    }
+  } else if (candidates.length === 1) {
+    selectedNotes = candidates[0].notes;
+  }
+
+  const playableNoteCount = selectedNotes.length;
+  let activeDuration = duration;
+  if (selectedNotes.length > 1) {
+    let minStart = Infinity;
+    let maxEnd = -Infinity;
+    for (const n of selectedNotes) {
+      if (n.time < minStart) minStart = n.time;
+      if (n.time + n.duration > maxEnd) maxEnd = n.time + n.duration;
+    }
+    if (Number.isFinite(minStart) && Number.isFinite(maxEnd)) {
+      activeDuration = Math.max(1, maxEnd - minStart);
+    }
+  }
+
+  const diff = calculateSpellDifficulty(playableNoteCount, activeDuration);
 
   // Check if a paired backing audio file (.mp3 / .wav / .ogg / .m4a) exists in the same folder
   let backingAudioPath = null;
@@ -2200,9 +2252,12 @@ function initGrimoireAndWatcher() {
     // Fallback interval below also covers virtual filesystems
   }
 
-  // Resilient 1.8s directory poll (ensures 100% reliability on Google Drive virtual mounts)
+  // Resilient 1.8s directory poll (ensures 100% reliability on Google Drive virtual mounts).
+  // Skips synchronous disk polling while a song is actively playing (Issue #4 / M1) so 60 FPS never hitches.
   setInterval(() => {
-    scanWatchedDirectories(true);
+    if (!playbackState.isPlaying) {
+      scanWatchedDirectories(true);
+    }
   }, 1800);
 }
 
@@ -2355,6 +2410,17 @@ function removeGrimoireEntry(entry) {
     }
   } catch {
     // Ignore file unlink error
+  }
+  try {
+    if (entry.backingAudioPath && fs.existsSync(entry.backingAudioPath)) {
+      if (currentSong?.backingAudioPath === entry.backingAudioPath && currentSong.backingAudioEl) {
+        currentSong.backingAudioEl.pause();
+        currentSong.backingAudioEl.src = '';
+      }
+      fs.unlinkSync(entry.backingAudioPath);
+    }
+  } catch {
+    // Ignore backing audio unlink error
   }
   grimoireSpells.delete(entry.id);
   persistGrimoireIndex();
@@ -2523,8 +2589,14 @@ function tryAutoLoadWorkspaceMidi() {
   }
 }
 
+// Cached canvas dimensions & pre-built vertical key gradients (Issue #5 / M2)
+let cachedCanvasWidth = 1024;
+let cachedCanvasHeight = 640;
+let cachedKeyGradients = null;
+
 /**
  * Compute exact 61-key geometry lookup table (keyGeometry[36..96])
+ * and pre-allocate shared vertical CanvasGradient objects on resize.
  */
 function computeKeyGeometry() {
   const dpr = window.devicePixelRatio || 1;
@@ -2535,6 +2607,8 @@ function computeKeyGeometry() {
 
   const width = rect.width;
   const height = rect.height;
+  cachedCanvasWidth = width;
+  cachedCanvasHeight = height;
 
   const keyboardHeight = Math.max(145, Math.min(210, Math.round(height * 0.22)));
   const keyboardY = height - keyboardHeight;
@@ -2590,6 +2664,28 @@ function computeKeyGeometry() {
       blackKeys.push(keyObj);
     }
   }
+
+  // Pre-build shared vertical LinearGradients for the 36 white keys and 25 black keys
+  const makeVGrad = (y0, h, stops) => {
+    const g = ctx.createLinearGradient(0, y0, 0, y0 + h);
+    for (const [offset, color] of stops) {
+      g.addColorStop(offset, color);
+    }
+    return g;
+  };
+
+  cachedKeyGradients = {
+    whiteIdle: makeVGrad(keyboardY, keyboardHeight, [[0, '#e8e2d5'], [0.88, '#f7f3eb'], [1, '#cfc6b4']]),
+    whitePressed: makeVGrad(keyboardY, keyboardHeight, [[0, '#fff3b0'], [0.35, '#ffd700'], [1, '#c59b27']]),
+    whiteLocked: makeVGrad(keyboardY, keyboardHeight, [[0, '#a7f3d0'], [0.4, '#34d399'], [1, '#059669']]),
+    whiteGuideT1: makeVGrad(keyboardY, keyboardHeight, [[0, '#fff5b8'], [0.4, '#f5d76e'], [1, '#d9c589']]),
+    whiteGuideT2: makeVGrad(keyboardY, keyboardHeight, [[0, '#b3f8ff'], [0.4, '#67e8f9'], [1, '#99d5e0']]),
+    blackIdle: makeVGrad(keyboardY, blackKeyHeight, [[0, '#2a2342'], [0.8, '#141022'], [1, '#090710']]),
+    blackPressed: makeVGrad(keyboardY, blackKeyHeight, [[0, '#ffd700'], [0.5, '#e5a900'], [1, '#9c6f00']]),
+    blackLocked: makeVGrad(keyboardY, blackKeyHeight, [[0, '#34d399'], [1, '#065f46']]),
+    blackGuideT1: makeVGrad(keyboardY, blackKeyHeight, [[0, '#ffd700'], [1, '#6e5200']]),
+    blackGuideT2: makeVGrad(keyboardY, blackKeyHeight, [[0, '#00e5ff'], [1, '#005662']])
+  };
 }
 
 /**
@@ -2983,13 +3079,12 @@ function renderCanvas() {
   const particleDt = Math.min(0.05, Math.max(0.001, (nowMs - lastParticleFrameMs) / 1000));
   lastParticleFrameMs = nowMs;
 
-  const rect = canvas.getBoundingClientRect();
-  const width = rect.width;
-  const height = rect.height;
+  const width = cachedCanvasWidth;
+  const height = cachedCanvasHeight;
 
   ctx.clearRect(0, 0, width, height);
 
-  if (whiteKeys.length === 0) return;
+  if (whiteKeys.length === 0 || !cachedKeyGradients) return;
   const strikeLineY = whiteKeys[0].y;
 
   // Phase 7: Ambient drifting arcane dust motes in the Spell Highway background
@@ -3039,7 +3134,7 @@ function renderCanvas() {
   ctx.fillRect(0, strikeLineY - lineH + 2, width, lineH);
   ctx.restore();
 
-  // 4. Draw 36 White Keys
+  // 4. Draw 36 White Keys (using pre-allocated cachedKeyGradients)
   for (const key of whiteKeys) {
     const state = activeNotes.get(key.midi);
     const isPressed = Boolean(state);
@@ -3047,35 +3142,15 @@ function renderCanvas() {
 
     ctx.save();
     if (isPressed) {
-      const grad = ctx.createLinearGradient(key.x, key.y, key.x, key.y + key.height);
-      grad.addColorStop(0, '#fff3b0');
-      grad.addColorStop(0.35, '#ffd700');
-      grad.addColorStop(1, '#c59b27');
-      ctx.fillStyle = grad;
+      ctx.fillStyle = cachedKeyGradients.whitePressed;
       ctx.shadowColor = 'rgba(255, 215, 0, 0.75)';
       ctx.shadowBlur = 16;
     } else if (guide) {
-      const grad = ctx.createLinearGradient(key.x, key.y, key.x, key.y + key.height);
-      if (guide.lockedInWait) {
-        grad.addColorStop(0, '#a7f3d0');
-        grad.addColorStop(0.4, '#34d399');
-        grad.addColorStop(1, '#059669');
-      } else if (guide.handTrack === 1) {
-        grad.addColorStop(0, '#fff5b8');
-        grad.addColorStop(0.4, '#f5d76e');
-        grad.addColorStop(1, '#d9c589');
-      } else {
-        grad.addColorStop(0, '#b3f8ff');
-        grad.addColorStop(0.4, '#67e8f9');
-        grad.addColorStop(1, '#99d5e0');
-      }
-      ctx.fillStyle = grad;
+      ctx.fillStyle = guide.lockedInWait
+        ? cachedKeyGradients.whiteLocked
+        : (guide.handTrack === 1 ? cachedKeyGradients.whiteGuideT1 : cachedKeyGradients.whiteGuideT2);
     } else {
-      const grad = ctx.createLinearGradient(key.x, key.y, key.x, key.y + key.height);
-      grad.addColorStop(0, '#e8e2d5');
-      grad.addColorStop(0.88, '#f7f3eb');
-      grad.addColorStop(1, '#cfc6b4');
-      ctx.fillStyle = grad;
+      ctx.fillStyle = cachedKeyGradients.whiteIdle;
     }
 
     const pad = 0.75;
@@ -3094,7 +3169,7 @@ function renderCanvas() {
     ctx.restore();
   }
 
-  // 5. Draw 25 Black Keys on top
+  // 5. Draw 25 Black Keys on top (using pre-allocated cachedKeyGradients)
   for (const key of blackKeys) {
     const state = activeNotes.get(key.midi);
     const isPressed = Boolean(state);
@@ -3102,32 +3177,15 @@ function renderCanvas() {
 
     ctx.save();
     if (isPressed) {
-      const grad = ctx.createLinearGradient(key.x, key.y, key.x, key.y + key.height);
-      grad.addColorStop(0, '#ffd700');
-      grad.addColorStop(0.5, '#e5a900');
-      grad.addColorStop(1, '#9c6f00');
-      ctx.fillStyle = grad;
+      ctx.fillStyle = cachedKeyGradients.blackPressed;
       ctx.shadowColor = 'rgba(255, 215, 0, 0.85)';
       ctx.shadowBlur = 14;
     } else if (guide) {
-      const grad = ctx.createLinearGradient(key.x, key.y, key.x, key.y + key.height);
-      if (guide.lockedInWait) {
-        grad.addColorStop(0, '#34d399');
-        grad.addColorStop(1, '#065f46');
-      } else if (guide.handTrack === 1) {
-        grad.addColorStop(0, '#ffd700');
-        grad.addColorStop(1, '#6e5200');
-      } else {
-        grad.addColorStop(0, '#00e5ff');
-        grad.addColorStop(1, '#005662');
-      }
-      ctx.fillStyle = grad;
+      ctx.fillStyle = guide.lockedInWait
+        ? cachedKeyGradients.blackLocked
+        : (guide.handTrack === 1 ? cachedKeyGradients.blackGuideT1 : cachedKeyGradients.blackGuideT2);
     } else {
-      const grad = ctx.createLinearGradient(key.x, key.y, key.x, key.y + key.height);
-      grad.addColorStop(0, '#2a2342');
-      grad.addColorStop(0.8, '#141022');
-      grad.addColorStop(1, '#090710');
-      ctx.fillStyle = grad;
+      ctx.fillStyle = cachedKeyGradients.blackIdle;
     }
 
     ctx.fillRect(key.x, key.y, key.width, key.height);
@@ -3266,7 +3324,12 @@ window.addEventListener('mouseup', () => {
 });
 
 window.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  // Only block keyboard shortcuts when typing in text inputs (Issue #3 / H3)
+  const tag = e.target?.tagName;
+  const inputType = (e.target?.type || '').toLowerCase();
+  if (tag === 'TEXTAREA' || (tag === 'INPUT' && inputType !== 'range' && inputType !== 'file' && inputType !== 'button')) {
+    return;
+  }
 
   if (e.code === 'Space' && !e.repeat) {
     e.preventDefault();
@@ -3307,6 +3370,7 @@ window.addEventListener('keyup', (e) => {
 });
 
 function updateQwertyOctaveLabel() {
+  if (!qwertyOctaveLabel) return;
   const lowName = midiToNoteName(qwertyBaseMidi);
   const highName = midiToNoteName(Math.min(MAX_MIDI, qwertyBaseMidi + 16));
   qwertyOctaveLabel.textContent = `${lowName}–${highName}`;
@@ -3315,11 +3379,19 @@ function updateQwertyOctaveLabel() {
 // Phase 1, 2, 3 & 4 UI Controls
 synthPresetSelect.addEventListener('change', (e) => {
   applySynthPreset(e.target.value);
+  e.target.blur();
 });
 
 masterVolumeSlider.addEventListener('input', (e) => {
   if (!masterVol) initAudioEngine();
   masterVol.volume.value = Number(e.target.value);
+  if (currentSong?.backingAudioEl) {
+    currentSong.backingAudioEl.volume = getBackingAudioVolumeFromSlider();
+  }
+});
+
+masterVolumeSlider.addEventListener('mouseup', () => {
+  masterVolumeSlider.blur();
 });
 
 btnRescanMidi.addEventListener('click', () => {

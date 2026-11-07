@@ -11,6 +11,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.9.1] - 2026-11-07 — Post-MVP Code Review Remediation (`Fixes #1–#8`)
+
+### Fixed
+- **Issue #1 (`H1`):** Preserved `playbackState.activeStrikeGroup` across frames in Arcade Mode (`Wait Mode: OFF`) until `proposedTime > anchorTime + 0.18s` so 100ms chord roll forgiveness works in Arcade Mode as well as Wait Mode.
+- **Issue #2 (`H2`):** Restored `#qwerty-octave-label` in `#phase1-helper-banner` and added a null guard in `updateQwertyOctaveLabel()` when pressing `Z`/`X` to shift octaves.
+- **Issue #3 (`H3`):** Updated global `keydown` handler so `Spacebar` (Play/Pause) and QWERTY keys continue working immediately after dragging `<input type="range">` sliders (`#master-volume`, `#song-progress-slider`).
+- **Issue #4 (`M1`):** Paused synchronous `1.8s` background directory polling (`scanWatchedDirectories`) while `playbackState.isPlaying === true` to prevent Google Drive metadata sync hitches during 60 FPS gameplay.
+- **Issue #5 (`M2`):** Cached canvas dimensions (`cachedCanvasWidth`, `cachedCanvasHeight`) and pre-allocated shared vertical `CanvasGradient` objects (`cachedKeyGradients`) in `computeKeyGeometry()`, eliminating `3,660` per-second `CanvasGradient` allocations and per-frame `getBoundingClientRect()` layout reads in `renderCanvas()`.
+- **Issue #6 (`M3`):** Unified `extractGrimoireEntryFromBuffer()` with `assignSongTracksAndDifficulty('auto-piano')` (`isPianoCandidateTrack`, `areTracksDuplicates`, Treble+Bass pairing, and `activeDuration`) so Grimoire cards and the Spell Inspector HUD report identical note counts and NPS.
+- **Issue #7 (`M4`):** Connected `backingAudioEl.volume` dynamically to the `#master-volume` dB slider (`getBackingAudioVolumeFromSlider()`) and updated `removeGrimoireEntry()` to unlink paired `.wav`/`.mp3` backing audio files when deleting an imported spell.
+- **Issue #8 (`L2` & `L3`):** Restricted Electron `setPermissionRequestHandler` / `setPermissionCheckHandler` in `main.js` to `['midi', 'midiSysex', 'media']` and synced `package.json` version to `0.9.0`.
+
+---
+
 ## [0.9.0] - 2026-11-06 — Phase 9: "The Quest Board" (In-App YouTube-to-MIDI Sourcing & External Archive Quick-Links)
 
 ### Added

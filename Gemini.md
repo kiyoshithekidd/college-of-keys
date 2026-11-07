@@ -262,3 +262,17 @@ In addition to the libraries in the PRD (`Tone.js`, `@tonejs/midi`, `atosystem/m
     - **Synced Backing Audio Playback (`backingAudioEl`):** When a song in `./Imports/` has a paired `.wav`/`.mp3`/`.m4a`/`.ogg` backing track and **`🎸 Backing Band: ON`** is enabled, synchronizes and plays the audio alongside the falling notes!
     - **External Bardic Archives (`shell.openExternal`):** Added 1-click cards in The Quest Board that open the default web browser to **BitMIDI** (`https://bitmidi.com`), **VGMusic** (`https://www.vgmusic.com`), and **YouTube** (`https://www.youtube.com`), plus a **`📂 Open ./Imports Folder`** shortcut.
 - **Current status:** All 9 MVP phases (`Phase 1` through `Phase 9`) completed and verified!
+
+### 2026-11-07 — Session 11: Full Codebase Review, GitHub Issue Logging (`#1`–`#8`) & `v0.9.1` Remediation Pass
+- **What we did:**
+  - Conducted a full architectural, performance, gameplay, and security code review across `main.js`, `index.html`, `styles.css`, `renderer.js`, `python_ml/transcribe_quest.py`, and `package.json`.
+  - Logged 8 tracked GitHub Issues (`#1` through `#8`) on https://github.com/kiyoshithekidd/college-of-keys/issues.
+  - Implemented and verified fixes for all 8 issues (`v0.9.1`):
+    1. **Issue #1 (`H1`):** Fixed Arcade Mode (`Wait Mode: OFF`) resetting `playbackState.activeStrikeGroup` every frame so `100ms` Chord Roll Forgiveness works in Arcade Mode.
+    2. **Issue #2 (`H2`):** Restored `#qwerty-octave-label` in `index.html` and added null-safety in `updateQwertyOctaveLabel()`.
+    3. **Issue #3 (`H3`):** Fixed `Spacebar` and QWERTY keys being blocked after interacting with `<input type="range">` sliders.
+    4. **Issue #4 (`M1`):** Paused synchronous `1.8s` folder-watcher polling during active playback (`playbackState.isPlaying`) to prevent cloud-drive metadata hitches.
+    5. **Issue #5 (`M2`):** Cached canvas dimensions and pre-allocated shared 61-key `LinearGradient` objects (`cachedKeyGradients`) in `computeKeyGeometry()`, eliminating `3,660` gradient allocations/sec and per-frame `getBoundingClientRect()` layout reads.
+    6. **Issue #6 (`M3`):** Unified `extractGrimoireEntryFromBuffer()` and `assignSongTracksAndDifficulty()` so Grimoire cards and the Spell Inspector HUD report identical note counts and NPS.
+    7. **Issue #7 (`M4`):** Linked `backingAudioEl.volume` to the `#master-volume` slider and unlinked paired `.wav`/`.mp3` files when deleting a Grimoire entry.
+    8. **Issue #8 (`L2` & `L3`):** Restricted Electron permission auto-grants in `main.js` to `['midi', 'midiSysex', 'media']` and synced `package.json` version.

@@ -2,20 +2,15 @@ const { app, BrowserWindow, session } = require('electron');
 const path = require('path');
 
 function createWindow() {
-  // Automatically grant Web MIDI permissions in Electron's Chromium session
+  // Automatically grant Web MIDI & Microphone (for Backlog Vocals) permissions in Electron's Chromium session
+  const ALLOWED_PERMISSIONS = new Set(['midi', 'midiSysex', 'media']);
+
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    if (permission === 'midi' || permission === 'midiSysex') {
-      callback(true);
-      return;
-    }
-    callback(true);
+    callback(ALLOWED_PERMISSIONS.has(permission));
   });
 
   session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
-    if (permission === 'midi' || permission === 'midiSysex') {
-      return true;
-    }
-    return true;
+    return ALLOWED_PERMISSIONS.has(permission);
   });
 
   const mainWindow = new BrowserWindow({
