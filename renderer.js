@@ -1976,9 +1976,13 @@ function animationLoop(timestamp) {
               (!nextGroup.hasSlowRoll || totalRollMs <= CHORD_GRACE_PERIOD_MS) &&
               !nextGroup.wrongKeyDuringRoll;
 
+            const wasWaitingEarly = playbackState.isWaitingForStrike;
             playbackState.isWaitingForStrike = false;
             playbackState.waitStartedAtMs = null;
             playbackState.activeStrikeGroup = null;
+            if (wasWaitingEarly) {
+              processSongAudioTriggers(nextGroup.anchorTime - 0.01, nextGroup.anchorTime + 0.005);
+            }
             recordStrikeGroupCompletion(nextGroup, false, isCleanChordRoll);
 
             if (isChord) {
@@ -2061,8 +2065,8 @@ function animationLoop(timestamp) {
     }
 
     playbackState.currentTime = proposedTime;
-    // Hold accompaniment & backing band notes at anchorTime while frozen in Wait Mode until the player strikes (Issue #10)
-    const audioTriggerEnd = playbackState.isWaitingForStrike ? (proposedTime - 0.005) : proposedTime;
+    // Hold accompaniment & backing band notes at anchorTime while frozen in Wait Mode until the player strikes (Issue #10, Fixes #56)
+    const audioTriggerEnd = playbackState.isWaitingForStrike ? (proposedTime - 0.001) : proposedTime;
     if (audioTriggerEnd >= prevTime) {
       processSongAudioTriggers(prevTime, audioTriggerEnd);
     }
@@ -3873,10 +3877,14 @@ function applyPracticeMode(mode) {
       waitModeStateText.textContent = 'OFF';
       btnWaitMode.classList.remove('btn-wait-active');
     }
+    const wasWaiting = playbackState.isWaitingForStrike;
     playbackState.isWaitingForStrike = false;
     playbackState.waitStartedAtMs = null;
     playbackState.activeStrikeGroup = null;
     playbackState.lastFrameTimestamp = performance.now();
+    if (wasWaiting) {
+      processSongAudioTriggers(playbackState.currentTime - 0.01, playbackState.currentTime + 0.005);
+    }
     setStrikeStatusBadge('ready', 'Listen Only Mode (Auto-Playing Both Hands)');
   }
 
@@ -3899,10 +3907,14 @@ btnWaitMode.addEventListener('click', () => {
   }
 
   if (!playbackState.waitMode) {
+    const wasWaiting = playbackState.isWaitingForStrike;
     playbackState.isWaitingForStrike = false;
     playbackState.waitStartedAtMs = null;
     playbackState.activeStrikeGroup = null;
     playbackState.lastFrameTimestamp = performance.now();
+    if (wasWaiting) {
+      processSongAudioTriggers(playbackState.currentTime - 0.01, playbackState.currentTime + 0.005);
+    }
     setStrikeStatusBadge('ready', 'Arcade Mode Active (Continuous Playback)');
   } else {
     resetSongProgressFlags(playbackState.currentTime, { preserveTriggeredAtTarget: true });
