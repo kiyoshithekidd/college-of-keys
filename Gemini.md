@@ -276,3 +276,8 @@ In addition to the libraries in the PRD (`Tone.js`, `@tonejs/midi`, `atosystem/m
     6. **Issue #6 (`M3`):** Unified `extractGrimoireEntryFromBuffer()` and `assignSongTracksAndDifficulty()` so Grimoire cards and the Spell Inspector HUD report identical note counts and NPS.
     7. **Issue #7 (`M4`):** Linked `backingAudioEl.volume` to the `#master-volume` slider and unlinked paired `.wav`/`.mp3` files when deleting a Grimoire entry.
     8. **Issue #8 (`L2` & `L3`):** Restricted Electron permission auto-grants in `main.js` to `['midi', 'midiSysex', 'media']` and synced `package.json` version.
+  - **UI & Input Polish (`v1.0.0` First Official Release):**
+    - Removed `#phase1-helper-banner` from the Spell Highway canvas so the falling note view is completely unobstructed.
+    - Added `#qwerty-pill` (`QWERTY: C4–E5` with `Z ◀` / `▶ X` buttons) in the top header, capture-phase `KeyZ`/`KeyX` handling, and on-key `[A]`–`[;]` labels + gold range bar on the 61-key piano that slide across octaves (`C2–E3` to `C6–C7`) with floating runes.
+    - Packaged standalone Windows x64 release (`College-of-Keys-v1.0.0-win32-x64.zip`) and published GitHub Release `v1.0.0`.
+- **Current status:** `v1.0.0` verified, packaged, and released on GitHub (`"Testing successful"`).

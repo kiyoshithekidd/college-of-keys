@@ -504,44 +504,13 @@ html, body {
   cursor: pointer;
 }
 
-#phase1-helper-banner {
-  position: absolute;
-  top: 12px;
-  left: 18px;
-  background: rgba(21, 17, 37, 0.84);
-  border: 1px solid var(--border-brass);
-  border-left: 3px solid var(--radiant-gold);
-  border-radius: 8px;
-  padding: 8px 14px;
-  max-width: 680px;
-  backdrop-filter: blur(6px);
-  pointer-events: none;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
-  transition: opacity 0.3s ease;
-  z-index: 4;
+#qwerty-pill {
+  gap: 6px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.helper-title {
-  font-family: Georgia, serif;
-  font-size: 0.88rem;
-  font-weight: 700;
+#qwerty-pill strong {
   color: var(--radiant-gold);
-  margin-bottom: 3px;
-}
-
-.helper-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 0.76rem;
-  color: var(--text-parchment);
-}
-
-.helper-body code {
-  background: rgba(255, 215, 0, 0.12);
-  color: var(--radiant-gold);
-  padding: 1px 5px;
-  border-radius: 4px;
   font-family: 'Consolas', monospace;
 }
 

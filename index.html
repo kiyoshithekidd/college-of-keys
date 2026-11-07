@@ -47,6 +47,13 @@
         <div id="sustain-pill" class="status-pill">
           <span>Sustain: <strong id="sustain-state">OFF</strong></span>
         </div>
+
+        <!-- QWERTY Octave Range Indicator & Shift Controls (Z / X) -->
+        <div id="qwerty-pill" class="status-pill" title="PC Keyboard Piano Range (A..; keys). Press Z or X to shift octaves down/up.">
+          <button id="btn-qwerty-down" class="btn-icon" title="Shift QWERTY Octave Down (Z)">Z &#9664;</button>
+          <span>QWERTY: <strong id="qwerty-octave-label">C4&ndash;E5</strong></span>
+          <button id="btn-qwerty-up" class="btn-icon" title="Shift QWERTY Octave Up (X)">&#9654; X</button>
+        </div>
       </div>
 
       <!-- Real-Time Active Note Monitor -->
@@ -249,15 +256,6 @@
         <!-- Phase 6: Live Folder Watcher Toast Notification -->
         <div id="grimoire-toast" class="grimoire-toast hidden">
           <span id="grimoire-toast-text">&#128214; New Spell Ingested into The Grimoire!</span>
-        </div>
-
-        <!-- Helper overlay in top-left of highway -->
-        <div id="phase1-helper-banner">
-          <div class="helper-title" id="banner-phase-title">Phase 9: The Quest Board (In-App YouTube-to-MIDI Sourcing &amp; External Archives)</div>
-          <div class="helper-body" id="banner-phase-body">
-            <span><strong>The Quest Board (<code>&#128302; Quest Board</code>):</strong> Paste any YouTube URL (or run the 1-click ML Self-Test) to spawn the Python audio-to-MIDI pipeline in the background and auto-import into <strong>The Grimoire</strong>!</span>
-            <span><strong>External Bardic Archives &amp; Input:</strong> 1-click links to <strong>BitMIDI</strong>, <strong>VGMusic</strong> &amp; <strong>YouTube</strong> &bull; QWERTY Range (<code id="qwerty-octave-label">C4&ndash;E5</code>, shift with <code>Z</code>/<code>X</code>).</span>
-          </div>
         </div>
 
         <!-- Phase 5: LitRPG Bardic Progression & Spell Chain HUD Overlay (Top-Right of Stage) -->

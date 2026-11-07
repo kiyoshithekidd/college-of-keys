@@ -91,8 +91,10 @@ const synthPresetSelect = document.getElementById('synth-preset');
 const masterVolumeSlider = document.getElementById('master-volume');
 const sustainStateText = document.getElementById('sustain-state');
 const activeNotesDisplay = document.getElementById('active-notes-display');
+const qwertyPill = document.getElementById('qwerty-pill');
 const qwertyOctaveLabel = document.getElementById('qwerty-octave-label');
-const helperBanner = document.getElementById('phase1-helper-banner');
+const btnQwertyDown = document.getElementById('btn-qwerty-down');
+const btnQwertyUp = document.getElementById('btn-qwerty-up');
 
 // DOM Elements — Phase 2, 3 & 4 (MIDI Loader, Transport, Wait Mode, Hand Isolation & Backing Band)
 const midiFileInput = document.getElementById('midi-file-input');
@@ -300,6 +302,11 @@ const QWERTY_OFFSETS = {
   l: 14, // D (+1 oct)
   p: 15, // D# (+1 oct)
   ';': 16 // E (+1 oct)
+};
+
+const OFFSET_TO_QWERTY_LABEL = {
+  0: 'A', 1: 'W', 2: 'S', 3: 'E', 4: 'D', 5: 'F', 6: 'T', 7: 'G',
+  8: 'Y', 9: 'H', 10: 'U', 11: 'J', 12: 'K', 13: 'O', 14: 'L', 15: 'P', 16: ';'
 };
 
 /**
@@ -1636,7 +1643,6 @@ async function startPlayback() {
   playbackState.lastFrameTimestamp = performance.now();
   btnPlayPause.textContent = '⏸ Pause';
   btnPlayPause.classList.add('playing');
-  helperBanner.style.opacity = '0.18';
 }
 
 function pausePlayback() {
@@ -1644,7 +1650,6 @@ function pausePlayback() {
   playbackState.lastFrameTimestamp = null;
   btnPlayPause.textContent = '▶ Cast Spell';
   btnPlayPause.classList.remove('playing');
-  helperBanner.style.opacity = '1';
 
   if (grandPianoSampler && grandPianoLoaded) {
     grandPianoSampler.releaseAll();
@@ -3135,10 +3140,13 @@ function renderCanvas() {
   ctx.restore();
 
   // 4. Draw 36 White Keys (using pre-allocated cachedKeyGradients)
+  const qwertyHighMidi = Math.min(MAX_MIDI, qwertyBaseMidi + 16);
   for (const key of whiteKeys) {
     const state = activeNotes.get(key.midi);
     const isPressed = Boolean(state);
     const guide = strikeLineGuides.get(key.midi);
+    const isInQwertyRange = key.midi >= qwertyBaseMidi && key.midi <= qwertyHighMidi;
+    const qwertyChar = isInQwertyRange ? OFFSET_TO_QWERTY_LABEL[key.midi - qwertyBaseMidi] : null;
 
     ctx.save();
     if (isPressed) {
@@ -3156,12 +3164,25 @@ function renderCanvas() {
     const pad = 0.75;
     ctx.fillRect(key.x + pad, key.y, key.width - pad * 2, key.height - 2);
 
-    ctx.strokeStyle = isPressed ? '#ffd700' : (guide ? '#ffd700' : '#261f3d');
+    // Subtle gold top marker bar on keys inside the active QWERTY octave range (Z/X)
+    if (isInQwertyRange) {
+      ctx.fillStyle = isPressed ? '#1a1200' : 'rgba(212, 175, 55, 0.85)';
+      ctx.fillRect(key.x + pad + 1, key.y + 1, key.width - (pad + 1) * 2, 4);
+    }
+
+    ctx.strokeStyle = isPressed ? '#ffd700' : (guide ? '#ffd700' : (isInQwertyRange ? '#8a6d2f' : '#261f3d'));
     ctx.lineWidth = guide ? 1.8 : 1;
     ctx.strokeRect(key.x + pad, key.y, key.width - pad * 2, key.height - 2);
 
-    if (key.midi % 12 === 0 || guide) {
-      ctx.fillStyle = isPressed || guide ? '#1a1200' : '#4a3d66';
+    if (qwertyChar) {
+      ctx.fillStyle = isPressed || guide ? '#1a1200' : '#8a6d2f';
+      ctx.font = `bold ${Math.max(9, Math.min(11, Math.floor(key.width * 0.36)))}px "Segoe UI", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(`[${qwertyChar}]`, key.x + key.width / 2, key.y + key.height - 28);
+    }
+
+    if (key.midi % 12 === 0 || guide || key.midi === qwertyBaseMidi) {
+      ctx.fillStyle = isPressed || guide ? '#1a1200' : (key.midi === qwertyBaseMidi ? '#b45309' : '#4a3d66');
       ctx.font = `bold ${Math.max(10, Math.min(13, Math.floor(key.width * 0.42)))}px "Segoe UI", sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillText(key.name, key.x + key.width / 2, key.y + key.height - 12);
@@ -3174,6 +3195,8 @@ function renderCanvas() {
     const state = activeNotes.get(key.midi);
     const isPressed = Boolean(state);
     const guide = strikeLineGuides.get(key.midi);
+    const isInQwertyRange = key.midi >= qwertyBaseMidi && key.midi <= qwertyHighMidi;
+    const qwertyChar = isInQwertyRange ? OFFSET_TO_QWERTY_LABEL[key.midi - qwertyBaseMidi] : null;
 
     ctx.save();
     if (isPressed) {
@@ -3190,9 +3213,16 @@ function renderCanvas() {
 
     ctx.fillRect(key.x, key.y, key.width, key.height);
 
-    ctx.strokeStyle = isPressed || guide ? '#fff3b0' : '#493c6e';
+    ctx.strokeStyle = isPressed || guide ? '#fff3b0' : (isInQwertyRange ? '#d4af37' : '#493c6e');
     ctx.lineWidth = guide ? 1.6 : 1;
     ctx.strokeRect(key.x + 0.5, key.y + 0.5, key.width - 1, key.height - 1);
+
+    if (qwertyChar) {
+      ctx.fillStyle = isPressed || guide ? '#1a1200' : '#fde68a';
+      ctx.font = `bold ${Math.max(8, Math.min(10, Math.floor(key.width * 0.48)))}px "Segoe UI", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(qwertyChar, key.x + key.width / 2, key.y + key.height - 8);
+    }
     ctx.restore();
   }
 
@@ -3291,6 +3321,9 @@ function onMidiMessage(event) {
 
 // Mouse & QWERTY Event Listeners
 canvas.addEventListener('mousedown', (e) => {
+  if (document.activeElement && document.activeElement !== document.body) {
+    document.activeElement.blur();
+  }
   if (e.button !== 0) return;
   isMouseDown = true;
   const midi = getMidiKeyAtPoint(e.clientX, e.clientY);
@@ -3323,11 +3356,26 @@ window.addEventListener('mouseup', () => {
   }
 });
 
+function shiftQwertyOctave(semitoneDelta) {
+  // Release any currently held QWERTY notes before shifting octaves
+  for (const [k, midi] of Array.from(pressedQwertyKeys.entries())) {
+    pressedQwertyKeys.delete(k);
+    handleNoteOff(midi);
+  }
+
+  const nextBase = Math.max(MIN_MIDI, Math.min(MAX_MIDI - 12, qwertyBaseMidi + semitoneDelta));
+  qwertyBaseMidi = nextBase;
+  updateQwertyOctaveLabel(true);
+}
+
 window.addEventListener('keydown', (e) => {
   // Only block keyboard shortcuts when typing in text inputs (Issue #3 / H3)
   const tag = e.target?.tagName;
   const inputType = (e.target?.type || '').toLowerCase();
   if (tag === 'TEXTAREA' || (tag === 'INPUT' && inputType !== 'range' && inputType !== 'file' && inputType !== 'button')) {
+    if (e.key === 'Escape') {
+      e.target.blur();
+    }
     return;
   }
 
@@ -3338,42 +3386,76 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (e.repeat) return;
-  const key = e.key.toLowerCase();
+  const key = (e.key || '').toLowerCase();
 
-  if (key === 'z') {
-    qwertyBaseMidi = Math.max(MIN_MIDI, qwertyBaseMidi - 12);
-    updateQwertyOctaveLabel();
+  if (key === 'z' || e.code === 'KeyZ') {
+    e.preventDefault();
+    shiftQwertyOctave(-12);
     return;
   }
-  if (key === 'x') {
-    qwertyBaseMidi = Math.min(MAX_MIDI - 12, qwertyBaseMidi + 12);
-    updateQwertyOctaveLabel();
+  if (key === 'x' || e.code === 'KeyX') {
+    e.preventDefault();
+    shiftQwertyOctave(12);
     return;
   }
 
   if (Object.prototype.hasOwnProperty.call(QWERTY_OFFSETS, key)) {
+    e.preventDefault();
     const midi = qwertyBaseMidi + QWERTY_OFFSETS[key];
     if (midi >= MIN_MIDI && midi <= MAX_MIDI && !pressedQwertyKeys.has(key)) {
       pressedQwertyKeys.set(key, midi);
       handleNoteOn(midi, 100, 'qwerty');
     }
   }
-});
+}, true);
 
 window.addEventListener('keyup', (e) => {
-  const key = e.key.toLowerCase();
+  const key = (e.key || '').toLowerCase();
   if (pressedQwertyKeys.has(key)) {
     const midi = pressedQwertyKeys.get(key);
     pressedQwertyKeys.delete(key);
     handleNoteOff(midi);
   }
-});
+}, true);
 
-function updateQwertyOctaveLabel() {
-  if (!qwertyOctaveLabel) return;
+function updateQwertyOctaveLabel(withVisualFeedback = false) {
   const lowName = midiToNoteName(qwertyBaseMidi);
   const highName = midiToNoteName(Math.min(MAX_MIDI, qwertyBaseMidi + 16));
-  qwertyOctaveLabel.textContent = `${lowName}–${highName}`;
+  const rangeStr = `${lowName}–${highName}`;
+
+  if (qwertyOctaveLabel) {
+    qwertyOctaveLabel.textContent = rangeStr;
+  }
+
+  if (withVisualFeedback) {
+    if (activeNotesDisplay && activeNotes.size === 0) {
+      activeNotesDisplay.textContent = `QWERTY: ${rangeStr}`;
+    }
+    if (qwertyPill) {
+      qwertyPill.style.borderColor = '#ffd700';
+      qwertyPill.style.boxShadow = '0 0 12px rgba(255, 215, 0, 0.55)';
+      setTimeout(() => {
+        qwertyPill.style.borderColor = '';
+        qwertyPill.style.boxShadow = '';
+      }, 450);
+    }
+    spawnKeyParticleBurst(qwertyBaseMidi, 'gold', 12, true);
+    spawnFloatingCanvasRune(qwertyBaseMidi + 7, `🎹 QWERTY: ${rangeStr}`, '#ffd700');
+  }
+}
+
+if (btnQwertyDown) {
+  btnQwertyDown.addEventListener('click', (e) => {
+    shiftQwertyOctave(-12);
+    e.currentTarget.blur();
+  });
+}
+
+if (btnQwertyUp) {
+  btnQwertyUp.addEventListener('click', (e) => {
+    shiftQwertyOctave(12);
+    e.currentTarget.blur();
+  });
 }
 
 // Phase 1, 2, 3 & 4 UI Controls
@@ -3462,20 +3544,24 @@ songProgressSlider.addEventListener('input', (e) => {
 
 songProgressSlider.addEventListener('mouseup', () => {
   playbackState.isScrubbing = false;
+  songProgressSlider.blur();
 });
 
 playableTrackSelect.addEventListener('change', (e) => {
   assignSongTracksAndDifficulty(e.target.value);
+  e.target.blur();
 });
 
 handIsolationSelect.addEventListener('change', (e) => {
   playbackState.handIsolation = e.target.value;
   resetSongProgressFlags(playbackState.currentTime);
+  e.target.blur();
 });
 
 accompanimentSelect.addEventListener('change', (e) => {
   playbackState.accompanimentMode = e.target.value;
   resetSongProgressFlags(playbackState.currentTime);
+  e.target.blur();
 });
 
 btnBackingBand.addEventListener('click', () => {
@@ -3489,10 +3575,12 @@ btnBackingBand.addEventListener('click', () => {
 
 playbackSpeedSelect.addEventListener('change', (e) => {
   playbackState.playbackSpeed = Number(e.target.value) || 1.0;
+  e.target.blur();
 });
 
 fallSpeedSelect.addEventListener('change', (e) => {
   playbackState.fallSpeedPxPerSec = Number(e.target.value) || 260;
+  e.target.blur();
 });
 
 // Phase 5 UI Listeners: Performance Check Modal & +25 Streak Test Shortcut
