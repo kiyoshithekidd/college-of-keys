@@ -22,9 +22,12 @@
 - Consult and update `Gemini.md`, `progress.md`, `context.md`, `README.md`, and `CHANGELOG.md` at every phase.
 - Wait for explicit user confirmation ("Testing successful") before advancing phases.
 
-## Personas & Story Tagging Policy
+## Issue Tagging & Classification Policy
 - Consult `PERSONAS.md` as the primary source of truth for all feature and architecture decisions.
-- Every GitHub issue, bug, or backlog item MUST be tagged with its corresponding persona label:
+- **Type Classification**:
+  - Every defect, QA finding, audio/timing glitch, or regression discovered during code reviews MUST be tagged with `bug`.
+  - Every new feature, gameplay mode, or roadmap item MUST be tagged with `enhancement`.
+- **Persona Classification**: Every issue MUST be tagged with its target persona(s):
   - `persona: returning-adult` (Main — busy adult beginner, song ladder, short sessions, Duolingo-style habit)
   - `persona: gamer-bard` (Main — RPG progression, level titles, quests, d20 performance check)
   - `persona: rock-band` (Main — rhythm game feel, timing fairness, 100ms chord roll, scoring)
