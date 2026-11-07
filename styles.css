@@ -1695,7 +1695,7 @@ html, body {
   justify-content: space-between;
 }
 
-/* Issue #35: Responsive 2-Bar Conservatory Layout at 1024px–1280px Window Widths */
+/* Issue #55: Responsive 2-Bar Conservatory Layout down to 1024px Minimum Window Width */
 @media (max-width: 1280px) {
   #tavern-header,
   #spell-scroll-bar {
@@ -1703,33 +1703,125 @@ html, body {
     gap: 6px;
   }
 
-  .header-right-cluster,
-  .scroll-actions-group,
-  .transport-group {
+  /* Bar 1: Header groups & buttons */
+  .header-left-group {
+    gap: 6px;
+  }
+
+  .brand-block {
     gap: 5px;
+  }
+
+  .app-title {
+    font-size: 0.88rem;
+  }
+
+  .spell-actions {
+    gap: 4px;
+  }
+
+  #litrpg-hud-card.bard-banner-inline {
+    gap: 6px;
+    padding: 2px 6px;
+  }
+
+  .xp-bar-section {
+    width: 85px;
+    min-width: 75px;
+    flex: 0 1 85px;
+  }
+
+  .bard-career-xp {
+    display: none;
+  }
+
+  .hud-controls {
+    gap: 5px;
+  }
+
+  #midi-status-pill {
+    padding: 2px 6px;
+    font-size: 0.68rem;
+  }
+
+  #midi-status-text {
+    max-width: 90px;
+  }
+
+  /* Bar 2: Active spell, transport & routing controls */
+  #spell-metadata-panel {
+    gap: 5px;
+    min-width: 0;
+  }
+
+  .spell-title-group {
+    min-width: 0;
+  }
+
+  #spell-name-display {
+    max-width: 120px;
+    font-size: 0.76rem;
+  }
+
+  .difficulty-badge {
+    padding: 2px 6px;
+    font-size: 0.68rem;
+  }
+
+  .btn-info-pill {
+    padding: 2px 5px;
+    font-size: 0.68rem;
+  }
+
+  .transport-group {
+    gap: 4px;
+  }
+
+  .transport-group .tavern-btn-cast {
+    min-width: 76px;
+  }
+
+  .timeline-box {
+    gap: 4px;
+  }
+
+  .timeline-slider {
+    width: 60px;
+  }
+
+  .time-readout {
+    font-size: 0.68rem;
+  }
+
+  .highway-routing-controls {
+    gap: 4px;
+  }
+
+  .control-group {
+    padding: 2px 4px;
+    gap: 3px;
   }
 
   .control-group label {
     display: none;
   }
 
-  .timeline-slider {
-    width: 68px;
-  }
-
   .practice-select {
-    max-width: 145px;
+    max-width: 130px;
+    font-size: 0.7rem;
+    padding: 2px 4px;
   }
 
-  .xp-bar-section {
-    width: 95px;
-    min-width: 85px;
-    flex: 0 1 95px;
+  .tempo-select,
+  #playback-speed-select {
+    max-width: 54px;
+    font-size: 0.7rem;
+    padding: 2px 4px;
   }
 
-  .btn-arcane,
-  .btn-toggle {
-    padding: 4px 7px;
-    font-size: 0.72rem;
+  .tavern-btn {
+    padding: 3px 6px;
+    font-size: 0.7rem;
   }
 }
+
