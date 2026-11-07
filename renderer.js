@@ -369,6 +369,7 @@ function initAudioEngine() {
   }).connect(pianoToneFilter);
 
   const sampleUrls = {};
+  const createdBlobUrls = [];
   const samplesDir = path.join(__dirname, 'assets', 'samples', 'piano');
 
   for (const [noteKey, fileName] of Object.entries(SALAMANDER_SAMPLE_MAP)) {
@@ -376,7 +377,9 @@ function initAudioEngine() {
     if (fs.existsSync(filePath)) {
       const fileBuf = fs.readFileSync(filePath);
       const blob = new Blob([fileBuf], { type: 'audio/mpeg' });
-      sampleUrls[noteKey] = URL.createObjectURL(blob);
+      const blobUrl = URL.createObjectURL(blob);
+      sampleUrls[noteKey] = blobUrl;
+      createdBlobUrls.push(blobUrl);
     }
   }
 
@@ -386,6 +389,14 @@ function initAudioEngine() {
     release: 1.4,
     onload: () => {
       grandPianoLoaded = true;
+      for (const blobUrl of createdBlobUrls) {
+        try {
+          URL.revokeObjectURL(blobUrl);
+        } catch {
+          // Ignore URL revocation errors
+        }
+      }
+      createdBlobUrls.length = 0;
     }
   }).connect(pianoWarmthEQ);
 
@@ -706,6 +717,9 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
   const timeSig = midiData.header.timeSignatures.length > 0
     ? `${midiData.header.timeSignatures[0].timeSignature[0]}/${midiData.header.timeSignatures[0].timeSignature[1]}`
     : '4/4';
+  const beatsPerMeasure = midiData.header.timeSignatures.length > 0
+    ? Math.max(1, Number(midiData.header.timeSignatures[0].timeSignature[0]) || 4)
+    : 4;
 
   const rawTracks = midiData.tracks
     .map((t, idx) => {
@@ -797,6 +811,7 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     rawBuffer: Buffer.from(arrayBuffer),
     bpm,
     timeSignature: timeSig,
+    beatsPerMeasure,
     duration,
     ppq: midiData.header.ppq || 480,
     rawTracks,
@@ -1364,7 +1379,7 @@ function openPerformanceCheckModal() {
   modalXpBarFill.style.width = `${pct.toFixed(1)}%`;
 
   modalStatXp.textContent = `+${songSessionStats.songXpEarned.toLocaleString()} XP`;
-  modalStatAccuracy.textContent = `${accuracyPct}%`;
+  modalStatAccuracy.textContent = totalAttempts === 0 ? '—' : `${accuracyPct}%`;
   const inspiredSuffix = songSessionStats.maxSpellChain >= BARDIC_INSPIRATION_STREAK ? ' 🔥' : '';
   modalStatChain.textContent = `${songSessionStats.maxSpellChain}${inspiredSuffix}`;
   modalStatClean.textContent = String(songSessionStats.cleanNotesHit);
@@ -1425,27 +1440,62 @@ function getHandVisualOpacity(handTrack) {
 }
 
 /**
- * Reset autoTriggered, satisfied, and lockedInWait flags for notes at or after targetTime
+ * Reset autoTriggered, satisfied, and lockedInWait flags for notes at or after targetTime.
+ * When preserveTriggeredAtTarget is true (e.g. changing Practice Mode mid-wait), notes already
+ * auto-triggered at <= targetTime stay marked so they do not double-fire.
  */
-function resetSongProgressFlags(targetTime = -2) {
+function resetSongProgressFlags(targetTime = -2, { preserveTriggeredAtTarget = false } = {}) {
   if (!currentSong) return;
   playbackState.isWaitingForStrike = false;
   playbackState.waitStartedAtMs = null;
   playbackState.activeStrikeGroup = null;
 
   for (const n of currentSong.track1Notes) {
-    n.autoTriggered = n.time < targetTime;
-    n.satisfied = n.time < targetTime;
+    const isPast = preserveTriggeredAtTarget
+      ? (n.time < targetTime || (n.autoTriggered && n.time <= targetTime))
+      : (n.time < targetTime);
+    n.autoTriggered = isPast;
+    n.satisfied = preserveTriggeredAtTarget
+      ? (n.time < targetTime || (n.satisfied && n.time <= targetTime))
+      : (n.time < targetTime);
     n.lockedInWait = false;
   }
   for (const n of currentSong.track2Notes) {
-    n.autoTriggered = n.time < targetTime;
-    n.satisfied = n.time < targetTime;
+    const isPast = preserveTriggeredAtTarget
+      ? (n.time < targetTime || (n.autoTriggered && n.time <= targetTime))
+      : (n.time < targetTime);
+    n.autoTriggered = isPast;
+    n.satisfied = preserveTriggeredAtTarget
+      ? (n.time < targetTime || (n.satisfied && n.time <= targetTime))
+      : (n.time < targetTime);
     n.lockedInWait = false;
   }
   for (const n of currentSong.backingBandNotes) {
-    n.autoTriggered = n.time < targetTime;
+    n.autoTriggered = preserveTriggeredAtTarget
+      ? (n.time < targetTime || (n.autoTriggered && n.time <= targetTime))
+      : (n.time < targetTime);
   }
+}
+
+/**
+ * Check if an upcoming player-controlled note after minTime (and within maxTime) requires `midi`.
+ * Used in Arcade Mode so a missed past note doesn't swallow a valid early strike on the next note (Issue #32).
+ */
+function hasUpcomingPlayerNoteMatchingMidi(midi, minTime, maxTime) {
+  if (!currentSong) return false;
+  const lists = [];
+  if (isPlayerControlledHand(1)) lists.push(currentSong.track1Notes);
+  if (isPlayerControlledHand(2)) lists.push(currentSong.track2Notes);
+
+  for (const list of lists) {
+    for (const n of list) {
+      if (n.satisfied) continue;
+      if (n.time <= minTime) continue;
+      if (n.time > maxTime) break;
+      if (n.midi === midi) return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -1540,8 +1590,31 @@ function setStrikeStatusBadge(mode, text) {
 function evaluateStrikeZoneInput(midi) {
   if (!currentSong || !playbackState.isPlaying) return false;
 
-  const group = getNextUnsatisfiedStrikeGroup();
+  let group = getNextUnsatisfiedStrikeGroup();
   if (!group) return false;
+
+  // Issue #32: In Arcade Mode, if the earliest unsatisfied group is already past the strike line
+  // and does not contain `midi`, check if an upcoming group within the 130ms early-strike window
+  // matches `midi`. If so, expire the missed past group once and advance to the upcoming group!
+  if (
+    !playbackState.waitMode &&
+    !group.requiredPitches.has(midi) &&
+    group.anchorTime < playbackState.currentTime - 0.025 &&
+    hasUpcomingPlayerNoteMatchingMidi(
+      midi,
+      group.anchorTime + CHORD_CLUSTER_WINDOW_SEC,
+      playbackState.currentTime + EARLY_STRIKE_WINDOW_SEC
+    )
+  ) {
+    for (const n of group.notes) {
+      n.satisfied = true;
+      n.lockedInWait = false;
+    }
+    playbackState.activeStrikeGroup = null;
+    recordSpellChainBreak('✗ Missed Note (Arcade)');
+    group = getNextUnsatisfiedStrikeGroup();
+    if (!group) return false;
+  }
 
   // Check if the group is currently waiting at the strike line OR within the early strike window
   const timeDelta = group.anchorTime - playbackState.currentTime;
@@ -1664,11 +1737,20 @@ function resetPlaybackToStart() {
   playbackState.currentTime = -playbackState.leadInSeconds;
   resetSongProgressFlags(-playbackState.leadInSeconds);
   resetSongSessionStats();
+  if (currentSong?.backingAudioEl) {
+    try {
+      currentSong.backingAudioEl.currentTime = 0;
+    } catch {
+      // Ignore seek errors before audio metadata is ready
+    }
+  }
   setStrikeStatusBadge(
     'ready',
-    playbackState.waitMode
-      ? 'Wait Mode Ready (100ms Chord Grace Active)'
-      : 'Arcade Mode Ready (Continuous Playback)'
+    playbackState.accompanimentMode === 'auto-both'
+      ? 'Listen Only Mode (Auto-Playing Both Hands)'
+      : (playbackState.waitMode
+          ? 'Wait Mode Ready (100ms Chord Grace Active)'
+          : 'Arcade Mode Ready (Continuous Playback)')
   );
   updateTimelineUI();
 }
@@ -1733,6 +1815,34 @@ function updateTimelineUI() {
 }
 
 /**
+ * Synchronize paired .wav / .mp3 backing audio element (Issue #31).
+ * Called independently of `audioTriggerEnd >= prevTime` so backing audio immediately
+ * pauses when Wait Mode freezes at a chord or when Backing Band is toggled OFF.
+ */
+function syncBackingAudioElement(currentTime = playbackState.currentTime) {
+  if (!currentSong?.backingAudioEl) return;
+  const audioEl = currentSong.backingAudioEl;
+  const shouldPlay =
+    playbackState.isPlaying &&
+    playbackState.backingBandEnabled &&
+    !playbackState.isWaitingForStrike &&
+    currentTime >= 0 &&
+    currentTime < currentSong.duration;
+
+  if (shouldPlay) {
+    audioEl.playbackRate = playbackState.playbackSpeed;
+    if (audioEl.paused) {
+      audioEl.currentTime = Math.max(0, currentTime);
+      audioEl.play().catch(() => {});
+    } else if (Math.abs(audioEl.currentTime - currentTime) > 0.35) {
+      audioEl.currentTime = Math.max(0, currentTime);
+    }
+  } else if (!audioEl.paused) {
+    audioEl.pause();
+  }
+}
+
+/**
  * Trigger Accompaniment & Backing Band notes that cross currentTime during this frame
  */
 function processSongAudioTriggers(prevTime, newTime) {
@@ -1784,21 +1894,7 @@ function processSongAudioTriggers(prevTime, newTime) {
     }
   }
 
-  // Sync paired .wav / .mp3 backing audio track when Backing Band is enabled
-  if (currentSong.backingAudioEl) {
-    const audioEl = currentSong.backingAudioEl;
-    if (playbackState.backingBandEnabled && !playbackState.isWaitingForStrike && newTime >= 0 && newTime < currentSong.duration) {
-      audioEl.playbackRate = speed;
-      if (audioEl.paused) {
-        audioEl.currentTime = Math.max(0, newTime);
-        audioEl.play().catch(() => {});
-      } else if (Math.abs(audioEl.currentTime - newTime) > 0.35) {
-        audioEl.currentTime = Math.max(0, newTime);
-      }
-    } else if (!audioEl.paused) {
-      audioEl.pause();
-    }
-  }
+  syncBackingAudioElement(newTime);
 }
 
 /**
@@ -1926,6 +2022,8 @@ function animationLoop(timestamp) {
     if (audioTriggerEnd >= prevTime) {
       processSongAudioTriggers(prevTime, audioTriggerEnd);
     }
+    // Always sync backing audio element state so it pauses immediately when Wait Mode freezes (Issue #31)
+    syncBackingAudioElement(playbackState.currentTime);
     updateTimelineUI();
 
     if (playbackState.currentTime >= currentSong.duration + 0.4) {
@@ -2644,7 +2742,8 @@ function dropTestMidiIntoImports() {
 }
 
 /**
- * Auto-detect if the user placed a .mid test file in the project folder or subfolders and load it on startup
+ * Auto-detect if the user placed a .mid test file in the project folder or subfolders and load it on startup;
+ * otherwise fall back to the Built-In Demo Spell so the Spell Highway is immediately playable (Issue #34).
  */
 function tryAutoLoadWorkspaceMidi() {
   const searchDirs = [
@@ -2667,6 +2766,7 @@ function tryAutoLoadWorkspaceMidi() {
       // Ignore directory read errors
     }
   }
+  loadBuiltInDemoSpell();
 }
 
 // Cached canvas dimensions & pre-built vertical key gradients (Issue #5 / M2)
@@ -2781,8 +2881,9 @@ function drawFallingSpellHighway(strikeLineY, width) {
   const fallSpeed = playbackState.fallSpeedPxPerSec;
   const visibleTimeWindow = (strikeLineY + 40) / fallSpeed;
 
-  // 1. Draw scrolling horizontal beat/measure grid lines
+  // 1. Draw scrolling horizontal beat/measure grid lines (honoring parsed time signature, Issue #37)
   const beatDur = 60 / Math.max(30, currentSong.bpm);
+  const beatsPerMeasure = Math.max(1, currentSong.beatsPerMeasure || 4);
   const firstBeatIdx = Math.max(0, Math.floor(curTime / beatDur));
   const lastBeatIdx = Math.ceil((curTime + visibleTimeWindow) / beatDur);
 
@@ -2792,7 +2893,7 @@ function drawFallingSpellHighway(strikeLineY, width) {
     const y = strikeLineY - (beatTime - curTime) * fallSpeed;
     if (y < 0 || y > strikeLineY) continue;
 
-    const isMeasureLine = b % 4 === 0;
+    const isMeasureLine = b % beatsPerMeasure === 0;
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(width, y);
@@ -3471,10 +3572,26 @@ function closeAllConservatoryPopovers() {
   }
 }
 
+function isAnyModalOpen() {
+  const perfOpen = performanceCheckModal && !performanceCheckModal.classList.contains('hidden');
+  const questOpen = questBoardModal && !questBoardModal.classList.contains('hidden');
+  return Boolean(perfOpen || questOpen);
+}
+
 window.addEventListener('keydown', (e) => {
-  // Close open popovers on Escape
+  // Close open popovers and modals on Escape (Issue #33)
   if (e.key === 'Escape') {
     closeAllConservatoryPopovers();
+    if (performanceCheckModal && !performanceCheckModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closePerformanceCheckModal();
+      return;
+    }
+    if (questBoardModal && !questBoardModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeQuestBoardModal();
+      return;
+    }
   }
 
   // Only block keyboard shortcuts when typing in text inputs (Issue #3 / H3)
@@ -3484,6 +3601,11 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       e.target.blur();
     }
+    return;
+  }
+
+  // Block Spacebar playback and QWERTY piano keys while a modal dialog is open (Issue #33)
+  if (isAnyModalOpen()) {
     return;
   }
 
@@ -3597,7 +3719,7 @@ midiFileInput.addEventListener('change', async (e) => {
   if (!file) return;
   try {
     const buffer = await file.arrayBuffer();
-    parseMidiBuffer(buffer, file.name);
+    parseMidiBuffer(buffer, file.name, file.path || null);
   } catch (err) {
     alert(`Failed to parse MIDI file: ${err.message}`);
   }
@@ -3636,25 +3758,32 @@ function syncPracticeModeDropdownFromState() {
   }
 }
 
+let lastNonPreviewPracticeMode = { handIsolation: 'both', accompanimentMode: 'auto-other' };
+
 /**
- * Apply a 1-click Practice Mode preset (#practice-mode-select, Issue #20)
+ * Apply a 1-click Practice Mode preset (#practice-mode-select, Issue #20 & Issue #36)
  */
 function applyPracticeMode(mode) {
   if (mode === 'both') {
     playbackState.handIsolation = 'both';
     playbackState.accompanimentMode = 'auto-other';
+    lastNonPreviewPracticeMode = { handIsolation: 'both', accompanimentMode: 'auto-other' };
   } else if (mode === 'rh-auto') {
     playbackState.handIsolation = 'track1';
     playbackState.accompanimentMode = 'auto-other';
+    lastNonPreviewPracticeMode = { handIsolation: 'track1', accompanimentMode: 'auto-other' };
   } else if (mode === 'rh-solo') {
     playbackState.handIsolation = 'track1';
     playbackState.accompanimentMode = 'mute-other';
+    lastNonPreviewPracticeMode = { handIsolation: 'track1', accompanimentMode: 'mute-other' };
   } else if (mode === 'lh-auto') {
     playbackState.handIsolation = 'track2';
     playbackState.accompanimentMode = 'auto-other';
+    lastNonPreviewPracticeMode = { handIsolation: 'track2', accompanimentMode: 'auto-other' };
   } else if (mode === 'lh-solo') {
     playbackState.handIsolation = 'track2';
     playbackState.accompanimentMode = 'mute-other';
+    lastNonPreviewPracticeMode = { handIsolation: 'track2', accompanimentMode: 'mute-other' };
   } else if (mode === 'preview') {
     playbackState.handIsolation = 'both';
     playbackState.accompanimentMode = 'auto-both';
@@ -3662,17 +3791,17 @@ function applyPracticeMode(mode) {
       playbackState.waitMode = false;
       waitModeStateText.textContent = 'OFF';
       btnWaitMode.classList.remove('btn-wait-active');
-      playbackState.isWaitingForStrike = false;
-      playbackState.waitStartedAtMs = null;
-      playbackState.activeStrikeGroup = null;
-      playbackState.lastFrameTimestamp = performance.now();
-      setStrikeStatusBadge('ready', 'Listen Only Mode (Auto-Playing Both Hands)');
     }
+    playbackState.isWaitingForStrike = false;
+    playbackState.waitStartedAtMs = null;
+    playbackState.activeStrikeGroup = null;
+    playbackState.lastFrameTimestamp = performance.now();
+    setStrikeStatusBadge('ready', 'Listen Only Mode (Auto-Playing Both Hands)');
   }
 
   if (handIsolationSelect) handIsolationSelect.value = playbackState.handIsolation;
   if (accompanimentSelect) accompanimentSelect.value = playbackState.accompanimentMode;
-  resetSongProgressFlags(playbackState.currentTime);
+  resetSongProgressFlags(playbackState.currentTime, { preserveTriggeredAtTarget: true });
 }
 
 btnWaitMode.addEventListener('click', () => {
@@ -3681,8 +3810,10 @@ btnWaitMode.addEventListener('click', () => {
   btnWaitMode.classList.toggle('btn-wait-active', playbackState.waitMode);
 
   if (playbackState.waitMode && playbackState.accompanimentMode === 'auto-both') {
-    playbackState.accompanimentMode = 'auto-other';
-    accompanimentSelect.value = 'auto-other';
+    playbackState.handIsolation = lastNonPreviewPracticeMode.handIsolation || 'both';
+    playbackState.accompanimentMode = lastNonPreviewPracticeMode.accompanimentMode || 'auto-other';
+    if (handIsolationSelect) handIsolationSelect.value = playbackState.handIsolation;
+    if (accompanimentSelect) accompanimentSelect.value = playbackState.accompanimentMode;
     syncPracticeModeDropdownFromState();
   }
 
@@ -3693,9 +3824,10 @@ btnWaitMode.addEventListener('click', () => {
     playbackState.lastFrameTimestamp = performance.now();
     setStrikeStatusBadge('ready', 'Arcade Mode Active (Continuous Playback)');
   } else {
-    resetSongProgressFlags(playbackState.currentTime);
+    resetSongProgressFlags(playbackState.currentTime, { preserveTriggeredAtTarget: true });
     setStrikeStatusBadge('ready', 'Wait Mode Active (100ms Chord Grace)');
   }
+  syncBackingAudioElement(playbackState.currentTime);
 });
 
 songProgressSlider.addEventListener('mousedown', () => {
@@ -3707,6 +3839,13 @@ songProgressSlider.addEventListener('input', (e) => {
   const ratio = Number(e.target.value) / 1000;
   playbackState.currentTime = ratio * currentSong.duration;
   resetSongProgressFlags(playbackState.currentTime);
+  if (currentSong.backingAudioEl) {
+    try {
+      currentSong.backingAudioEl.currentTime = Math.max(0, Math.min(currentSong.duration, playbackState.currentTime));
+    } catch {
+      // Ignore seek errors before audio metadata is loaded
+    }
+  }
   updateTimelineUI();
 });
 
@@ -3730,14 +3869,14 @@ if (practiceModeSelect) {
 handIsolationSelect.addEventListener('change', (e) => {
   playbackState.handIsolation = e.target.value;
   syncPracticeModeDropdownFromState();
-  resetSongProgressFlags(playbackState.currentTime);
+  resetSongProgressFlags(playbackState.currentTime, { preserveTriggeredAtTarget: true });
   e.target.blur();
 });
 
 accompanimentSelect.addEventListener('change', (e) => {
   playbackState.accompanimentMode = e.target.value;
   syncPracticeModeDropdownFromState();
-  resetSongProgressFlags(playbackState.currentTime);
+  resetSongProgressFlags(playbackState.currentTime, { preserveTriggeredAtTarget: true });
   e.target.blur();
 });
 
@@ -3815,6 +3954,7 @@ btnBackingBand.addEventListener('click', () => {
   if (!playbackState.backingBandEnabled && backingBandSynth) {
     backingBandSynth.releaseAll();
   }
+  syncBackingAudioElement(playbackState.currentTime);
 });
 
 playbackSpeedSelect.addEventListener('change', (e) => {
@@ -4261,7 +4401,7 @@ window.addEventListener('drop', async (e) => {
   }
   try {
     const buffer = await file.arrayBuffer();
-    parseMidiBuffer(buffer, file.name);
+    parseMidiBuffer(buffer, file.name, file.path || null);
   } catch (err) {
     alert(`Failed to parse MIDI file: ${err.message}`);
   }

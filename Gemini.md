@@ -295,3 +295,17 @@ In addition to the libraries in the PRD (`Tone.js`, `@tonejs/midi`, `atosystem/m
     7. **Issue #15 (`Medium`):** Eliminated per-note `createLinearGradient` allocations inside `drawFallingSpellHighway()`.
     8. **Issue #16 (`Medium`):** Added `window` `blur` cleanup for held QWERTY and mouse keys.
     9. **Issue #17 (`Low`):** Added `window` `beforeunload` cleanup for `activeQuestChildProcess`.
+
+### 2026-11-07 — Session 13: Phase 10 (2-Bar Conservatory UI/UX Overhaul `v1.1.0`) & Code Review Remediation (`Issues #31`–`#38`, `v1.1.1`)
+- **What we did:**
+  - Completed the **Phase 10 2-Bar Conservatory UI/UX Overhaul (`v1.1.0`, `Fixes #18–#22`)** consolidating the top interface into `#tavern-header` (Bar 1) and `#spell-scroll-bar` (Bar 2) with `#settings-popover`, `#spell-details-popover`, and `#highway-center-hud`.
+  - Conducted a full post-overhaul code review across `renderer.js`, `index.html`, `styles.css`, `main.js`, `python_ml/transcribe_quest.py`, and `start.bat`, logging 8 GitHub Issues (`#31` through `#38`) on https://github.com/kiyoshithekidd/college-of-keys/issues and implementing all fixes in **`v1.1.1`**:
+    1. **Issue #31 (`High`):** Added `syncBackingAudioElement(currentTime)` so `backingAudioEl` pauses during Wait Mode freezes (`isWaitingForStrike`) and when `🎸 Band: OFF` is toggled, and seeks accurately on slider input or restart.
+    2. **Issue #32 (`High`):** Added `hasUpcomingPlayerNoteMatchingMidi()` in `evaluateStrikeZoneInput()` so an unhit note in the `25ms` late-grace tail in Arcade Mode expires cleanly instead of blocking the `130ms` early-strike window of the next note and double-penalizing the player.
+    3. **Issue #33 (`High`):** Added `isAnyModalOpen()` to the capture-phase `keydown` listener so `Escape` closes `#performance-check-modal` and `#quest-board-modal` and `Spacebar` / `Z` / `X` / `A`–`;` are blocked while any modal is open.
+    4. **Issue #34 (`Medium`):** Updated `tryAutoLoadWorkspaceMidi()` to fall back to `loadBuiltInDemoSpell()` when no `.mid` file is present in the workspace or `./Imports/`.
+    5. **Issue #35 (`Medium`):** Enforced `min-width: 175px` on `#spell-metadata-panel` and responsive `@media (max-width: 1280px)` rules in `styles.css` so `#spell-name-display` never collapses to `0px` at `1024px–1200px` window widths.
+    6. **Issue #36 (`Medium`):** Preserved `autoTriggered` state at `currentTime` when switching `#practice-mode-select` mid-wait, restored `lastNonPreviewPracticeMode` when toggling `Wait: ON` out of `Listen Only`, and displayed `'Listen Only Mode (Auto-Playing Both Hands)'` on restart in `preview` mode.
+    7. **Issue #37 (`Medium`):** Dynamic time-signature measure lines (`beatsPerMeasure` from `midiData.header.timeSignatures`) in `drawFallingSpellHighway()` and `file.path` forwarding for File Picker / Drag-and-Drop backing audio discovery.
+    8. **Issue #38 (`Low`):** Portable `start.bat` Electron path resolution, `'—'` accuracy display when `0` notes are attempted in `#performance-check-modal`, and `URL.revokeObjectURL()` cleanup inside `grandPianoSampler`'s `onload` callback.
+

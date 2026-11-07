@@ -11,6 +11,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.1.1] - 2026-11-07 — Post-Overhaul Code Review Remediation (`Fixes #31–#38`)
+
+### Fixed
+- **Issue #31 (`High`):** Added `syncBackingAudioElement(currentTime)` and invoked it in `animationLoop`, `btnBackingBand`, `btnWaitMode`, `songProgressSlider`, and `resetPlaybackToStart()` so synced `.wav`/`.mp3` backing audio (`backingAudioEl`) automatically pauses while frozen in Wait Mode (`isWaitingForStrike`) or when `🎸 Band: OFF` is toggled mid-song, and resumes seamlessly in sync when unlocked.
+- **Issue #32 (`High`):** Updated `evaluateStrikeZoneInput()` with `hasUpcomingPlayerNoteMatchingMidi()` so that in Arcade Mode (`Wait Mode: OFF`), striking the next note inside its `130ms` early-strike window while an unhit note sits in the `25ms` late-grace tail (`[currentTime - 0.025, currentTime)`) expires the missed note once and cleanly locks the upcoming note instead of double-penalizing the player.
+- **Issue #33 (`High`):** Added `isAnyModalOpen()` to the global capture-phase `keydown` handler in `renderer.js` so `Escape` closes `#performance-check-modal` and `#quest-board-modal`, and `Spacebar` / `Z` / `X` / `A`–`;` keyboard inputs are blocked from triggering background transport or piano notes while a modal dialog is open.
+- **Issue #34 (`Medium`):** Updated `tryAutoLoadWorkspaceMidi()` to automatically invoke `loadBuiltInDemoSpell()` when no workspace or `./Imports/` `.mid` file is found on startup so a fresh clone always boots with *Cantrip of the Dawn* ready to play.
+- **Issue #35 (`Medium`):** Enforced `min-width: 175px` on `#spell-metadata-panel`, `min-width: 90px` on `.spell-title-group`, and responsive `@media (max-width: 1280px)` rules in `styles.css` so `#spell-name-display` never collapses to `0px` at `1024px–1200px` window widths.
+- **Issue #36 (`Medium`):** Preserved `autoTriggered` state for notes up to `currentTime` in `resetSongProgressFlags(targetTime, { preserveTriggeredAtTarget: true })` during mid-song practice mode switches, restored `lastNonPreviewPracticeMode` when re-enabling `Wait: ON` from `Listen Only`, and displayed `'Listen Only Mode (Auto-Playing Both Hands)'` on restart when in `preview` mode.
+- **Issue #37 (`Medium`):** Parsed `beatsPerMeasure` from `midiData.header.timeSignatures` onto `currentSong` for dynamic measure-line rendering (`b % beatsPerMeasure === 0`) in `drawFallingSpellHighway()`, and passed `file.path || null` to `parseMidiBuffer()` in both file-picker and drag-and-drop handlers so paired backing audio is discovered.
+- **Issue #38 (`Low`):** Updated `start.bat` to check local `node_modules` and `%LOCALAPPDATA%` before falling back to hardcoded paths or `npx electron`, displayed `'—'` instead of `100.0%` accuracy in `#performance-check-modal` when `totalAttempts === 0`, and revoked temporary `Blob` URLs inside `grandPianoSampler`'s `onload` callback.
+
+---
+
 ## [1.1.0] - 2026-11-07 — Phase 10: 2-Bar Conservatory UI/UX Overhaul (`Fixes #18–#22`)
 
 ### Added & Changed

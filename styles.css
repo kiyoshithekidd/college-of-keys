@@ -391,7 +391,7 @@ html, body {
 }
 
 #spell-metadata-panel {
-  flex: 1 1 auto;
+  flex: 1 1 175px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -399,13 +399,13 @@ html, body {
   border: 1px solid rgba(138, 109, 47, 0.45);
   border-radius: 7px;
   padding: 3px 9px;
-  min-width: 0;
+  min-width: 175px;
 }
 
 .spell-title-group {
   display: flex;
   align-items: center;
-  min-width: 0;
+  min-width: 90px;
   flex: 1 1 auto;
   overflow: hidden;
 }
@@ -1693,4 +1693,43 @@ html, body {
 
 .quest-footer-actions {
   justify-content: space-between;
+}
+
+/* Issue #35: Responsive 2-Bar Conservatory Layout at 1024px–1280px Window Widths */
+@media (max-width: 1280px) {
+  #tavern-header,
+  #spell-scroll-bar {
+    padding: 4px 8px;
+    gap: 6px;
+  }
+
+  .header-right-cluster,
+  .scroll-actions-group,
+  .transport-group {
+    gap: 5px;
+  }
+
+  .control-group label {
+    display: none;
+  }
+
+  .timeline-slider {
+    width: 68px;
+  }
+
+  .practice-select {
+    max-width: 145px;
+  }
+
+  .xp-bar-section {
+    width: 95px;
+    min-width: 85px;
+    flex: 0 1 95px;
+  }
+
+  .btn-arcane,
+  .btn-toggle {
+    padding: 4px 7px;
+    font-size: 0.72rem;
+  }
 }
