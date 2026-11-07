@@ -7,7 +7,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## [Unreleased]
-- **Phase 8:** Decoupled Python ML CLI (`yt-dlp` + `basic-pitch` + Backing Audio) outputting to `./Imports`.
+- Future Expansion Backlog ("The Full Adventuring Party": Vocals / Spell-Singing, 4-Stem Demucs Separation, and Grand-Staff Sheet Music Split View).
+
+---
+
+## [0.9.0] - 2026-11-06 — Phase 9: "The Quest Board" (In-App YouTube-to-MIDI Sourcing & External Archive Quick-Links)
+
+### Added
+- **In-App Quest Board Modal & Toolbar Trigger (`index.html`, `styles.css`, `renderer.js`):**
+  - Added `🔮 Quest Board` button (`#btn-open-quest-board`) in the top Spell Scroll Bar and built the `#quest-board-modal` dialog.
+  - Added YouTube URL / local audio path input (`#quest-youtube-url`), optional custom spell title (`#quest-custom-title`), `🔮 Transcribe YouTube Spell` button, and a 1-click `⚡ Run ML Self-Test (2s)` button.
+  - Added `runQuestBoardTranscriber()` using `child_process.spawn` to run `python_ml/transcribe_quest.py` in the background, parsing `[QUEST_STATUS]` JSON lines into an animated progress bar (`#quest-progress-fill`), live stage badge (`#quest-status-badge`), console log (`#quest-log-output`), automatic `./Imports/` Grimoire ingestion, and a 1-click `▶ Load "<Title>" Now` button (`#btn-quest-load-result`).
+- **Synced Backing Audio Playback (`renderer.js`):**
+  - Paired `.wav`/`.mp3`/`.ogg`/`.m4a` backing tracks in `./Imports/` now synchronize and play automatically when **`🎸 Backing Band: ON`** is enabled.
+- **External Bardic Archive Quick-Links (`renderer.js`):**
+  - Added 1-click cards in The Quest Board that open the system's default browser (`electron.shell.openExternal`) to **BitMIDI** (`https://bitmidi.com`), **VGMusic** (`https://www.vgmusic.com`), and **YouTube** (`https://www.youtube.com`).
+
+---
+
+## [0.8.0] - 2026-11-06 — Phase 8: Decoupled Python ML Pipeline (`yt-dlp` + `basic-pitch` / Polyphonic Audio-to-MIDI CLI)
+
+### Added
+- **Standalone Python ML Extraction Pipeline (`python_ml/transcribe_quest.py`, `python_ml/requirements.txt`):**
+  - Added decoupled CLI supporting YouTube URLs (`yt-dlp`), local audio files (`.wav`/`.mp3`/`.flac`), and `--self-test` mode, outputting both `.mid` spell scrolls and synced `.wav` backing audio directly into `./Imports/`.
+  - Implemented 2-tier polyphonic audio-to-MIDI transcription: uses Spotify `basic-pitch` (`basic_pitch.inference.predict_and_save`) when available, and seamlessly falls back to a built-in polyphonic spectral harmonic transcriber (`transcribe_wav_polyphonic`) + pure-Python SMF Format 1 `.mid` writer (`write_multi_track_midi`) for native Python 3.14 support.
+  - Emits structured `[QUEST_STATUS] {...}` JSON progress updates on `stdout` for Phase 9's in-app Quest Board.
+- **Windows Batch Launchers & Documentation (`python_ml/setup_ml_env.bat`, `python_ml/run_transcriber.bat`, `python_ml/README.md`):**
+  - Added 1-click setup (`setup_ml_env.bat`) and CLI runner (`run_transcriber.bat`) that auto-detect the local Python 3.14 installation (`%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe`).
 
 ---
 

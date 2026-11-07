@@ -58,10 +58,13 @@
 
     <!-- Phase 2, 3 & 4: Spell Scroll Bar (MIDI Loader, Transport, Wait Mode, Hand Isolation & Backing Band) -->
     <section id="spell-scroll-bar">
-      <!-- File Loading Actions & Grimoire Sidebar Toggle -->
+      <!-- File Loading Actions, Grimoire Sidebar Toggle & Phase 9 Quest Board -->
       <div class="spell-actions">
         <button id="btn-toggle-grimoire" class="tavern-btn btn-gold-outline" title="Toggle The Grimoire Spellbook Sidebar & Imports/ Folder Watcher">
           &#128214; The Grimoire (<span id="grimoire-count-badge">0</span>)
+        </button>
+        <button id="btn-open-quest-board" class="tavern-btn btn-quest-board" title="Open The Quest Board: Paste a YouTube URL to transcribe into MIDI or browse BitMIDI, VGMusic & YouTube">
+          &#128302; Quest Board
         </button>
         <input id="midi-file-input" type="file" accept=".mid,.midi" hidden />
         <button id="btn-load-midi" class="tavern-btn tavern-btn-primary" title="Upload a local .mid file (or drag & drop onto window)">
@@ -250,10 +253,10 @@
 
         <!-- Helper overlay in top-left of highway -->
         <div id="phase1-helper-banner">
-          <div class="helper-title" id="banner-phase-title">Phase 7: Arcane Particle Bursts, Shockwaves &amp; Tavern Dark Mode Polish</div>
+          <div class="helper-title" id="banner-phase-title">Phase 9: The Quest Board (In-App YouTube-to-MIDI Sourcing &amp; External Archives)</div>
           <div class="helper-body" id="banner-phase-body">
-            <span><strong>Strike-Line Particle Bursts:</strong> Striking keys bursts with <strong>Radiant Gold</strong>, <strong>Eldritch Blue</strong>, or <strong>Astral Inspiration</strong> star runes, shockwave rings &amp; floating XP popups!</span>
-            <span><strong>Tavern Dark Mode Aesthetic:</strong> Ambient arcane dust motes drift across the Spell Highway with illuminated brass borders and magical typography.</span>
+            <span><strong>The Quest Board (<code>&#128302; Quest Board</code>):</strong> Paste any YouTube URL (or run the 1-click ML Self-Test) to spawn the Python audio-to-MIDI pipeline in the background and auto-import into <strong>The Grimoire</strong>!</span>
+            <span><strong>External Bardic Archives:</strong> 1-click quick links to <strong>BitMIDI</strong>, <strong>VGMusic</strong>, and <strong>YouTube</strong> &bull; Drop any downloaded <code>.mid</code> into <code>./Imports</code> for instant ingestion.</span>
           </div>
         </div>
 
@@ -377,6 +380,115 @@
         <div class="modal-actions">
           <button id="btn-modal-replay" class="tavern-btn tavern-btn-cast">&#128260; Cast Spell Again</button>
           <button id="btn-modal-close" class="tavern-btn tavern-btn-primary">&#128220; Return to Conservatory</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 9: "The Quest Board" (In-App YouTube-to-MIDI Sourcing & External Archive Quick-Links Modal) -->
+    <div id="quest-board-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="quest-board-title">
+      <div class="quest-board-card">
+        <div class="quest-modal-top-bar">
+          <div>
+            <div class="modal-header-ornament">&#9830; BARDIC SOURCING &amp; ML TRANSCRIPTION &#9830;</div>
+            <h2 id="quest-board-title" class="modal-main-title">&#128302; The Quest Board</h2>
+            <p class="modal-song-subtitle">Transcribe YouTube audio into playable 61-key MIDI spells or raid external MIDI archives</p>
+          </div>
+          <button id="btn-close-quest-board" class="btn-icon quest-close-btn" title="Close The Quest Board">&#10005;</button>
+        </div>
+
+        <!-- Section 1: In-App YouTube / Audio-to-MIDI ML Pipeline -->
+        <div class="quest-section-box">
+          <div class="quest-section-header">
+            <span class="quest-section-title">&#10024; YouTube-to-MIDI Arcane Transcriber (<code>yt-dlp</code> + Polyphonic Audio-to-MIDI)</span>
+            <span id="quest-status-badge" class="quest-stage-pill stage-idle">Idle &bull; Ready</span>
+          </div>
+
+          <div class="quest-input-grid">
+            <div class="quest-field-wrap quest-field-url">
+              <label for="quest-youtube-url">Paste YouTube Video URL (or local <code>.wav</code> / <code>.mp3</code> path)</label>
+              <input
+                id="quest-youtube-url"
+                type="text"
+                class="quest-text-input"
+                placeholder="https://www.youtube.com/watch?v=... (or click ⚡ Run ML Self-Test below)"
+              />
+            </div>
+            <div class="quest-field-wrap quest-field-title">
+              <label for="quest-custom-title">Custom Spell Name (Optional)</label>
+              <input
+                id="quest-custom-title"
+                type="text"
+                class="quest-text-input"
+                placeholder="e.g. Tavern Piano Ballad"
+              />
+            </div>
+          </div>
+
+          <div class="quest-action-row">
+            <button id="btn-run-quest-url" class="tavern-btn tavern-btn-cast quest-btn-main" title="Download YouTube audio and transcribe into ./Imports">
+              &#128302; Transcribe YouTube Spell
+            </button>
+            <button id="btn-run-quest-selftest" class="tavern-btn btn-gold-outline" title="Synthesize a polyphonic test audio track and run the Python ML pipeline right now">
+              &#9889; Run ML Self-Test (2s)
+            </button>
+            <button id="btn-quest-load-result" class="tavern-btn tavern-btn-primary hidden" title="Load the newly transcribed spell onto the Spell Highway!">
+              &#9654; Load Transcribed Spell Now
+            </button>
+          </div>
+
+          <!-- Real-Time Progress Bar & Console Stream -->
+          <div id="quest-progress-container" class="quest-progress-container">
+            <div class="quest-progress-labels">
+              <span id="quest-progress-message">Paste a YouTube link or click "⚡ Run ML Self-Test (2s)" to forge a new spell scroll into ./Imports.</span>
+              <strong id="quest-progress-pct">0%</strong>
+            </div>
+            <div class="xp-bar-track quest-progress-track">
+              <div id="quest-progress-fill" class="quest-progress-fill" style="width: 0%;"></div>
+            </div>
+            <pre id="quest-log-output" class="quest-log-output">[Quest Board Ready] Output destination: ./Imports/ (Auto-watched by The Grimoire)</pre>
+          </div>
+        </div>
+
+        <!-- Section 2: External MIDI & Audio Archives (1-Click Browser Quick-Links) -->
+        <div class="quest-section-box">
+          <div class="quest-section-header">
+            <span class="quest-section-title">&#127760; External Bardic Archives (Opens in Browser)</span>
+            <span class="quest-hint-text">Download any <code>.mid</code> into <code>./Imports</code> for instant ingestion!</span>
+          </div>
+
+          <div class="quest-links-grid">
+            <button id="btn-link-bitmidi" class="quest-archive-card" title="Open BitMIDI.com in your default web browser">
+              <span class="archive-icon">&#127929;</span>
+              <div class="archive-info">
+                <strong>BitMIDI</strong>
+                <span>Curated Classical, Pop &amp; Film MIDIs</span>
+                <code>bitmidi.com &#8599;</code>
+              </div>
+            </button>
+
+            <button id="btn-link-vgmusic" class="quest-archive-card" title="Open VGMusic.com in your default web browser">
+              <span class="archive-icon">&#127918;</span>
+              <div class="archive-info">
+                <strong>VGMusic Archive</strong>
+                <span>30,000+ Video Game Multi-Track MIDIs</span>
+                <code>vgmusic.com &#8599;</code>
+              </div>
+            </button>
+
+            <button id="btn-link-youtube" class="quest-archive-card" title="Open YouTube.com in your default web browser to copy a song URL">
+              <span class="archive-icon">&#128250;</span>
+              <div class="archive-info">
+                <strong>YouTube</strong>
+                <span>Find any song &amp; paste URL above</span>
+                <code>youtube.com &#8599;</code>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div class="modal-actions quest-footer-actions">
+          <button id="btn-quest-open-imports" class="tavern-btn btn-gold-outline">&#128194; Open ./Imports Folder</button>
+          <button id="btn-quest-close-bottom" class="tavern-btn tavern-btn-primary">&#128220; Return to Conservatory</button>
         </div>
       </div>
     </div>

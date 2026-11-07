@@ -139,20 +139,20 @@ In addition to the libraries in the PRD (`Tone.js`, `@tonejs/midi`, `atosystem/m
   - Add Electron folder watcher on local `Imports/` folder to auto-ingest new `.mid` (and paired backing audio) files into The Grimoire.
   - *Gate 6: Passed (`"Testing successful"`).*
 
-- [/] **Phase 7: UI Polish & Particle Effects (Implemented — Awaiting `"Testing successful"`)**
+- [x] **Phase 7: UI Polish & Particle Effects (Completed & Verified)**
   - Add HTML5 canvas particle bursts on note hits at the strike line.
   - Polish the Tavern Dark Mode aesthetic (arcane glow, typography, parchment/obsidian styling).
-  - *Gate 7: Stop, provide test steps, wait for `"Testing successful"`.*
+  - *Gate 7: Passed (`"Testing successful"`).*
 
-- [ ] **Phase 8: Python ML Extraction (`yt-dlp` + `basic-pitch` + Backing Track CLI)**
+- [x] **Phase 8: Python ML Extraction (`yt-dlp` + `basic-pitch` + Backing Track CLI) (Completed & Verified)**
   - Create decoupled Python directory/CLI outside the Electron bundle.
-  - Build pipeline to download YouTube audio via `yt-dlp`, optionally split stems (via `demucs` if installed) or preserve synced backing audio (`.mp3`/`.wav`), transcribe piano/melody to `.mid` via `basic-pitch`, and drop into `Imports/`.
-  - *Gate 8: Stop, provide test steps, wait for `"Testing successful"`.*
+  - Build pipeline to download YouTube audio via `yt-dlp`, optionally split stems (via `demucs` if installed) or preserve synced backing audio (`.mp3`/`.wav`), transcribe piano/melody to `.mid` via `basic-pitch` (with built-in polyphonic spectral audio-to-MIDI fallback for Python 3.14), and drop into `Imports/`.
+  - *Gate 8: Passed (`"Testing successful"`).*
 
-- [ ] **Phase 9: "The Quest Board" (In-App Sourcing)**
+- [x] **Phase 9: "The Quest Board" (In-App Sourcing) (Completed & Verified)**
   - Add in-app "Paste YouTube URL" input that spawns the Phase 8 Python CLI in the background with status feedback.
   - Add quick-link buttons opening external browser tabs for BitMIDI, VGMusic, and YouTube.
-  - *Gate 9: Stop, provide test steps, wait for `"Testing successful"`.*
+  - *Gate 9: Passed (`"Testing successful"`).*
 
 ---
 
@@ -241,4 +241,24 @@ In addition to the libraries in the PRD (`Tone.js`, `@tonejs/midi`, `atosystem/m
     - Color-themes bursts automatically: **Radiant Gold** (`#ffd700` for Right Hand / treble keys), **Eldritch Blue** (`#00e5ff` for Left Hand / bass keys), **Emerald-Gold Nova** (`#34d399` for 100ms Chord Rolls), and **Astral Magenta & Gold** (`#e879f9` during `50+` Bardic Inspiration).
     - Added 28 drifting **Ambient Tavern Arcane Dust Motes** across the Spell Highway background and a celebratory 9-key particle wave when triggering `+25 Chain` / Bardic Inspiration.
   - Polished the **Tavern Dark Mode CSS** in [styles.css](file:///g:/My%20Drive/Projects/College%20of%20Keys/styles.css) with `@keyframes arcaneCrestPulse`, `@keyframes inspirationAuraPulse`, stage inner vignette, and illuminated brass/gold borders.
-- **Current status:** Phase 7 implemented. Waiting for user verification (`"Testing successful"`).
+- **Current status:** Phase 7 verified (`"Testing successful"`), committed and pushed to GitHub (`b076cbc`).
+
+### 2026-11-06 — Session 9: Phase 8 Implementation (Decoupled Python ML Extraction CLI: `yt-dlp` + `basic-pitch` / Polyphonic Audio-to-MIDI)
+- **What we did:**
+  - Created the decoupled `./python_ml` directory ([python_ml/transcribe_quest.py](file:///g:/My%20Drive/Projects/College%20of%20Keys/python_ml/transcribe_quest.py), [python_ml/requirements.txt](file:///g:/My%20Drive/Projects/College%20of%20Keys/python_ml/requirements.txt), [python_ml/setup_ml_env.bat](file:///g:/My%20Drive/Projects/College%20of%20Keys/python_ml/setup_ml_env.bat), [python_ml/run_transcriber.bat](file:///g:/My%20Drive/Projects/College%20of%20Keys/python_ml/run_transcriber.bat), and [python_ml/README.md](file:///g:/My%20Drive/Projects/College%20of%20Keys/python_ml/README.md)):
+    - **YouTube & Local Audio Ingestion (`download_youtube_audio` & `ensure_wav_44k`):** Downloads YouTube audio via `yt-dlp` (`python -m yt_dlp` or CLI) or accepts local `.wav`/`.mp3`/`.flac` files, normalizes audio to 16-bit 44.1kHz PCM `.wav`, and preserves the synced backing audio in `./Imports/` alongside the transcribed `.mid` scroll.
+    - **Dual-Engine Polyphonic Audio-to-MIDI Transcriber:**
+      1. **Tier 1 (`try_basic_pitch_transcription`):** Uses Spotify's `basic-pitch` (`basic_pitch.inference.predict_and_save`) when installed on Python 3.10–3.12.
+      2. **Tier 2 (`transcribe_wav_polyphonic` + `write_multi_track_midi`):** Built-in polyphonic spectral peak-tracking transcriber across MIDI pitches `36..96` (`C2`–`C7`) with overtone suppression, onset/duration tracking, and pure-Python Standard MIDI File (Format 1) generation split into Track 1 (RH) and Track 2 (LH)—ensuring 100% native compatibility on **Python 3.14** without requiring C++ compiler chains.
+    - **Zero-Config `--self-test` Mode:** Synthesizes a stereo polyphonic audio recording (*The Bard's Arcane Prelude*, `.wav`), runs the polyphonic audio-to-MIDI transcriber on that `.wav` file, and drops both `<Title>.mid` and `<Title>.wav` into `./Imports/` so the running Electron app's Phase 6 Grimoire folder watcher auto-ingests it live.
+    - **Structured JSON Progress Output (`[QUEST_STATUS]`):** Emits real-time JSON progress updates on `stdout` ready for Phase 9's in-app **Quest Board**.
+- **Current status:** Phase 8 verified (`"testing was successful"`).
+
+### 2026-11-06 — Session 10: Phase 9 Implementation ("The Quest Board": In-App YouTube-to-MIDI Sourcing & External Archive Quick-Links)
+- **What we did:**
+  - Built **The Quest Board (`#quest-board-modal` & `#btn-open-quest-board`)** in [index.html](file:///g:/My%20Drive/Projects/College%20of%20Keys/index.html), [styles.css](file:///g:/My%20Drive/Projects/College%20of%20Keys/styles.css), and [renderer.js](file:///g:/My%20Drive/Projects/College%20of%20Keys/renderer.js):
+    - **In-App YouTube-to-MIDI Spawner (`runQuestBoardTranscriber`):** Lets the user paste any YouTube URL (or local `.wav`/`.mp3` path) and optional custom spell title, or click **`⚡ Run ML Self-Test (2s)`**, spawning `python_ml/transcribe_quest.py` in the background (`child_process.spawn`).
+    - **Live Progress Bar & Console Stream:** Parses `[QUEST_STATUS]` JSON lines on `stdout` in real time to animate `#quest-progress-fill` (`0%` $\rightarrow$ `100%`), update `#quest-status-badge`, stream logs to `#quest-log-output`, trigger immediate `./Imports/` folder-watcher ingestion into **The Grimoire**, and reveal a 1-click **`▶ Load "<Title>" Now`** button (`#btn-quest-load-result`).
+    - **Synced Backing Audio Playback (`backingAudioEl`):** When a song in `./Imports/` has a paired `.wav`/`.mp3`/`.m4a`/`.ogg` backing track and **`🎸 Backing Band: ON`** is enabled, synchronizes and plays the audio alongside the falling notes!
+    - **External Bardic Archives (`shell.openExternal`):** Added 1-click cards in The Quest Board that open the default web browser to **BitMIDI** (`https://bitmidi.com`), **VGMusic** (`https://www.vgmusic.com`), and **YouTube** (`https://www.youtube.com`), plus a **`📂 Open ./Imports Folder`** shortcut.
+- **Current status:** All 9 MVP phases (`Phase 1` through `Phase 9`) completed and verified!

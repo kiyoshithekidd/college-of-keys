@@ -7,10 +7,14 @@
  * Phase 5: LitRPG Gamification UI (Spell Chain Combos, Bardic Inspiration 2x XP, Leveling Titles & Performance Check Modal)
  * Phase 6: The Grimoire (Local Song Library Sidebar & Active ./Imports Folder Watcher)
  * Phase 7: UI Polish & Arcane Strike-Line Particle Bursts, Shockwaves & Floating XP Runes
+ * Phase 8 & 9: "The Quest Board" (In-App YouTube-to-MIDI Python ML Spawner & External Archive Quick-Links)
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const { spawn } = require('child_process');
+const { pathToFileURL } = require('url');
 const { shell } = require('electron');
 
 const MIN_MIDI = 36; // C2
@@ -173,6 +177,26 @@ const grimoireFilterSelect = document.getElementById('grimoire-filter-select');
 const grimoireSpellList = document.getElementById('grimoire-spell-list');
 const grimoireToast = document.getElementById('grimoire-toast');
 const grimoireToastText = document.getElementById('grimoire-toast-text');
+
+// DOM Elements — Phase 9 ("The Quest Board" In-App YouTube-to-MIDI Sourcing & Quick Links)
+const btnOpenQuestBoard = document.getElementById('btn-open-quest-board');
+const questBoardModal = document.getElementById('quest-board-modal');
+const btnCloseQuestBoard = document.getElementById('btn-close-quest-board');
+const questStatusBadge = document.getElementById('quest-status-badge');
+const questYoutubeUrlInput = document.getElementById('quest-youtube-url');
+const questCustomTitleInput = document.getElementById('quest-custom-title');
+const btnRunQuestUrl = document.getElementById('btn-run-quest-url');
+const btnRunQuestSelfTest = document.getElementById('btn-run-quest-selftest');
+const btnQuestLoadResult = document.getElementById('btn-quest-load-result');
+const questProgressMessage = document.getElementById('quest-progress-message');
+const questProgressPct = document.getElementById('quest-progress-pct');
+const questProgressFill = document.getElementById('quest-progress-fill');
+const questLogOutput = document.getElementById('quest-log-output');
+const btnLinkBitmidi = document.getElementById('btn-link-bitmidi');
+const btnLinkVgmusic = document.getElementById('btn-link-vgmusic');
+const btnLinkYoutube = document.getElementById('btn-link-youtube');
+const btnQuestOpenImports = document.getElementById('btn-quest-open-imports');
+const btnQuestCloseBottom = document.getElementById('btn-quest-close-bottom');
 
 // Keyboard & Input State
 const keyGeometry = {}; // midi -> { midi, name, isBlack, x, y, width, height, whiteIndex }
@@ -707,6 +731,38 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
   const duration = Math.max(midiData.duration || 1, 1);
   const cleanTitle = midiData.name?.trim() || fileName.replace(/\.(mid|midi)$/i, '');
 
+  // If a previous song had a synced backing audio element, stop it before loading new song
+  if (currentSong?.backingAudioEl) {
+    try {
+      currentSong.backingAudioEl.pause();
+      currentSong.backingAudioEl.src = '';
+    } catch {
+      // Ignore audio cleanup errors
+    }
+  }
+
+  // Check if this .mid file has a paired backing audio track (.wav, .mp3, .ogg, .m4a)
+  let backingAudioPath = null;
+  let backingAudioEl = null;
+  if (filePath && filePath !== 'BUILTIN_DEMO') {
+    const baseNoExt = filePath.replace(/\.(mid|midi)$/i, '');
+    for (const ext of ['.wav', '.mp3', '.ogg', '.m4a']) {
+      if (fs.existsSync(baseNoExt + ext)) {
+        backingAudioPath = baseNoExt + ext;
+        break;
+      }
+    }
+  }
+  if (backingAudioPath) {
+    try {
+      backingAudioEl = new Audio(pathToFileURL(backingAudioPath).href);
+      backingAudioEl.preload = 'auto';
+      backingAudioEl.volume = 0.48;
+    } catch {
+      backingAudioEl = null;
+    }
+  }
+
   currentSong = {
     title: cleanTitle,
     fileName,
@@ -722,6 +778,8 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     track2Notes: [],
     backingBandTracks: [],
     backingBandNotes: [],
+    backingAudioPath,
+    backingAudioEl,
     foldedNotesCount: 0,
     difficulty: null
   };
@@ -919,7 +977,9 @@ function updateSpellInspectorHUD() {
   statDuration.textContent = formatSeconds(currentSong.duration);
   statT1Notes.textContent = String(currentSong.track1Notes.length);
   statT2Notes.textContent = String(currentSong.track2Notes.length);
-  statBandTracks.textContent = String(currentSong.backingBandTracks.length);
+  statBandTracks.textContent = currentSong.backingAudioPath && currentSong.backingBandTracks.length === 0
+    ? '1 (Audio)'
+    : String(currentSong.backingBandTracks.length);
   statFoldedNotes.textContent = String(currentSong.foldedNotesCount);
 }
 
@@ -1589,6 +1649,9 @@ function pausePlayback() {
   if (backingBandSynth) {
     backingBandSynth.releaseAll();
   }
+  if (currentSong?.backingAudioEl && !currentSong.backingAudioEl.paused) {
+    currentSong.backingAudioEl.pause();
+  }
 }
 
 function togglePlayback() {
@@ -1664,6 +1727,22 @@ function processSongAudioTriggers(prevTime, newTime) {
       } else if (n.time > newTime) {
         break;
       }
+    }
+  }
+
+  // Sync paired .wav / .mp3 backing audio track when Backing Band is enabled
+  if (currentSong.backingAudioEl) {
+    const audioEl = currentSong.backingAudioEl;
+    if (playbackState.backingBandEnabled && !playbackState.isWaitingForStrike && newTime >= 0 && newTime < currentSong.duration) {
+      audioEl.playbackRate = speed;
+      if (audioEl.paused) {
+        audioEl.currentTime = Math.max(0, newTime);
+        audioEl.play().catch(() => {});
+      } else if (Math.abs(audioEl.currentTime - newTime) > 0.35) {
+        audioEl.currentTime = Math.max(0, newTime);
+      }
+    } else if (!audioEl.paused) {
+      audioEl.pause();
     }
   }
 }
@@ -2033,15 +2112,20 @@ function scanWatchedDirectories(notifyOnNew = false) {
 
       for (const file of files) {
         const key = `${sourceTag.toLowerCase()}::${file.toLowerCase()}`;
-        if (grimoireSpells.has(key)) continue;
-
         const fullPath = path.join(dir, file);
         const stat = fs.statSync(fullPath);
         if (!stat.isFile() || stat.size < 16) continue;
 
+        const existing = grimoireSpells.get(key);
+        if (existing && existing.mtimeMs === stat.mtimeMs && existing.fileSize === stat.size) {
+          continue;
+        }
+
         const buf = fs.readFileSync(fullPath);
         const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
         const entry = extractGrimoireEntryFromBuffer(arrayBuf, file, fullPath, sourceTag);
+        entry.mtimeMs = stat.mtimeMs;
+        entry.fileSize = stat.size;
         entry.newlyIngested = notifyOnNew;
 
         grimoireSpells.set(entry.id, entry);
@@ -3436,6 +3520,319 @@ grimoireSearchInput.addEventListener('input', () => {
 grimoireFilterSelect.addEventListener('change', () => {
   renderGrimoireSidebar();
 });
+
+// ============================================================================
+// PHASE 9: "THE QUEST BOARD" (IN-APP YOUTUBE-TO-MIDI SOURCING & QUICK LINKS)
+// ============================================================================
+
+let activeQuestChildProcess = null;
+let lastQuestTranscribedMidiPath = null;
+
+function openQuestBoardModal() {
+  pausePlayback();
+  if (questBoardModal) {
+    questBoardModal.classList.remove('hidden');
+  }
+}
+
+function closeQuestBoardModal() {
+  if (questBoardModal) {
+    questBoardModal.classList.add('hidden');
+  }
+}
+
+/**
+ * Resolve the local Python executable, preferring the user's Python 3.14 install
+ * before falling back to 'python' on PATH (avoiding the WindowsApps Store stub).
+ */
+function resolvePythonExecutable() {
+  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+  const candidates = [
+    path.join(localAppData, 'Python', 'pythoncore-3.14-64', 'python.exe'),
+    path.join(localAppData, 'Programs', 'Python', 'Python314', 'python.exe'),
+    path.join(localAppData, 'Programs', 'Python', 'Python312', 'python.exe'),
+    path.join(localAppData, 'Programs', 'Python', 'Python311', 'python.exe'),
+    path.join(localAppData, 'Programs', 'Python', 'Python310', 'python.exe')
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    } catch {
+      // Ignore fs check error
+    }
+  }
+  return 'python';
+}
+
+function setQuestStageUI(stageType, badgeText, progressPct, messageText) {
+  if (questStatusBadge) {
+    questStatusBadge.className = `quest-stage-pill stage-${stageType}`;
+    questStatusBadge.textContent = badgeText;
+  }
+  if (typeof progressPct === 'number') {
+    const clamped = Math.max(0, Math.min(100, Math.round(progressPct)));
+    if (questProgressPct) questProgressPct.textContent = `${clamped}%`;
+    if (questProgressFill) questProgressFill.style.width = `${clamped}%`;
+  }
+  if (messageText && questProgressMessage) {
+    questProgressMessage.textContent = messageText;
+  }
+}
+
+function appendQuestLogLine(line) {
+  if (!questLogOutput) return;
+  questLogOutput.textContent += `\n${line}`;
+  questLogOutput.scrollTop = questLogOutput.scrollHeight;
+}
+
+/**
+ * Spawn `python_ml/transcribe_quest.py` in the background and stream `[QUEST_STATUS]` JSON progress!
+ */
+function runQuestBoardTranscriber({ selfTest = false } = {}) {
+  if (activeQuestChildProcess) {
+    alert('A Quest Board transcription is already running in the background!');
+    return;
+  }
+
+  const rawUrlOrPath = (questYoutubeUrlInput?.value || '').trim();
+  const customTitle = (questCustomTitleInput?.value || '').trim();
+
+  if (!selfTest && !rawUrlOrPath) {
+    alert('Please paste a YouTube URL (or local .wav / .mp3 path), or click "⚡ Run ML Self-Test (2s)"!');
+    questYoutubeUrlInput?.focus();
+    return;
+  }
+
+  const scriptPath = path.join(__dirname, 'python_ml', 'transcribe_quest.py');
+  if (!fs.existsSync(scriptPath)) {
+    alert(`Python ML script not found at: ${scriptPath}`);
+    return;
+  }
+
+  const pythonExe = resolvePythonExecutable();
+  const args = [scriptPath, '--output-dir', IMPORTS_DIR];
+
+  if (selfTest) {
+    args.push('--self-test');
+    if (customTitle) {
+      args.push('--title', customTitle);
+    }
+  } else {
+    args.push(rawUrlOrPath);
+    if (customTitle) {
+      args.push('--title', customTitle);
+    }
+  }
+
+  if (btnRunQuestUrl) btnRunQuestUrl.disabled = true;
+  if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = true;
+  if (btnQuestLoadResult) btnQuestLoadResult.classList.add('hidden');
+
+  if (questLogOutput) {
+    questLogOutput.textContent = `[Quest Started] Spawning: ${path.basename(pythonExe)} python_ml/transcribe_quest.py ${selfTest ? '--self-test' : rawUrlOrPath}`;
+  }
+
+  setQuestStageUI(
+    'running',
+    'Transcribing...',
+    8,
+    selfTest
+      ? 'Synthesizing polyphonic acoustic test audio (.wav) & running audio-to-MIDI transcriber...'
+      : `Connecting to yt-dlp & audio-to-MIDI pipeline for: ${rawUrlOrPath}`
+  );
+
+  try {
+    const child = spawn(pythonExe, args, {
+      cwd: __dirname,
+      windowsHide: true
+    });
+    activeQuestChildProcess = child;
+
+    let stdoutBuffer = '';
+
+    const processOutputLine = (line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      appendQuestLogLine(trimmed);
+
+      const statusIdx = trimmed.indexOf('[QUEST_STATUS]');
+      if (statusIdx !== -1) {
+        const jsonPart = trimmed.slice(statusIdx + '[QUEST_STATUS]'.length).trim();
+        try {
+          const payload = JSON.parse(jsonPart);
+          const pct = typeof payload.progress === 'number' ? payload.progress : 50;
+          const msg = payload.message || 'Processing audio...';
+
+          if (payload.stage === 'complete') {
+            setQuestStageUI('complete', 'Complete • Ingested!', 100, msg);
+            if (payload.midi_path) {
+              lastQuestTranscribedMidiPath = payload.midi_path;
+              if (btnQuestLoadResult) {
+                btnQuestLoadResult.textContent = `▶ Load "${payload.title || path.basename(payload.midi_path)}" Now`;
+                btnQuestLoadResult.classList.remove('hidden');
+              }
+            }
+            // Trigger immediate folder watcher scan so The Grimoire updates live
+            setTimeout(() => scanWatchedDirectories(true), 120);
+          } else if (payload.stage === 'error') {
+            setQuestStageUI('error', 'Quest Error', pct, `Error: ${msg}`);
+          } else {
+            const labelMap = {
+              starting: 'Starting...',
+              downloading: 'Downloading YouTube...',
+              downloaded: 'Audio Ready',
+              transcribing: 'Transcribing Notes...',
+              writing_midi: 'Writing .mid Scroll...'
+            };
+            setQuestStageUI('running', labelMap[payload.stage] || 'Working...', pct, msg);
+          }
+        } catch {
+          // Ignore malformed JSON line
+        }
+      }
+    };
+
+    child.stdout.on('data', (chunk) => {
+      stdoutBuffer += chunk.toString('utf8');
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop() || '';
+      for (const l of lines) {
+        processOutputLine(l);
+      }
+    });
+
+    child.stderr.on('data', (chunk) => {
+      const text = chunk.toString('utf8').trim();
+      if (text) {
+        appendQuestLogLine(`[stderr] ${text}`);
+      }
+    });
+
+    child.on('error', (err) => {
+      activeQuestChildProcess = null;
+      if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
+      if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
+      setQuestStageUI('error', 'Spawn Failed', 0, `Could not launch Python: ${err.message}`);
+      appendQuestLogLine(`[Error] ${err.message}`);
+    });
+
+    child.on('close', (code) => {
+      if (stdoutBuffer.trim()) {
+        processOutputLine(stdoutBuffer);
+      }
+      activeQuestChildProcess = null;
+      if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
+      if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
+
+      if (code === 0) {
+        setTimeout(() => scanWatchedDirectories(true), 150);
+      } else if (questStatusBadge && !questStatusBadge.classList.contains('stage-error')) {
+        setQuestStageUI('error', `Exited (${code})`, 0, `Transcriber exited with code ${code}. Check console log below.`);
+      }
+    });
+  } catch (err) {
+    activeQuestChildProcess = null;
+    if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
+    if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
+    setQuestStageUI('error', 'Failed', 0, `Failed to start Python transcriber: ${err.message}`);
+  }
+}
+
+if (btnOpenQuestBoard) {
+  btnOpenQuestBoard.addEventListener('click', () => {
+    openQuestBoardModal();
+  });
+}
+
+if (btnCloseQuestBoard) {
+  btnCloseQuestBoard.addEventListener('click', () => {
+    closeQuestBoardModal();
+  });
+}
+
+if (btnQuestCloseBottom) {
+  btnQuestCloseBottom.addEventListener('click', () => {
+    closeQuestBoardModal();
+  });
+}
+
+if (questBoardModal) {
+  questBoardModal.addEventListener('click', (e) => {
+    if (e.target === questBoardModal) {
+      closeQuestBoardModal();
+    }
+  });
+}
+
+if (btnRunQuestUrl) {
+  btnRunQuestUrl.addEventListener('click', () => {
+    runQuestBoardTranscriber({ selfTest: false });
+  });
+}
+
+if (questYoutubeUrlInput) {
+  questYoutubeUrlInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      runQuestBoardTranscriber({ selfTest: false });
+    }
+  });
+}
+
+if (btnRunQuestSelfTest) {
+  btnRunQuestSelfTest.addEventListener('click', () => {
+    runQuestBoardTranscriber({ selfTest: true });
+  });
+}
+
+if (btnQuestLoadResult) {
+  btnQuestLoadResult.addEventListener('click', () => {
+    if (lastQuestTranscribedMidiPath && fs.existsSync(lastQuestTranscribedMidiPath)) {
+      try {
+        const buf = fs.readFileSync(lastQuestTranscribedMidiPath);
+        const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+        parseMidiBuffer(arrayBuf, path.basename(lastQuestTranscribedMidiPath), lastQuestTranscribedMidiPath);
+        closeQuestBoardModal();
+        showGrimoireToast(`🔮 Loaded Transcribed Spell: "${path.basename(lastQuestTranscribedMidiPath)}"!`);
+      } catch (err) {
+        alert(`Failed to load transcribed MIDI: ${err.message}`);
+      }
+    }
+  });
+}
+
+if (btnLinkBitmidi) {
+  btnLinkBitmidi.addEventListener('click', () => {
+    shell.openExternal('https://bitmidi.com');
+  });
+}
+
+if (btnLinkVgmusic) {
+  btnLinkVgmusic.addEventListener('click', () => {
+    shell.openExternal('https://www.vgmusic.com');
+  });
+}
+
+if (btnLinkYoutube) {
+  btnLinkYoutube.addEventListener('click', () => {
+    shell.openExternal('https://www.youtube.com');
+  });
+}
+
+if (btnQuestOpenImports) {
+  btnQuestOpenImports.addEventListener('click', () => {
+    try {
+      if (!fs.existsSync(IMPORTS_DIR)) {
+        fs.mkdirSync(IMPORTS_DIR, { recursive: true });
+      }
+      shell.openPath(IMPORTS_DIR);
+    } catch (err) {
+      alert(`Could not open Imports folder: ${err.message}`);
+    }
+  });
+}
 
 // Drag & Drop .mid support on the stage
 window.addEventListener('dragover', (e) => {

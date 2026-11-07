@@ -1,0 +1,12 @@
+# College of Keys — Phase 8 & 9: Python ML Audio-to-MIDI Pipeline Dependencies
+# Core YouTube extraction, self-contained ffmpeg binary, and Spotify basic-pitch ONNX runtime:
+yt-dlp>=2024.8.6
+numpy>=1.26.0
+imageio-ffmpeg>=0.5.1
+onnxruntime>=1.19.0
+librosa>=0.10.2
+scipy>=1.13.0
+resampy>=0.4.3
+pretty_midi>=0.2.10
+mir-eval>=0.7
+# Install basic-pitch with: pip install --no-deps --ignore-requires-python basic-pitch

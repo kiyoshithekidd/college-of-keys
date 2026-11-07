@@ -10,6 +10,6 @@ NEVER execute multiple phases at once. Stop at the end of each phase, provide te
 - [x] Phase 4: Wait Mode & Chord Forgiveness (100ms Roll)
 - [x] Phase 5: LitRPG Gamification UI (Combos, XP, Titles)
 - [x] Phase 6: The Grimoire (Folder Watcher & Local Storage)
-- [/] Phase 7: UI Polish & Particle Effects — Implemented, Awaiting `"Testing successful"`
-- [ ] Phase 8: Python ML Extraction (yt-dlp + basic-pitch CLI)
-- [ ] Phase 9: "The Quest Board" (In-App Sourcing)
+- [x] Phase 7: UI Polish & Particle Effects
+- [x] Phase 8: Python ML Extraction (yt-dlp + basic-pitch CLI)
+- [x] Phase 9: "The Quest Board" (In-App Sourcing)

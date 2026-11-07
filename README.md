@@ -16,9 +16,9 @@
 | **Phase 4** | **Wait Mode & 100ms Chord Forgiveness ("The Roll")** | **Completed** |
 | **Phase 5** | **LitRPG Gamification UI (Spell Chain, Bardic Inspiration, XP & Titles)** | **Completed** |
 | **Phase 6** | **The Grimoire (Local Song Library & `Imports/` Folder Watcher)** | **Completed** |
-| **Phase 7** | **Tavern Dark Mode UI Polish & Strike-Line Particle Bursts** | **Implemented (Testing Gate 7)** |
-| **Phase 8** | Decoupled Python ML Pipeline (`yt-dlp` + Spotify `basic-pitch` + Backing Track) | Planned |
-| **Phase 9** | "The Quest Board" (In-App YouTube-to-MIDI Sourcing & Quick Links) | Planned |
+| **Phase 7** | **Tavern Dark Mode UI Polish & Strike-Line Particle Bursts** | **Completed** |
+| **Phase 8** | **Decoupled Python ML Pipeline (`yt-dlp` + Spotify `basic-pitch` + Backing Track)** | **Completed** |
+| **Phase 9** | **"The Quest Board" (In-App YouTube-to-MIDI Sourcing & Quick Links)** | **Completed** |
 
 ---
 

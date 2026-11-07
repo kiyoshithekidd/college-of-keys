@@ -1341,3 +1341,275 @@ html, body {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
   box-shadow: inset 0 1px 0 rgba(255, 243, 176, 0.12);
 }
+
+/* ============================================================================
+   PHASE 9: "THE QUEST BOARD" (IN-APP YOUTUBE SOURCING & EXTERNAL ARCHIVE LINKS)
+   ============================================================================ */
+
+.btn-quest-board {
+  background: linear-gradient(180deg, #4f1d7a 0%, #2d104b 100%);
+  border-color: #c084fc;
+  color: #f3e8ff;
+  box-shadow: 0 0 14px rgba(192, 132, 252, 0.32);
+}
+
+.btn-quest-board:hover:not(:disabled) {
+  background: linear-gradient(180deg, #6b21a8 0%, #3b0764 100%);
+  border-color: #e879f9;
+  color: #ffffff;
+  box-shadow: 0 0 18px rgba(232, 121, 249, 0.52);
+}
+
+.quest-board-card {
+  width: min(740px, 95vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  background: linear-gradient(180deg, #211a3a 0%, #120e24 100%);
+  border: 2px solid var(--radiant-gold);
+  border-radius: 14px;
+  padding: 20px 24px;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.88),
+    0 0 36px rgba(192, 132, 252, 0.25),
+    inset 0 0 22px rgba(255, 215, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.quest-modal-top-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quest-close-btn {
+  width: 30px;
+  height: 30px;
+  font-size: 0.95rem;
+}
+
+.quest-section-box {
+  background: rgba(15, 11, 29, 0.85);
+  border: 1px solid rgba(138, 109, 47, 0.65);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.quest-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.quest-section-title {
+  font-family: Georgia, serif;
+  font-size: 0.94rem;
+  font-weight: 700;
+  color: var(--radiant-gold);
+}
+
+.quest-section-title code {
+  font-family: 'Consolas', monospace;
+  font-size: 0.8rem;
+  color: #67e8f9;
+}
+
+.quest-hint-text {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.quest-hint-text code {
+  color: var(--radiant-gold);
+  font-family: 'Consolas', monospace;
+}
+
+.quest-stage-pill {
+  font-family: 'Consolas', monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(138, 109, 47, 0.55);
+  background: rgba(29, 23, 50, 0.9);
+  color: var(--text-parchment);
+}
+
+.quest-stage-pill.stage-running {
+  border-color: #00e5ff;
+  color: #67e8f9;
+  background: rgba(0, 229, 255, 0.14);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.35);
+}
+
+.quest-stage-pill.stage-complete {
+  border-color: #36d399;
+  color: #a7f3d0;
+  background: rgba(54, 211, 153, 0.16);
+  box-shadow: 0 0 12px rgba(54, 211, 153, 0.4);
+}
+
+.quest-stage-pill.stage-error {
+  border-color: #f87272;
+  color: #fecaca;
+  background: rgba(248, 114, 114, 0.16);
+}
+
+.quest-input-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 10px;
+}
+
+.quest-field-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quest-field-wrap label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.quest-text-input {
+  background: #0d0a1a;
+  border: 1px solid var(--border-brass);
+  border-radius: 6px;
+  color: var(--text-parchment);
+  padding: 7px 10px;
+  font-size: 0.82rem;
+  font-family: 'Consolas', monospace;
+  outline: none;
+}
+
+.quest-text-input:focus {
+  border-color: var(--radiant-gold);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.22);
+}
+
+.quest-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.quest-btn-main {
+  padding: 7px 16px;
+  font-size: 0.84rem;
+}
+
+.quest-progress-container {
+  background: rgba(9, 7, 18, 0.88);
+  border: 1px solid rgba(138, 109, 47, 0.45);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quest-progress-labels {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.76rem;
+  color: var(--text-parchment);
+}
+
+.quest-progress-track {
+  height: 10px;
+}
+
+.quest-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #a855f7 0%, #00e5ff 55%, #ffd700 100%);
+  border-radius: 999px;
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.55);
+  transition: width 0.22s ease;
+}
+
+.quest-log-output {
+  max-height: 105px;
+  overflow-y: auto;
+  font-family: 'Consolas', monospace;
+  font-size: 0.71rem;
+  line-height: 1.38;
+  color: #a5f3fc;
+  background: rgba(4, 3, 10, 0.82);
+  border: 1px solid rgba(138, 109, 47, 0.3);
+  border-radius: 6px;
+  padding: 7px 9px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.quest-links-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.quest-archive-card {
+  background: linear-gradient(180deg, rgba(35, 27, 62, 0.92) 0%, rgba(19, 14, 36, 0.92) 100%);
+  border: 1px solid var(--border-brass);
+  border-radius: 9px;
+  padding: 11px 12px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-parchment);
+  transition: all 0.16s ease;
+}
+
+.quest-archive-card:hover {
+  border-color: var(--radiant-gold);
+  background: linear-gradient(180deg, rgba(50, 39, 88, 0.95) 0%, rgba(28, 21, 52, 0.95) 100%);
+  box-shadow: 0 4px 16px rgba(255, 215, 0, 0.22);
+  transform: translateY(-1px);
+}
+
+.archive-icon {
+  font-size: 1.55rem;
+  flex-shrink: 0;
+}
+
+.archive-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.archive-info strong {
+  font-family: Georgia, serif;
+  font-size: 0.9rem;
+  color: var(--radiant-gold);
+}
+
+.archive-info span {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.archive-info code {
+  font-family: 'Consolas', monospace;
+  font-size: 0.68rem;
+  color: #67e8f9;
+}
+
+.quest-footer-actions {
+  justify-content: space-between;
+}
