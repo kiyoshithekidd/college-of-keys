@@ -1825,3 +1825,636 @@ html, body {
   }
 }
 
+/* ============================================================================
+   ISSUE #52: THE TAVERN TITLE SCREEN & MAIN MENU
+   ============================================================================ */
+
+.btn-tavern-home {
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.22) 0%, rgba(138, 109, 47, 0.35) 100%);
+  border: 1px solid var(--border-gold-bright);
+  color: var(--radiant-gold);
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-tavern-home:hover {
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.45) 0%, rgba(138, 109, 47, 0.6) 100%);
+  border-color: #ffe066;
+  box-shadow: 0 0 12px var(--radiant-gold-glow);
+  transform: translateY(-1px);
+}
+
+.tavern-scene-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  background: radial-gradient(ellipse at 50% 20%, #261c47 0%, #130e25 55%, #07050f 100%);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 28px 20px 48px;
+  animation: tavernFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tavern-scene-overlay.hidden {
+  display: none !important;
+}
+
+@keyframes tavernFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.tavern-scene-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.tavern-hearth-glow {
+  position: absolute;
+  top: -10%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 720px;
+  height: 480px;
+  background: radial-gradient(circle, rgba(255, 170, 0, 0.16) 0%, rgba(212, 175, 55, 0.08) 45%, transparent 70%);
+  filter: blur(40px);
+  animation: hearthFlicker 4.5s ease-in-out infinite alternate;
+}
+
+@keyframes hearthFlicker {
+  0% { opacity: 0.75; transform: translateX(-50%) scale(0.96); }
+  50% { opacity: 1.0; transform: translateX(-50%) scale(1.04); }
+  100% { opacity: 0.85; transform: translateX(-50%) scale(1.0); }
+}
+
+.tavern-lantern-left,
+.tavern-lantern-right {
+  position: absolute;
+  top: 15%;
+  width: 220px;
+  height: 380px;
+  background: radial-gradient(circle, rgba(0, 229, 255, 0.09) 0%, transparent 65%);
+  filter: blur(30px);
+  pointer-events: none;
+}
+
+.tavern-lantern-left { left: 5%; }
+.tavern-lantern-right { right: 5%; }
+
+.tavern-menu-content {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 960px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+}
+
+/* Tavern Title Block */
+.tavern-title-block {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.tavern-title-crest {
+  font-size: 2.2rem;
+  color: var(--radiant-gold);
+  text-shadow: 0 0 16px var(--radiant-gold-glow);
+  line-height: 1;
+  animation: crestBob 3.5s ease-in-out infinite alternate;
+}
+
+@keyframes crestBob {
+  0% { transform: translateY(0); filter: drop-shadow(0 0 8px var(--radiant-gold-glow)); }
+  100% { transform: translateY(-3px); filter: drop-shadow(0 0 16px rgba(255, 215, 0, 0.85)); }
+}
+
+.tavern-title-heading {
+  font-size: 2.4rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--radiant-gold);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8), 0 0 24px rgba(212, 175, 55, 0.45);
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+.tavern-title-tagline {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* Bard Character Spotlight Card */
+.tavern-bard-spotlight {
+  width: 100%;
+  background: linear-gradient(135deg, rgba(30, 24, 51, 0.92) 0%, rgba(20, 16, 36, 0.92) 100%);
+  border: 1px solid var(--border-gold-bright);
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: all 0.25s ease;
+  position: relative;
+  outline: none;
+}
+
+.tavern-bard-spotlight:hover,
+.tavern-bard-spotlight:focus-visible {
+  border-color: #ffd700;
+  box-shadow: 0 10px 32px rgba(255, 215, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.bard-spotlight-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.bard-avatar-crest {
+  font-size: 2rem;
+  color: var(--radiant-gold);
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(212, 175, 55, 0.15);
+  border: 1px solid var(--border-gold-bright);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.3);
+  flex-shrink: 0;
+}
+
+.bard-spotlight-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.bard-spotlight-rank-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.menu-bard-title {
+  font-size: 1.25rem;
+  color: var(--text-parchment);
+  font-family: Georgia, serif;
+}
+
+.menu-bard-sublabel {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.menu-career-xp-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+}
+
+.menu-career-xp-box strong {
+  font-size: 1.2rem;
+  color: var(--radiant-gold);
+}
+
+.menu-xp-section {
+  width: 100%;
+}
+
+/* Tavern Stations / Hotspots Grid */
+.tavern-stations-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  width: 100%;
+}
+
+.tavern-station-card {
+  background: linear-gradient(135deg, rgba(28, 22, 48, 0.88) 0%, rgba(18, 14, 32, 0.88) 100%);
+  border: 1px solid rgba(138, 109, 47, 0.45);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.22s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  outline: none;
+  color: var(--text-parchment);
+}
+
+.tavern-station-card:hover,
+.tavern-station-card:focus-visible {
+  border-color: var(--radiant-gold);
+  background: linear-gradient(135deg, rgba(38, 30, 64, 0.95) 0%, rgba(24, 18, 42, 0.95) 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(255, 215, 0, 0.2);
+}
+
+.tavern-station-card.station-stage {
+  border-color: var(--radiant-gold);
+  background: linear-gradient(135deg, rgba(46, 35, 75, 0.95) 0%, rgba(24, 18, 44, 0.95) 100%);
+  box-shadow: 0 6px 20px rgba(255, 215, 0, 0.22);
+}
+
+.tavern-station-card.station-stage:hover {
+  background: linear-gradient(135deg, rgba(58, 44, 94, 0.98) 0%, rgba(30, 22, 54, 0.98) 100%);
+  box-shadow: 0 10px 28px rgba(255, 215, 0, 0.35);
+}
+
+.station-icon {
+  font-size: 1.8rem;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.station-stage .station-icon {
+  background: rgba(255, 215, 0, 0.15);
+  border-color: var(--border-gold-bright);
+}
+
+.station-bookshelf .station-icon {
+  background: rgba(0, 229, 255, 0.12);
+  border-color: rgba(0, 229, 255, 0.4);
+}
+
+.station-details {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.station-badge {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--radiant-gold);
+}
+
+.station-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-parchment);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.station-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.station-action-arrow {
+  font-size: 1.1rem;
+  color: var(--radiant-gold);
+  padding-left: 6px;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.tavern-station-card:hover .station-action-arrow {
+  transform: translateX(3px);
+}
+
+/* Tavern Menu Footer */
+.tavern-menu-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding-top: 8px;
+  border-top: 1px solid rgba(138, 109, 47, 0.25);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tavern-footer-hint {
+  font-size: 0.8rem;
+  color: #d1c4e9;
+}
+
+.tavern-version-tag {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--border-brass);
+}
+
+/* ============================================================================
+   BARDIC ANNALS MODAL & SONG PERFORMANCE STATS STORE
+   ============================================================================ */
+
+.bard-annals-card {
+  max-width: 760px;
+  width: 95vw;
+}
+
+.annals-profile-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  background: rgba(26, 20, 44, 0.8);
+  border: 1px solid var(--border-brass);
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+.annals-rank-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.annals-rank-badge strong {
+  font-size: 1.15rem;
+  color: var(--text-parchment);
+  font-family: Georgia, serif;
+}
+
+.annals-stats-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.annals-stat-box {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.annals-stat-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.annals-stat-box strong {
+  font-size: 1.05rem;
+  color: var(--radiant-gold);
+}
+
+.annals-highlights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.annals-highlight-card {
+  background: rgba(22, 17, 36, 0.85);
+  border: 1px solid rgba(138, 109, 47, 0.35);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.annals-highlight-card.card-favorite {
+  border-color: rgba(255, 215, 0, 0.4);
+}
+
+.annals-highlight-card.card-best {
+  border-color: rgba(52, 211, 153, 0.4);
+}
+
+.annals-highlight-card.card-worst {
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+.highlight-icon {
+  font-size: 1.5rem;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.highlight-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.highlight-tag {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.highlight-title {
+  font-size: 0.92rem;
+  color: var(--text-parchment);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.highlight-meta {
+  font-size: 0.74rem;
+  color: var(--radiant-gold);
+}
+
+.annals-history-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.annals-section-heading {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--radiant-gold);
+  font-weight: 700;
+}
+
+.annals-history-list {
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 4px;
+}
+
+.annals-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(18, 14, 30, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  gap: 12px;
+}
+
+.annals-row-title {
+  font-weight: 600;
+  color: var(--text-parchment);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.annals-row-stats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.annals-row-accuracy {
+  color: var(--radiant-gold);
+  font-weight: 700;
+}
+
+.annals-empty-history {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.85rem;
+  background: rgba(18, 14, 30, 0.5);
+  border-radius: 6px;
+}
+
+/* ============================================================================
+   TRAINER'S GUILD ORIENTATION MODAL ("HOW TO PLAY")
+   ============================================================================ */
+
+.how-to-play-card {
+  max-width: 680px;
+  width: 95vw;
+}
+
+.how-to-play-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.guild-guide-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 14px;
+  background: rgba(24, 18, 40, 0.8);
+  border: 1px solid rgba(138, 109, 47, 0.35);
+  border-radius: 8px;
+}
+
+.guild-guide-icon {
+  font-size: 1.6rem;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: rgba(255, 215, 0, 0.1);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.guild-guide-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.guild-guide-text strong {
+  font-size: 0.95rem;
+  color: var(--radiant-gold);
+}
+
+.guild-guide-text p {
+  font-size: 0.82rem;
+  color: var(--text-parchment);
+  line-height: 1.45;
+}
+
+.guild-guide-text code {
+  background: rgba(0, 0, 0, 0.35);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: #ffd700;
+  font-family: monospace;
+}
+
+
