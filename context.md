@@ -22,18 +22,34 @@
 - Consult and update `Gemini.md`, `progress.md`, `context.md`, `README.md`, and `CHANGELOG.md` at every phase.
 - Wait for explicit user confirmation ("Testing successful") before advancing phases.
 
-## Issue Tagging & Classification Policy
-- Consult `PERSONAS.md` as the primary source of truth for all feature and architecture decisions.
-- **Type Classification**:
-  - Every defect, QA finding, audio/timing glitch, or regression discovered during code reviews MUST be tagged with `bug`.
-  - Every new feature, gameplay mode, or roadmap item MUST be tagged with `enhancement`.
-- **Persona Classification**: Every issue MUST be tagged with its target persona(s):
-  - `persona: returning-adult` (Main — busy adult beginner, song ladder, short sessions, Duolingo-style habit)
-  - `persona: gamer-bard` (Main — RPG progression, level titles, quests, d20 performance check)
-  - `persona: rock-band` (Main — rhythm game feel, timing fairness, 100ms chord roll, scoring)
-  - `persona: casual-player` (Close second — shortest path from song to play, zero friction)
-  - `persona: young-learner` (Tentative — musical teens, clear steps, clean visuals)
-- Stories that do not serve a persona must be challenged before being built.
+## Persona Mapping, Prioritization & Roadmap Engine
+Persona mapping ([`PERSONAS.md`](./PERSONAS.md)) is the foundational product, prioritization, and roadmapping engine for College of Keys. Every decision, next phase, GitHub issue, and bug triage must be justified through this lens:
+
+1. **How the Roadmap is Prioritized**:
+   - The roadmap is not built on arbitrary ideas or technical whim; it is built on user personas.
+   - Enhancements and next build phases are chosen and ordered by which core personas they unblock or elevate.
+   - **Persona Convergence**: Backlog items that simultaneously serve multiple main personas (e.g., `#52 Main Menu / Tavern` or `#66 Practice Streak Calendar` serving both *The Returning Adult* and *The Gamer Bard*) receive the highest sprint priority.
+   - Any proposed enhancement or phase that serves zero personas is immediately challenged and eliminated.
+
+2. **How Issues Are Logged and Triaged in GitHub**:
+   - Consult [`PERSONAS.md`](./PERSONAS.md) as the primary source of truth for all issue authoring.
+   - **Type Classification**:
+     - Defects, timing/audio glitches, visual hitches, or regressions MUST be labeled `bug`.
+     - New features, modes, UI expansions, or backlog roadmap items MUST be labeled `enhancement`.
+   - **Mandatory Persona Tagging**: Every GitHub issue MUST carry at least one persona label:
+     - `persona: returning-adult` (Main — busy adult beginner, song ladder, short sessions, Duolingo-style daily habit)
+     - `persona: gamer-bard` (Main — RPG progression, level titles, quests, d20 performance check, tavern world)
+     - `persona: rock-band` (Main — rhythm game feel, timing fairness, 100ms chord roll, scoring, audio quality)
+     - `persona: casual-player` (Close second — shortest path from song/YouTube to play, zero friction)
+     - `persona: young-learner` (Tentative — musical teens, clear difficulty steps, clean visuals)
+     - `persona: conservatory-purist` (Anti-persona — strict pedagogy without gamification; defines what **never** to build)
+   - **Priority Hierarchy**: Main personas outrank the close second; the close second outranks the tentative persona. Features must never break a shared rule (e.g., song choice, bard skin, chosen difficulty).
+
+3. **How Bugs Are Evaluated**:
+   - Bugs are prioritized by how severely they break a core persona promise:
+     - Timing/audio latency/chord registration bugs break *The Rock Band Player* (game feel).
+     - UI friction, menu clutter, or crash bugs break *The Casual Player* and *The Returning Adult* (short session limits).
+     - Lost XP, combo glitches, or missing bard feedback break *The Gamer Bard* (character progression).
 
 ## Bug Fix Execution Protocol
 Always follow this strict micro-targeted execution standard when resolving bugs:

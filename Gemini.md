@@ -34,7 +34,7 @@ Build **College of Keys**, a local Electron PC application that transforms piano
 | 2026-11-06 | **61-Key Octave Folding (MIDI 36–96)** | Physical hardware is a 61-key controller (`C2`–`C7`). Out-of-bounds MIDI notes are transposed by $\pm 12$ semitones until they fall within `[36, 96]` so every note in any song is playable. | Implemented (Phase 1) |
 | 2026-11-06 | **Decoupled Python CLI for `yt-dlp` + `basic-pitch` (+ Backing Audio / Stems)** | Keeps heavy ML/audio dependencies out of the Electron binary; outputs both `.mid` and optional synced backing audio into `Imports/` for Rock Band-style play-along. | Implemented (Phase 8) |
 | 2026-11-07 | **2-Bar Conservatory Layout & Popovers (`v1.1.0`)** | Replaced 7 stacked rows of top chrome with a slim 2-bar layout, reclaiming ~82% stage height. Secondary setup moved into `⚙ Audio & Keys` and `ⓘ Details` popovers; live HUD moved to a translucent top-center highway pill with zero note-lane occlusion. | Implemented (Phase 10) |
-| 2026-11-07 | **Persona-Driven Product Development (`PERSONAS.md`)** | Established 6 user personas (The Returning Adult, The Gamer Bard, The Rock Band Player, Casual Song Player, Young Learner, Conservatory Purist) as primary source of truth for all feature/architecture decisions. | Approved |
+| 2026-11-07 | **Persona-Driven Roadmap & Prioritization Engine (`PERSONAS.md` & `context.md`)** | Established 6 user personas as the foundational engine used to prioritize enhancements, sequence next build phases, and classify/log all bugs and enhancements on GitHub. High persona convergence dictates immediate sprint priorities. | Approved |
 | 2026-11-07 | **Strict Single-Issue Execution & Bug Classification Standard (`context.md`)** | Codified mandatory bug vs. enhancement classification, persona tagging, and micro-targeted one-at-a-time bug execution protocol. | Active |
 
 ---
@@ -166,19 +166,42 @@ In addition to the libraries in the PRD (`Tone.js`, `@tonejs/midi`, `atosystem/m
 
 ---
 
-## 6. Future Expansion Backlog & Roadmap
+## 6. Persona Mapping, Prioritization & The Living Roadmap
 
-All future features, enhancements, and backlog epics are tracked openly via [GitHub Issues](https://github.com/kiyoshithekidd/college-of-keys/issues) and categorized by persona according to [`PERSONAS.md`](./PERSONAS.md):
-- **Issue Tracker:** https://github.com/kiyoshithekidd/college-of-keys/issues
-- **Persona Guidance:** Every feature and enhancement must serve at least one core persona (e.g. *The Returning Adult*, *The Gamer Bard*, *The Rock Band Player*, *Casual Song Player*, *Young Learner*, or *Conservatory Purist*).
-- **Core Backlog Epics & Roadmap Items on GitHub:**
-  - **Issue #43 — Epic A: "Spell-Singing" (Vocals / Let's Sing Mode)** (`persona: rock-band`, `persona: casual-player`)
-  - **Issue #28 — Epic B: Multi-Instrument Highways & Stem Separation (`Demucs`)** (`persona: rock-band`)
-  - **Issue #29 — Epic C: Scrolling Grand-Staff Sheet Music Split View** (`persona: conservatory-purist`, `persona: returning-adult`)
-  - **Issue #52 — Dedicated Main Menu & Quest Hub Navigation** (`persona: returning-adult`, `persona: casual-player`)
-  - **Issue #66 — Duolingo-Style Daily Practice Streak & Consistency Calendar** (`persona: returning-adult`, `persona: gamer-bard`)
-  - **Issue #53 — Daily Bardic Bounties & Practice Quests** (`persona: gamer-bard`, `persona: returning-adult`)
-  - **Issue #30 — A-B Looping & Practice Drills** (`persona: returning-adult`, `persona: conservatory-purist`)
+> **Core Product Principle:** Persona mapping ([`PERSONAS.md`](./PERSONAS.md)) is the primary engine used to prioritize enhancements, schedule upcoming build phases, and log all bugs and enhancements on GitHub. The GitHub Issue Tracker serves as the living, persona-mapped roadmap.
+
+### 6.1 Purpose of the Persona Framework
+Persona mapping is not a decorative design exercise—it is the operational filter for all product decisions, architectural trade-offs, and sprint planning:
+1. **Prioritizing Next Phases & Enhancements:** Every new feature, gameplay mode, or UI screen must be justified by the persona(s) it unblocks. When deciding what phase to build next, candidates are ranked by their persona impact and convergence.
+2. **GitHub Issue Authoring & Triage:** Every defect and feature request logged on [GitHub Issues](https://github.com/kiyoshithekidd/college-of-keys/issues) MUST be classified as either `bug` or `enhancement` and tagged with its target persona label(s).
+3. **Roadmap Architecture:** The roadmap is dynamic and issue-driven rather than a static list. High-convergence issues that satisfy multiple core personas simultaneously form the immediate roadmap queue.
+4. **Anti-Persona Guardrails:** The *Conservatory Purist* anti-persona explicitly protects the app from feature bloat that alienates the core audience (e.g., no forced classical curriculum, no mandatory music theory gates, and no stripping of the tavern/bard skin).
+
+### 6.2 Persona Priority Hierarchy
+- **Rank 1 — Main Personas (Core Priority):**
+  - **The Returning Adult (`persona: returning-adult`):** Busy adult beginner (Kiyoshi's direct profile). Needs favorite songs (pop, pop-punk, musicals), short 10–15 min practice bursts, a visible difficulty ladder for a single song, and Duolingo-style daily streak mechanics so practice becomes a daily habit.
+  - **The Gamer Bard (`persona: gamer-bard`):** Here for the RPG loop first, keyboard as the controller. Needs character growth (levels, titles, XP), rotating quests/bounties, d20 performance checks, and consistent tavern immersion.
+  - **The Rock Band Player (`persona: rock-band`):** Rhythm game veteran. Demands arcade polish, fair timing, 100ms chord roll forgiveness, zero-latency audio, and score/accuracy chasing.
+- **Rank 2 — Close Second:**
+  - **The Casual Song Player (`persona: casual-player`):** Shortest possible path from a YouTube/MIDI link to playing keys with zero friction and no mandatory lessons.
+- **Rank 3 — Tentative:**
+  - **The Young Learner (`persona: young-learner`):** Musical teens who play D&D and game. Needs clean visual difficulty steps without being patronized with childish interfaces.
+- **Rank 4 — Anti-Persona:**
+  - **The Conservatory Purist (`persona: conservatory-purist`):** Demands dry, classical-only pedagogy. Serves as a negative test: if a feature only serves the purist, it is rejected.
+
+### 6.3 Persona Convergence: The Next Phase Prioritization Filter
+When selecting upcoming enhancements from the GitHub backlog, items that exhibit **Persona Convergence** (simultaneously unblocking multiple core personas) take highest priority:
+
+| Backlog Issue | Target Personas | Why It Ranks High on the Roadmap |
+| :--- | :--- | :--- |
+| **[#52 Main Menu / Title Screen (The Tavern)](https://github.com/kiyoshithekidd/college-of-keys/issues/52)** | `persona: returning-adult`<br>`persona: gamer-bard` | Replaces cluttered in-game toggles with an immersive tavern landing hub; gives the Returning Adult a clean start and the Gamer Bard a tangible world. |
+| **[#66 Practice Streak Calendar](https://github.com/kiyoshithekidd/college-of-keys/issues/66)** | `persona: returning-adult`<br>`persona: gamer-bard` | Implements Duolingo-style daily habit tracking, streak freezes, and daily XP goals for busy adults. |
+| **[#53 Daily Quest System](https://github.com/kiyoshithekidd/college-of-keys/issues/53)** | `persona: returning-adult`<br>`persona: gamer-bard` | Provides bite-sized 10-minute practice objectives (bounties) with bonus XP and d20 inspiration dice. |
+| **[#30 Loop Practice Mode (Rehearsal)](https://github.com/kiyoshithekidd/college-of-keys/issues/30)** | `persona: returning-adult`<br>`persona: rock-band` | Adds A-B phrase looping on the timeline scrubber so players can rehearse difficult measures at customizable tempo. |
+| **[#63 Practice Tempo Control](https://github.com/kiyoshithekidd/college-of-keys/issues/63)** | `persona: returning-adult`<br>`persona: young-learner` | Allows stepping tempo down to 50% or 75% without pitch shift to build finger muscle memory gradually. |
+| **[#43 Epic A: Spell-Singing (Vocals)](https://github.com/kiyoshithekidd/college-of-keys/issues/43)** | `persona: rock-band`<br>`persona: casual-player` | Unlocks microphone pitch detection and horizontal vocal highway (*Let's Sing* / *Lips* style) for group and duo tavern play. |
+| **[#41 Epic B: AI Stem Separation (`Demucs`)](https://github.com/kiyoshithekidd/college-of-keys/issues/41)** | `persona: rock-band`<br>`persona: casual-player` | Separates YouTube/MP3 audio into vocals, drums, bass, and piano so players can mute *only* the piano while playing along with real stems. |
+| **[#39 Epic C: Scrolling Sheet Music Split View](https://github.com/kiyoshithekidd/college-of-keys/issues/39)** | `persona: returning-adult`<br>`persona: young-learner` | Synchronized grand-staff notation above the highway so visual learners transfer highway muscle memory into real sight-reading skills. |
 
 ---
 
