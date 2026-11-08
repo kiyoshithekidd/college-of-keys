@@ -32,7 +32,10 @@ Build **College of Keys**, a local Electron PC application that transforms piano
 | 2026-11-06 | **Real Multi-Sampled Acoustic Grand Piano (`Tone.Sampler` + Local Salamander Samples) + `Tone.context.lookAhead = 0`** | Initial `Tone.Synth` (`triangle8` oscillator) sounded like an electronic synth rather than a real piano. Upgraded "Tavern Grand Piano" to `Tone.Sampler` backed by 22 local Yamaha C5 Salamander Grand Piano recordings (`./assets/samples/piano/A1..C7.mp3`) loaded into memory, with `lookAhead = 0` for `<10ms` live latency. | Implemented (Phase 1) |
 | 2026-11-06 | **Native Web MIDI API (`navigator.requestMIDIAccess`) + Velocity-0 NoteOff Handling** | Eliminates third-party wrapper latency; handles both explicit `0x80` NoteOff and `0x90` NoteOn with `velocity === 0` (used by many 61-key controllers on key release), plus Sustain Pedal (`CC 64`). | Implemented (Phase 1) |
 | 2026-11-06 | **61-Key Octave Folding (MIDI 36–96)** | Physical hardware is a 61-key controller (`C2`–`C7`). Out-of-bounds MIDI notes are transposed by $\pm 12$ semitones until they fall within `[36, 96]` so every note in any song is playable. | Implemented (Phase 1) |
-| 2026-11-06 | **Decoupled Python CLI for `yt-dlp` + `basic-pitch` (+ Backing Audio / Stems)** | Keeps heavy ML/audio dependencies out of the Electron binary; outputs both `.mid` and optional synced backing audio into `Imports/` for Rock Band-style play-along. | Planned |
+| 2026-11-06 | **Decoupled Python CLI for `yt-dlp` + `basic-pitch` (+ Backing Audio / Stems)** | Keeps heavy ML/audio dependencies out of the Electron binary; outputs both `.mid` and optional synced backing audio into `Imports/` for Rock Band-style play-along. | Implemented (Phase 8) |
+| 2026-11-07 | **2-Bar Conservatory Layout & Popovers (`v1.1.0`)** | Replaced 7 stacked rows of top chrome with a slim 2-bar layout, reclaiming ~82% stage height. Secondary setup moved into `⚙ Audio & Keys` and `ⓘ Details` popovers; live HUD moved to a translucent top-center highway pill with zero note-lane occlusion. | Implemented (Phase 10) |
+| 2026-11-07 | **Persona-Driven Product Development (`PERSONAS.md`)** | Established 6 user personas (The Returning Adult, The Gamer Bard, The Rock Band Player, Casual Song Player, Young Learner, Conservatory Purist) as primary source of truth for all feature/architecture decisions. | Approved |
+| 2026-11-07 | **Strict Single-Issue Execution & Bug Classification Standard (`context.md`)** | Codified mandatory bug vs. enhancement classification, persona tagging, and micro-targeted one-at-a-time bug execution protocol. | Active |
 
 ---
 
@@ -154,17 +157,28 @@ In addition to the libraries in the PRD (`Tone.js`, `@tonejs/midi`, `atosystem/m
   - Add quick-link buttons opening external browser tabs for BitMIDI, VGMusic, and YouTube.
   - *Gate 9: Passed (`"Testing successful"`).*
 
+- [x] **Phase 10: 2-Bar Conservatory UI/UX Overhaul & Quality Remediation (Completed & Verified in v1.1.0–v1.1.2)**
+  - Replaced 7-row top chrome with a streamlined 2-bar layout (`#tavern-header` + `#spell-scroll-bar`), reclaiming ~82% stage height.
+  - Added inline *Baldur's Gate 3*-style Bardic Character Banner, translucent top-center Highway HUD pill (`#highway-center-hud`), and popovers (`⚙ Audio & Keys`, `ⓘ Details`).
+  - Implemented Unified 1-Click Practice Mode Selector (`#practice-mode-select`).
+  - Resolved post-overhaul and rhythm-game/audio quality findings (Issues #31–#38, #44–#51, and #55–#60).
+  - *Gate 10: Passed (`"Testing successful"`).*
+
 ---
 
-## 6. Future Expansion Backlog (Post-Phase 9: "The Full Adventuring Party")
+## 6. Future Expansion Backlog & Roadmap
 
-- **Backlog Epic A — "Spell-Singing" (Vocals / Let's Sing Mode):**
-  - Capture microphone input via Web Audio API (`AnalyserNode` + autocorrelation / YIN pitch detection).
-  - Render a horizontal scrolling vocal pitch highway (like *Let's Sing* / *Rock Band* vocals) at the top of the screen with lyric display and pitch-matching XP.
-- **Backlog Epic B — Multi-Instrument Highways & Stem Separation (`Demucs`):**
-  - Automatic 4-stem AI separation (`vocals`, `drums`, `bass`, `piano/other`) in the Python pipeline so the user can mute ONLY the piano in an actual MP3/YouTube song while hearing the real original vocals, drums, and bass—and later switch to playing Bass, Guitar, or Drums.
-- **Backlog Epic C — Scrolling Sheet Music Split View:**
-  - Dedicate the top 50% of the viewport to synchronized scrolling grand-staff notation alongside the falling Spell Highway.
+All future features, enhancements, and backlog epics are tracked openly via [GitHub Issues](https://github.com/kiyoshithekidd/college-of-keys/issues) and categorized by persona according to [`PERSONAS.md`](./PERSONAS.md):
+- **Issue Tracker:** https://github.com/kiyoshithekidd/college-of-keys/issues
+- **Persona Guidance:** Every feature and enhancement must serve at least one core persona (e.g. *The Returning Adult*, *The Gamer Bard*, *The Rock Band Player*, *Casual Song Player*, *Young Learner*, or *Conservatory Purist*).
+- **Core Backlog Epics & Roadmap Items on GitHub:**
+  - **Issue #43 — Epic A: "Spell-Singing" (Vocals / Let's Sing Mode)** (`persona: rock-band`, `persona: casual-player`)
+  - **Issue #28 — Epic B: Multi-Instrument Highways & Stem Separation (`Demucs`)** (`persona: rock-band`)
+  - **Issue #29 — Epic C: Scrolling Grand-Staff Sheet Music Split View** (`persona: conservatory-purist`, `persona: returning-adult`)
+  - **Issue #52 — Dedicated Main Menu & Quest Hub Navigation** (`persona: returning-adult`, `persona: casual-player`)
+  - **Issue #66 — Duolingo-Style Daily Practice Streak & Consistency Calendar** (`persona: returning-adult`, `persona: gamer-bard`)
+  - **Issue #53 — Daily Bardic Bounties & Practice Quests** (`persona: gamer-bard`, `persona: returning-adult`)
+  - **Issue #30 — A-B Looping & Practice Drills** (`persona: returning-adult`, `persona: conservatory-purist`)
 
 ---
 
@@ -320,5 +334,19 @@ In addition to the libraries in the PRD (`Tone.js`, `@tonejs/midi`, `atosystem/m
     6. **Issue #49 (`Medium`):** Added 8/16/24/32-bit PCM `.wav` decoding in `python_ml/transcribe_quest.py` (`read_wav_mono_float()` & `convert_audio_to_pcm_wav()`) and guarded `write_standard_midi_file()` against empty tracks or 0-note MIDI output.
     7. **Issue #50 (`Medium`):** Added `clearAllHeldInputNotes()` in `resetPlaybackToStart()` so held keys and sustain state are cleared when loading a new song or restarting playback.
     8. **Issue #51 (`Low`):** Dismissed open popovers on `canvas` `mousedown` and refined `.active-spell` path matching in `renderGrimoireSidebar()`.
+
+### 2026-11-07 — Session 15: Personas Specification, Classification Policies & Remediation Pass (Issues #55–#60, v1.1.2)
+- **What we did:**
+  - Codified the core user personas in [`PERSONAS.md`](./PERSONAS.md) (*The Returning Adult*, *The Gamer Bard*, *The Rock Band Player*, *Casual Song Player*, *Young Learner*, *Conservatory Purist*) and established the mandatory persona tagging & bug/enhancement classification policy in [`context.md`](./context.md).
+  - Codified the mandatory one-at-a-time bug fix execution protocol in [`context.md`](./context.md) with minimal-diff micro-targeted changes.
+  - Addressed and resolved rhythm-game, layout, and stability issues (`Issues #55` through `#60`) in **`v1.1.2`**:
+    1. **Issue #55 (`UI`):** Built responsive layout rules for Bar 1 (`#tavern-header`) and Bar 2 (`#spell-scroll-bar`) down to 1024px, preventing button wrapping, XP bar collisions, and right-edge clipping.
+    2. **Issue #56 (`Audio`):** Eliminated the Wait Mode audio dead-zone by ensuring pending note triggers fire cleanly upon unfreezing.
+    3. **Issue #57 (`Grimoire`):** Pruned deleted disk files from the local Grimoire index during folder scans and nullified orphaned active backing audio elements.
+    4. **Issue #58 (`MIDI`):** Cleared all held active input notes upon physical MIDI controller disconnect and filtered out modal dialog and channel 10 MIDI events.
+    5. **Issue #59 (`Highway`):** Calculated measure and beat line durations (`beatDur`) using the time signature denominator for compound and asymmetric meters (e.g. 6/8, 12/8).
+    6. **Issue #60 (`UI/Gameplay`):** Fixed chord roll badge text, elevated modal z-index stacking above popovers, and normalized Windows path separators in Python batch scripts.
+- **Current status:** Current codebase is fully synchronized with remote `origin/main` at commit `023516d` (`v1.1.2`).
+
 
 

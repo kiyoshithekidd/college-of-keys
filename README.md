@@ -20,6 +20,7 @@
 | **Phase 8** | **Decoupled Python ML Pipeline (`yt-dlp` + Spotify `basic-pitch` + Backing Track)** | **Completed** |
 | **Phase 9** | **"The Quest Board" (In-App YouTube-to-MIDI Sourcing & Quick Links)** | **Completed** |
 | **Phase 10** | **2-Bar Conservatory UI/UX Overhaul (`v1.1.0` — Inline Bard Banner, Popovers & 1-Click Practice Selector)** | **Completed** |
+| **Maintenance** | **Rhythm-Game & Audio Quality Remediation (`v1.1.1`–`v1.1.2`, Fixes #31–#38, #44–#51, #55–#60)** | **Completed** |
 
 ---
 
@@ -30,20 +31,30 @@
 - **Octave Folding:** Any MIDI note below `C2` (`< 36`) or above `C7` (`> 96`) is automatically transposed by $\pm 12$ semitones until it fits within the 61-key range so every song is 100% playable on a 61-key controller.
 - **Zero-Latency Audio (`<10ms`):** Powered by a persistent `Tone.PolySynth` voice pool with `Tone.context.lookAhead = 0`, 4 selectable instrument presets (*Tavern Grand Piano*, *Arcane Lute-Harp*, *Cathedral Pipe Organ*, *Eldritch Warm Pad*), and physical **Sustain Pedal (`CC 64`)** support.
 
-### 2. Rock Band-Style Play-Along & Hand Isolation
+### 2. 2-Bar Conservatory UI/UX Layout (~82% Stage Height)
+- **Bar 1 (`#tavern-header`):** Branding & Sourcing (`The Grimoire`, `Quest Board`, `Load .mid`, `Demo`), inline *Baldur's Gate 3*-style **Bardic Character Banner** (`LVL`, `Bardic Rank`, inline `XP Progress Bar`, `Total XP`, `🏆 Stats`), and compact `MIDI Status` + **`⚙ Audio & Keys`** popover.
+- **Bar 2 (`#spell-scroll-bar`):** Active Spell Title, Difficulty Badge, **`ⓘ Details`** inspector popover (`NPS`, `BPM`, track breakdowns, and testing shortcuts), Primary Transport (`▶ Cast Spell`, `⏮`, scrubber), and Practice Deck.
+- **Zero Note-Lane Occlusion:** Translucent, `pointer-events: none` **Top-Center Highway HUD Pill** keeps live `Spell Chain`, `Multiplier`, and `Wait Mode Target` at eye level without obscuring any keys across `C2–C7`.
+
+### 3. Rock Band-Style Play-Along & Unified Practice Selector
 - **Non-Destructive Multi-Track Engine:** Preserves all tracks in a `.mid` file rather than discarding non-piano instruments.
   - **Track 1 (Right Hand / Lead):** Rendered in **Radiant Gold (`#ffd700`)**.
   - **Track 2 (Left Hand / Accompaniment):** Rendered in **Eldritch Blue (`#00e5ff`)**.
   - **Single-Track Auto-Split:** Automatically splits single-track piano files (such as Spotify `basic-pitch` transcriptions) at Middle C (`C4` / MIDI 60).
-- **Play-Along Toggles:**
-  - Isolate Right Hand, Left Hand, or Both, and toggle Left-Hand Accompaniment between **Mute** and **Auto-Play**.
-  - Toggle the **Backing Band (`Solo Piano` vs. `Full Band Play-Along`)** to hear the rest of the MIDI arrangement (or synced YouTube backing audio) while you play keys.
+- **Unified 1-Click Practice Mode Selector:**
+  - `🙌 Both Hands (RH Gold + LH Blue)`
+  - `🤚 Right Hand + Auto Left Hand`
+  - `🤚 Right Hand Solo (Mute Left)`
+  - `左手 Left Hand + Auto Right Hand`
+  - `左手 Left Hand Solo (Mute Right)`
+  - `🎧 Listen Only (Auto-Play Both)`
+- **Backing Band Toggle:** Switch between **`Solo Piano`** and **`🎸 Backing Band: ON`** to synthesize non-piano MIDI tracks (or stream synced YouTube/audio stems) while you play.
 
-### 3. Practice Mechanics: Wait Mode & 100ms Chord Forgiveness
+### 4. Practice Mechanics: Wait Mode & 100ms Chord Forgiveness
 - **Wait Mode vs. Arcade Mode:** Freeze playback when expected note onsets reach the strike line until you play the required pitches, or play in continuous real-time Arcade Mode.
-- **100ms Chord Roll Forgiveness (`chordGracePeriod`):** Humanized chord detection allows rolling notes of a chord within a 100ms window without penalty.
+- **100ms Chord Roll Forgiveness (`chordGracePeriod`):** Humanized chord detection allows rolling notes of a multi-note chord within a 100ms window without penalty.
 
-### 4. D&D 5E Bard LitRPG Progression
+### 5. D&D 5E Bard LitRPG Progression
 - **Auto-Calculated Spell Level (Notes Per Second / NPS):**
   - `< 1.5 NPS`: **Cantrip** (`1.0x` XP)
   - `1.5 – 3.0 NPS`: **2nd-Level Spell** (`1.2x` XP)
@@ -60,7 +71,7 @@
 | :--- | :--- |
 | **Physical 61-Key MIDI Keyboard** | Plug in via USB. Auto-detected via Web MIDI (`navigator.requestMIDIAccess`) with hot-plug support (`onstatechange`), velocity-0 `NoteOff` handling, and Sustain Pedal (`CC 64`). |
 | **Mouse Fallback** | Click or drag across any white or black key on the canvas. |
-| **QWERTY Keyboard Fallback** | **White keys:** `A S D F G H J K L ;` &bull; **Black keys (sharps):** `W E T Y U O P` &bull; **Octave Shift:** `Z` (down) / `X` (up). |
+| **QWERTY Keyboard Fallback** | **White keys:** `A S D F G H J K L ;` &bull; **Black keys (sharps):** `W E T Y U O P` &bull; **Octave Shift:** `Z` (down) / `X` (up). Key labels auto-hide when physical MIDI is connected and can be toggled in `⚙ Audio & Keys`. |
 
 ---
 
@@ -83,17 +94,19 @@ npm start
 ## Repository Structure & Documentation
 
 - [`main.js`](./main.js) — Electron main process & automatic Web MIDI permission handlers.
-- [`index.html`](./index.html) & [`styles.css`](./styles.css) — Tavern Dark Mode HUD and responsive canvas stage.
+- [`index.html`](./index.html) & [`styles.css`](./styles.css) — 2-Bar Conservatory HUD and responsive 60 FPS canvas stage.
 - [`renderer.js`](./renderer.js) — 61-key canvas geometry (`C2`–`C7`), Web MIDI listener, Mouse/QWERTY input, and `Tone.PolySynth` audio engine.
+- [`PERSONAS.md`](./PERSONAS.md) — Core user personas (The Returning Adult, The Gamer Bard, The Rock Band Player, Casual Song Player, Young Learner, Conservatory Purist) guiding all feature decisions.
 - [`Gemini.md`](./Gemini.md) — Detailed architectural plan, engineering decisions & rationale log, open-source benchmark notes, and build log.
 - [`CHANGELOG.md`](./CHANGELOG.md) — Versioned phase-by-phase changelog.
-- [`context.md`](./context.md) & [`progress.md`](./progress.md) — Stateful architecture summary and phase gate checklist.
+- [`context.md`](./context.md) & [`progress.md`](./progress.md) — Stateful architecture summary, issue classification policies, and bug execution protocols.
 - [`music_app_prd_and_handoff.md`](./music_app_prd_and_handoff.md) — Original Product Requirements Document & Technical Specification.
 
 ---
 
-## Future Expansion Backlog (Post-Phase 9: "The Full Adventuring Party")
-- **Epic A — "Spell-Singing" (Vocals / *Let's Sing* Mode):** Web Audio API microphone pitch detection with a scrolling vocal pitch highway and lyrics.
-- **Epic B — AI Stem Separation (`Demucs`) & Multi-Instrument Highways:** 4-stem splitting (`vocals`, `drums`, `bass`, `piano/other`) to mute only the piano in real audio tracks or play other instruments.
-- **Epic C — Scrolling Grand-Staff Sheet Music Split View:** Synchronized sheet music notation in the top 50% of the screen.
+## Issues & Roadmap
+
+All upcoming features, enhancements, and bug fixes are tracked openly on GitHub Issues and categorized by persona:
+- **Issue Tracker:** https://github.com/kiyoshithekidd/college-of-keys/issues
+- **Personas:** Consult [`PERSONAS.md`](./PERSONAS.md) for design criteria and persona checks.
 
