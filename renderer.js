@@ -220,6 +220,7 @@ const tavernTitleSplash = document.getElementById('tavern-title-splash');
 const btnEnterTavern = document.getElementById('btn-enter-tavern');
 let hasEnteredTavernSession = false;
 
+
 const btnReturnTavern = document.getElementById('btn-return-tavern');
 const tavernBardCard = document.getElementById('tavern-bard-card');
 const menuBardLevel = document.getElementById('menu-bard-level');
@@ -4932,7 +4933,7 @@ function updateTavernMenuStats() {
 }
 
 function playTavernWelcomeChord() {
-  if (!grandPianoSampler || !isSamplerLoaded) return;
+  if (!grandPianoSampler || !grandPianoLoaded) return;
   try {
     const now = Tone.now();
     const arpeggio = [
@@ -4955,21 +4956,40 @@ function enterTavernFromSplash() {
   if (hasEnteredTavernSession) return;
   hasEnteredTavernSession = true;
 
-  if (window.Tone && Tone.context && Tone.context.state !== 'running') {
-    Tone.context.resume().catch(() => {});
+  try {
+    if (window.Tone && Tone.context && Tone.context.state !== 'running') {
+      Tone.context.resume().catch(() => {});
+    }
+    playTavernWelcomeChord();
+  } catch (err) {
+    console.warn('Audio welcome chord bypassed:', err);
   }
-
-  playTavernWelcomeChord();
 
   if (tavernTitleSplash) {
     tavernTitleSplash.classList.add('dismissed');
+    setTimeout(() => {
+      tavernTitleSplash.style.display = 'none';
+    }, 520);
   }
 
-  setTimeout(() => {
-    if (btnMenuContinue) {
-      btnMenuContinue.focus();
-    }
-  }, 120);
+  let hasSeenIntro = false;
+  try {
+    hasSeenIntro = Boolean(localStorage.getItem(FIRST_RUN_STORAGE_KEY));
+  } catch {
+    // Ignore storage read error
+  }
+
+  if (!hasSeenIntro) {
+    setTimeout(() => {
+      openHowToPlayModal();
+    }, 350);
+  } else {
+    setTimeout(() => {
+      if (btnMenuContinue) {
+        btnMenuContinue.focus();
+      }
+    }, 120);
+  }
 }
 
 function showTavernMenu() {
@@ -4994,6 +5014,10 @@ function showTavernMenu() {
   // If already entered in this session, keep the title splash dismissed (Issue #71)
   if (hasEnteredTavernSession && tavernTitleSplash) {
     tavernTitleSplash.classList.add('dismissed');
+    tavernTitleSplash.style.display = 'none';
+  } else if (!hasEnteredTavernSession && tavernTitleSplash) {
+    tavernTitleSplash.classList.remove('dismissed');
+    tavernTitleSplash.style.display = 'flex';
   }
 
   updateTavernMenuStats();
@@ -5323,13 +5347,4 @@ if (!restoreLastSong()) {
   tryAutoLoadWorkspaceMidi();
 }
 showTavernMenu();
-let hasSeenIntro = false;
-try {
-  hasSeenIntro = Boolean(localStorage.getItem(FIRST_RUN_STORAGE_KEY));
-} catch {
-  // Ignore storage read error
-}
-if (!hasSeenIntro) {
-  openHowToPlayModal();
-}
 requestAnimationFrame(animationLoop);
