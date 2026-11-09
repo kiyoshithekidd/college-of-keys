@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Navigation: 3D perspective page flip animations, Previous/Next tier buttons, 10 bookmark tabs/pips, and keyboard shortcut support (`ArrowLeft`/`A`, `ArrowRight`/`D`, and `Escape`).
   - Folder Watcher Integration: Newly ingested `.mid` files live-update the open spellbook and jump directly to the incoming spell's difficulty tier without reopening the book.
   - Contextual Origin Return: Closing the Grimoire seamlessly returns the player to their triggering origin (Tavern Main Menu or Practice Highway).
+  - UI/UX Readability & Page Overflow Remediation: Replaced cramped 4-column metric and annals layouts with clean 2x2 grids, giving labels ("Playable Notes", "Career XP") over 120px each to eliminate horizontal truncation. Precision-aligned `.spellbook-stage` (`top: 19.5%; bottom: 24.5%; left: 25.0%; right: 25.0%`) to lock all text strictly within parchment margins. Upgraded typography with high-contrast iron-gall ink (`#1a0a00`), illuminated vellum cards, and styled the close button in dark walnut and burnished brass.
 
 - **Issue #71: Theatrical Title Splash Opener ("Press Any Key or Piano Note to Enter"):**
   - Added full-screen atmospheric Title Splash overlay (`#tavern-title-splash`) with crest logo, serif title, subtitle, and pulsing golden entry prompt button.

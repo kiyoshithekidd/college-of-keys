@@ -1191,20 +1191,44 @@ html, body {
   border-radius: 6px;
 }
 
+/* Close Button — Aged Walnut with Burnished Brass Border & Parchment Font */
+.modal-close-btn,
 .spellbook-close-btn {
-  font-size: 1.4rem;
+  background: rgba(26, 19, 14, 0.94);
+  border: 1px solid var(--border-brass);
+  color: var(--text-parchment);
+  border-radius: 6px;
   width: 32px;
   height: 32px;
-  color: var(--radiant-gold);
+  font-size: 1.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  line-height: 1;
+  padding: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
 }
 
-/* 3D Flippable Stage & Pages */
+.modal-close-btn:hover,
+.modal-close-btn:focus-visible,
+.spellbook-close-btn:hover,
+.spellbook-close-btn:focus-visible {
+  background: rgba(46, 34, 24, 0.98);
+  border-color: var(--radiant-gold);
+  color: var(--radiant-gold);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.45);
+  transform: scale(1.05);
+}
+
+/* 3D Flippable Stage & Pages — Precision aligned to the open parchment pages */
 .spellbook-stage {
   position: absolute;
-  top: 9%;
-  bottom: 11%;
-  left: 6%;
-  right: 6%;
+  top: 19.5%;
+  bottom: 24.5%;
+  left: 25.0%;
+  right: 25.0%;
   z-index: 10;
   perspective: 1600px;
   display: flex;
@@ -1235,20 +1259,20 @@ html, body {
   height: 100%;
   display: flex;
   flex-direction: column;
-  color: #24180f;
+  color: #1a0a00;
   overflow: hidden;
 }
 
 .spellbook-page.page-left {
-  width: 45%;
-  padding: 12px 20px 8px 18px;
-  gap: 7px;
+  width: 47%;
+  padding: 6px 12px 4px 10px;
+  gap: 5px;
 }
 
 .spellbook-page.page-right {
-  width: 45%;
-  padding: 12px 18px 8px 20px;
-  gap: 7px;
+  width: 47%;
+  padding: 6px 10px 4px 12px;
+  gap: 5px;
   margin-left: auto;
 }
 
@@ -1256,66 +1280,74 @@ html, body {
 .page-tier-badge-wrap {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 2px;
+  gap: 6px;
+  margin-bottom: 0;
 }
 
 .tier-ribbon-badge {
-  background: linear-gradient(135deg, #8a6d2f 0%, #5c4316 100%);
+  background: linear-gradient(135deg, #7c581a 0%, #4a3310 100%);
   color: #fff9ea;
-  padding: 2px 10px;
+  padding: 2px 7px;
   border-radius: 999px;
-  font-size: 0.68rem;
+  font-size: 0.58rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(255, 215, 0, 0.4);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 215, 0, 0.45);
 }
 
 .tier-xp-multiplier {
-  color: #7a4e15;
+  color: #4a2d12;
   font-weight: 700;
-  font-size: 0.74rem;
+  font-size: 0.66rem;
   font-family: 'Consolas', monospace;
 }
 
 .page-tier-title {
   font-family: Georgia, serif;
-  font-size: 1.25rem;
+  font-size: 1.05rem;
   font-weight: 800;
-  color: #26160c;
-  line-height: 1.15;
+  color: #1a0a00;
+  line-height: 1.1;
+  margin: 0;
 }
 
 .page-tier-desc {
-  font-size: 0.73rem;
-  color: #5a3e26;
+  font-size: 0.64rem;
+  color: #3d2310;
   font-style: italic;
-  line-height: 1.2;
+  line-height: 1.15;
+  margin: 0;
 }
 
 .page-search-row {
-  margin: 2px 0;
+  margin: 1px 0;
 }
 
 .spellbook-search-field {
   width: 100%;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1.5px solid rgba(138, 109, 47, 0.4);
+  background: rgba(255, 252, 244, 0.88);
+  border: 1.5px solid rgba(138, 109, 47, 0.5);
   border-radius: 6px;
   padding: 4px 8px;
-  font-size: 0.76rem;
-  color: #22140a;
+  font-size: 0.72rem;
+  color: #1a0a00;
   outline: none;
   font-family: inherit;
   transition: all 0.15s ease;
+  box-shadow: inset 0 1px 3px rgba(138, 109, 47, 0.15);
+}
+
+.spellbook-search-field::placeholder {
+  color: #6a4c30;
+  font-style: italic;
 }
 
 .spellbook-search-field:focus {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.98);
   border-color: #8a6d2f;
-  box-shadow: 0 0 8px rgba(138, 109, 47, 0.35);
+  box-shadow: 0 0 6px rgba(138, 109, 47, 0.35);
 }
 
 /* Left Page: Scrollable Alphabetical Song List */
@@ -1324,12 +1356,12 @@ html, body {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding-right: 4px;
+  gap: 3px;
+  padding-right: 3px;
 }
 
 .spellbook-song-list::-webkit-scrollbar {
-  width: 5px;
+  width: 4px;
 }
 
 .spellbook-song-list::-webkit-scrollbar-thumb {
@@ -1341,50 +1373,55 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
+  padding: 5px 8px;
   border-radius: 6px;
-  background: rgba(60, 38, 16, 0.07);
-  border: 1px solid rgba(138, 109, 47, 0.22);
+  background: rgba(255, 252, 244, 0.65);
+  border: 1px solid rgba(138, 109, 47, 0.3);
   cursor: pointer;
   transition: all 0.14s ease;
-  color: #26160c;
+  color: #1a0a00;
   font-family: Georgia, serif;
-  gap: 8px;
+  gap: 6px;
+  box-shadow: 0 1px 3px rgba(60, 35, 10, 0.05);
 }
 
 .spellbook-song-item:hover {
-  background: rgba(138, 109, 47, 0.18);
+  background: rgba(255, 245, 225, 0.92);
   border-color: #8a6d2f;
-  transform: translateX(2px);
+  transform: translateX(1px);
 }
 
 .spellbook-song-item.selected {
-  background: rgba(184, 134, 11, 0.26);
-  border: 1.5px solid #8a6d2f;
-  box-shadow: 0 2px 8px rgba(138, 109, 47, 0.28);
+  background: rgba(235, 185, 80, 0.38);
+  border: 1.5px solid #8a5814;
+  box-shadow: 0 2px 6px rgba(138, 88, 20, 0.25);
   font-weight: 700;
 }
 
 .spellbook-song-item-title {
   flex: 1;
-  font-size: 0.8rem;
+  font-size: 0.74rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  color: #1a0a00;
+  font-weight: 600;
 }
 
 .song-active-indicator {
   color: #b45309;
   font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .spellbook-song-item-meta {
-  font-size: 0.67rem;
-  color: #6a4c30;
+  font-size: 0.64rem;
+  color: #4a2c10;
   font-family: 'Consolas', monospace;
+  font-weight: 600;
   flex-shrink: 0;
 }
 
@@ -1396,8 +1433,8 @@ html, body {
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 16px;
-  gap: 8px;
+  padding: 8px;
+  gap: 5px;
 }
 
 .spellbook-empty-state.hidden {
@@ -1405,37 +1442,39 @@ html, body {
 }
 
 .empty-rune-icon {
-  font-size: 2rem;
+  font-size: 1.5rem;
   filter: sepia(0.8);
 }
 
 .empty-tier-heading {
   font-family: Georgia, serif;
-  font-size: 1rem;
+  font-size: 0.88rem;
   font-weight: 700;
-  color: #2d1b0f;
+  color: #1a0a00;
+  margin: 0;
 }
 
 .empty-tier-text {
-  font-size: 0.75rem;
-  color: #60452d;
+  font-size: 0.66rem;
+  color: #4a2c10;
   font-style: italic;
-  max-width: 240px;
-  line-height: 1.3;
+  max-width: 220px;
+  line-height: 1.25;
+  margin: 0;
 }
 
 .btn-empty-quest {
-  margin-top: 4px;
-  padding: 6px 14px;
-  font-size: 0.74rem;
+  margin-top: 2px;
+  padding: 4px 10px;
+  font-size: 0.68rem;
   border-radius: 999px;
 }
 
 /* Page Footer Numbers */
 .page-footer {
   margin-top: auto;
-  padding-top: 4px;
-  border-top: 1px solid rgba(138, 109, 47, 0.22);
+  padding-top: 3px;
+  border-top: 1px solid rgba(138, 109, 47, 0.25);
 }
 
 .page-footer-left {
@@ -1447,9 +1486,10 @@ html, body {
 }
 
 .page-num-text {
-  font-size: 0.66rem;
-  color: #7a5a3a;
+  font-size: 0.60rem;
+  color: #4a2c10;
   font-family: 'Consolas', monospace;
+  font-weight: 700;
   letter-spacing: 0.05em;
 }
 
@@ -1458,48 +1498,52 @@ html, body {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
 }
 
 .detail-top-block {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 
 .detail-tier-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
 }
 
 .detail-tier-chip {
-  font-size: 0.64rem;
+  font-size: 0.58rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #7b4f17;
+  color: #6a4010;
 }
 
 .detail-song-source {
-  font-size: 0.65rem;
-  color: #6a4a2c;
+  font-size: 0.60rem;
+  color: #4a2c10;
   font-family: 'Consolas', monospace;
+  font-weight: 600;
 }
 
 .detail-song-title {
   font-family: Georgia, serif;
-  font-size: 1.25rem;
+  font-size: 1.05rem;
   font-weight: 800;
-  color: #24150b;
-  line-height: 1.15;
+  color: #1a0a00;
+  line-height: 1.12;
   word-break: break-word;
+  max-height: 2.3em;
+  overflow: hidden;
+  margin: 0;
 }
 
 .detail-song-file {
-  font-size: 0.68rem;
-  color: #705034;
+  font-size: 0.60rem;
+  color: #4a2c10;
   font-family: 'Consolas', monospace;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1507,97 +1551,103 @@ html, body {
 }
 
 .detail-parchment-divider {
-  height: 1.5px;
-  background: linear-gradient(90deg, transparent 0%, rgba(138, 109, 47, 0.45) 50%, transparent 100%);
-  margin: 2px 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(138, 109, 47, 0.5) 50%, transparent 100%);
+  margin: 1px 0;
 }
 
-/* 4-Stat Musical Metrics Grid */
+/* 2x2 Clean Musical Metrics Grid (Zero Overflow) */
 .detail-metrics-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-  background: rgba(60, 38, 16, 0.06);
-  border: 1px solid rgba(138, 109, 47, 0.22);
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  background: rgba(255, 252, 244, 0.7);
+  border: 1px solid rgba(138, 109, 47, 0.32);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 5px 8px;
+  box-shadow: 0 1px 3px rgba(60, 35, 10, 0.05);
 }
 
 .metric-box {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  text-align: center;
+  text-align: left;
 }
 
 .metric-label {
-  font-size: 0.58rem;
+  font-size: 0.52rem;
   text-transform: uppercase;
-  color: #755537;
+  color: #4a2d12;
   font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .metric-val {
   font-size: 0.78rem;
-  color: #28170c;
+  color: #1a0a00;
   font-family: 'Consolas', monospace;
-  font-weight: 700;
+  font-weight: 800;
 }
 
-/* Bardic Annals Performance Box */
+/* 2x2 Bardic Annals Performance Box (Zero Overflow) */
 .detail-history-box {
-  background: rgba(60, 38, 16, 0.08);
-  border: 1px solid rgba(138, 109, 47, 0.28);
-  border-radius: 8px;
-  padding: 8px 12px;
+  background: rgba(255, 252, 244, 0.75);
+  border: 1px solid rgba(138, 109, 47, 0.35);
+  border-radius: 6px;
+  padding: 5px 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  box-shadow: 0 1px 3px rgba(60, 35, 10, 0.05);
 }
 
 .history-box-heading {
-  font-size: 0.68rem;
+  font-size: 0.58rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #7a5420;
+  color: #6a4010;
   text-align: center;
   font-weight: 700;
+  margin: 0;
 }
 
 .history-stats-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-  text-align: center;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
 }
 
 .history-stat {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  text-align: left;
 }
 
 .history-label {
-  font-size: 0.58rem;
+  font-size: 0.52rem;
   text-transform: uppercase;
-  color: #755537;
-  font-weight: 600;
+  color: #4a2d12;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .history-val {
-  font-size: 0.82rem;
-  color: #8f5d16;
-  font-weight: 700;
+  font-size: 0.78rem;
+  color: #7a4a0c;
+  font-weight: 800;
 }
 
 .history-meta-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 0.65rem;
-  color: #6c4e33;
-  padding-top: 3px;
-  border-top: 1px solid rgba(138, 109, 47, 0.18);
+  font-size: 0.58rem;
+  color: #4a2c10;
+  font-weight: 600;
+  padding-top: 2px;
+  border-top: 1px solid rgba(138, 109, 47, 0.22);
 }
 
 .history-audio-tag {
@@ -1613,21 +1663,21 @@ html, body {
 .detail-actions-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-top: auto;
-  padding-top: 6px;
+  padding-top: 4px;
 }
 
 .btn-spellbook-load {
   flex: 1;
-  padding: 10px 16px;
-  font-size: 0.88rem;
+  padding: 7px 14px;
+  font-size: 0.78rem;
   font-weight: 700;
   background: linear-gradient(135deg, #24422e 0%, #162a1e 100%);
   border: 1.5px solid #d4af37;
   color: #fff6cc;
   border-radius: 999px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
   cursor: pointer;
   transition: all 0.2s ease;
   text-align: center;
@@ -1636,18 +1686,18 @@ html, body {
 .btn-spellbook-load:hover {
   background: linear-gradient(135deg, #325a3f 0%, #1d3626 100%);
   border-color: #ffd700;
-  box-shadow: 0 6px 20px rgba(255, 215, 0, 0.35);
-  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(255, 215, 0, 0.35);
+  transform: translateY(-1px);
 }
 
 .btn-spellbook-delete {
   background: transparent;
   border: 1px solid rgba(138, 109, 47, 0.35);
   color: #991b1b;
-  border-radius: 6px;
-  width: 32px;
-  height: 32px;
-  font-size: 0.9rem;
+  border-radius: 5px;
+  width: 26px;
+  height: 26px;
+  font-size: 0.80rem;
   cursor: pointer;
   transition: all 0.15s ease;
 }
