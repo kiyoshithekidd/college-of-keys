@@ -8,12 +8,26 @@
 </head>
 <body>
   <div id="app-shell">
-    <!-- Issue #52 & #68: The Tavern Title Screen & Main Menu Front Door -->
+    <!-- Issue #52 & #68 & #71: The Tavern Title Screen & Main Menu Front Door -->
     <div id="tavern-main-menu" class="tavern-scene-overlay" role="main" aria-labelledby="tavern-title-heading">
       <div class="tavern-scene-backdrop">
         <div class="tavern-hearth-glow"></div>
         <div class="tavern-lantern-left"></div>
         <div class="tavern-lantern-right"></div>
+      </div>
+
+      <!-- Issue #71: Theatrical Title Opener Splash ("Press Any Key to Enter") -->
+      <div id="tavern-title-splash" class="tavern-title-splash" role="region" aria-label="Title Screen Opener">
+        <div class="splash-center-block">
+          <img src="./assets/images/logo/title-logo-crest-transparent.png" class="splash-crest-logo-img" alt="College of Keys Crest" aria-hidden="true" />
+          <h1 class="splash-title-heading">College of Keys</h1>
+          <p class="splash-title-tagline">The Rusty Flagon Tavern &amp; Arcane Conservatory</p>
+          <button id="btn-enter-tavern" class="btn-enter-tavern" title="Enter The Rusty Flagon Tavern">
+            <span class="enter-prompt-sparkle" aria-hidden="true">&#10022;</span>
+            <span class="enter-prompt-text">Press Any Key, Click, or Strike a Piano Key to Enter</span>
+            <span class="enter-prompt-sparkle" aria-hidden="true">&#10022;</span>
+          </button>
+        </div>
       </div>
 
       <div class="tavern-scene-viewport">

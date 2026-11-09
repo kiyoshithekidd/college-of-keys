@@ -389,7 +389,29 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
     5. **Focus & A11y Management:** Set `inert` on `#tavern-header`, `#spell-scroll-bar`, and `#stage-container` while `#tavern-main-menu` is active. Added focus tracking and automatic return on modal close, plus keyboard `Tab` / `Shift-Tab` focus cycling within open dialogs.
     6. **Painterly Scene Hotspot Layout:** Replaced the plain grid with a 16:9 scene viewport overlaying `tavern-menu-scene.png`, positioning interactive stations over scene landmarks (Stage, Bookshelf, Notice Board, Tuning Corner, Trainer's Guild, and Hearth Rug Bard Card) with automated card-grid fallback below 950px width.
     7. **Window Edge Breathing Room:** Added padding and flex compression to Bar 1 and Bar 2 to eliminate right-edge window control clipping.
-  - **Pull Request Created:** Opened PR [#70](https://github.com/kiyoshithekidd/college-of-keys/pull/70) from `feature/issue-52-tavern-main-menu` to `main` referencing #52, #67, and #68. Main branch remains completely untouched and clean.
+  - **Pull Request Created:** Opened PR [#70](https://github.com/kiyoshithekidd/college-of-keys/pull/70) from `feature/issue-52-tavern-main-menu` to `main` referencing #52, #67, and #68. User tested and confirmed (`"testing succesful"`), PR #70 merged into `main` (`76bd9e4`), closing Issues #52, #67, and #68.
+
+### 2026-11-09 — Session 17: Title Splash Opener, Palette Overhaul & Station UX (Issue #71)
+- **What we did:**
+  - Created and tracked [Issue #71](https://github.com/kiyoshithekidd/college-of-keys/issues/71) on GitHub based on UI/UX game design review and user feedback.
+  - Created isolated feature branch `feature/issue-71-title-splash-and-station-ux` from `main` (`76bd9e4`).
+  - **Theatrical Title Splash Opener (`#tavern-title-splash`):**
+    - Added full-screen atmospheric opener overlay displaying the painterly tavern scene, glowing fireplace and lanterns, title crest logo, and a pulsing golden button prompt: `★ Press Any Key, Click, or Strike a Piano Key to Enter ★`.
+    - Handled interaction via mouse click, any keyboard keypress (`keydown`), or physical 61-key MIDI key strike (`status === 0x90 && velocity > 0`).
+    - Integrated `playTavernWelcomeChord()`: arpeggiates a warm C-Major sampler chord (`C3`, `G3`, `C4`, `E4`, `G4`, `C5`) and resumes `Tone.context`, priming Web Audio immediately with a user gesture so first-note highway latency is eliminated.
+    - Added `hasEnteredTavernSession` flag: returning to the Tavern mid-session (via the `🏰 Tavern` header button) bypasses the splash and returns directly to the interactive stations.
+  - **Station Swap & F-Pattern UX:**
+    - Swapped **The Hearth Stage (Continue Practice)** to the upper stage archway (`top: 20%; left: 3%`), framing the lute as the primary Hero CTA.
+    - Moved **Trainer's Guild (How to Play)** down to the lower floor corner nook (`bottom: 5.5%; left: 3%`) with utility styling for unobtrusive onboarding.
+  - **Tavern Palette Overhaul (Aged Walnut & Burnished Brass):**
+    - Replaced all generic synthwave purple gradients across root variables, station cards, panels, and modals (`--bg-obsidian: #0c0907`, `--bg-tavern-panel: #18130e`, `--bg-tavern-card: #221a14`, `--text-muted: #baab93`).
+    - Clothed The Hearth Stage card in warm **Forest Velvet** (`rgba(22, 38, 28, 0.96)`) to diegetically harmonize with the stage's emerald velvet curtains.
+    - Grounded cards in **Aged Walnut & Smoked Oak** (`rgba(26, 19, 14, 0.94)`) and framed them with **Burnished Brass** and **Toasted Parchment**.
+  - **Visual Hierarchy & Micro-Cues:**
+    - Built 3 distinct visual button tiers: Tier 1 Hero CTA (The Hearth Stage with radiant gold border and prominent play glyph), Tier 2 Content Discovery (The Grimoire with Arcane Cyan accent and The Quest Board with Amber Wax Notice accent), Tier 3 Utilities (How to Play & Tuning Corner with subtle bronze borders).
+    - Added subtle hover glow and `📜` scroll icon cue to the Bard Character Spotlight card to indicate it opens the Bardic Annals.
+- **Current status:** Changes implemented and verified on branch `feature/issue-71-title-splash-and-station-ux`. Ready for user verification.
+
 
 
 
