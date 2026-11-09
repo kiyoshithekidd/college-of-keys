@@ -38,6 +38,24 @@ Title logo crest for the main menu and splash screen. Gold shield, lute and rapi
 
 Transparent PNG (1600x1600, RGBA). The image generator cannot output true alpha, so this file was cut out from a white-background render with rembg (isnet model); verified transparent corners and clean edges. Place it directly on the tavern menu scene or any dark background; do not put it on a light background, the gold will wash out. The background is solid dark in the other logo versions, which are not filed here.
 
+## profile/bard-profile-banner.png
+
+Backdrop for the bard profile panel on the main menu (issue #52). The panel shows level, bard title, and XP as HTML text on top of the banner; click in for details and stats (favorite, best, and worst songs, accuracy).
+
+The center is dark wood planks, kept calm so gold text reads clearly. Visual interest is at the edges only: lute on its small stage to the left, rolled sheet music scroll and a d20 to the right, candles on both ends. No words baked in; all stats stay as live text. The image is wide landscape, not a thin strip; crop it to the panel's aspect when wiring it in.
+
+## icons/
+
+Toolbar icon set for the Spell Scroll Bar, all transparent PNG (1600x1600, RGBA), brass and gold with emerald accents, dark tavern palette. The icon generator made rounded tiles on white; the white was cut out with rembg (isnet model) so each icon sits transparent on the dark toolbar. The play icon's first cutout dulled its gold triangle, so it was re-cut from the original with a corner flood fill instead; the triangle and frame are intact.
+
+- icon-quest-board.png: glowing crystal ball on a brass stand, for #btn-open-quest-board.
+- icon-settings.png: ornate brass gear with emerald center, for #btn-toggle-settings.
+- icon-play.png: gold play triangle in an ornate gold frame on a dark tile, for #btn-play-pause. Pause state is not a separate icon; swap the triangle for two bars in code, or make a matching pause icon later.
+- icon-restart.png: gold circular arrow with emerald center, for #btn-restart.
+- icon-wait-mode.png: hourglass with green sand, for #btn-wait-mode.
+- icon-backing-band.png: electric guitar in a round rope-frame medallion, for #btn-backing-band (Rock Band Mode toggle).
+- icon-spell-details.png: magnifying glass over a rolled music scroll, for #btn-spell-details (inspector).
+
 ## Adding new art
 
 Keep the same style and palette so new screens match. Put new images in a subfolder named after the screen they belong to, and add a section here saying what it is, where it is used, and what must stay clear for overlays.

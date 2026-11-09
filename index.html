@@ -8,52 +8,24 @@
 </head>
 <body>
   <div id="app-shell">
-    <!-- Issue #52: The Tavern Title Screen & Main Menu Front Door -->
-    <div id="tavern-main-menu" class="tavern-scene-overlay" role="region" aria-label="Tavern Main Menu">
+    <!-- Issue #52 & #68: The Tavern Title Screen & Main Menu Front Door -->
+    <div id="tavern-main-menu" class="tavern-scene-overlay" role="main" aria-labelledby="tavern-title-heading">
       <div class="tavern-scene-backdrop">
         <div class="tavern-hearth-glow"></div>
         <div class="tavern-lantern-left"></div>
         <div class="tavern-lantern-right"></div>
       </div>
 
-      <div class="tavern-menu-content">
-        <!-- Top Branding Block -->
-        <div class="tavern-title-block">
-          <div class="arcane-crest tavern-title-crest" aria-hidden="true">&#9830;</div>
-          <h1 class="tavern-title-heading">College of Keys</h1>
-          <p class="tavern-title-tagline">The Rusty Flagon Tavern &amp; Arcane Conservatory</p>
-        </div>
-
-        <!-- Center: Bard Character Spotlight -->
-        <div id="tavern-bard-card" class="tavern-bard-spotlight" role="button" tabindex="0" title="Click to view Bardic Annals &amp; Song History">
-          <div class="bard-spotlight-header">
-            <div class="bard-avatar-crest">&#9830;</div>
-            <div class="bard-spotlight-info">
-              <div class="bard-spotlight-rank-row">
-                <span id="menu-bard-level" class="bard-level-pill">LVL 1</span>
-                <strong id="menu-bard-title" class="menu-bard-title">Tavern Busker</strong>
-              </div>
-              <span class="menu-bard-sublabel">Character of the College &bull; Click to Open Bardic Annals</span>
-            </div>
-            <div class="menu-career-xp-box">
-              <span class="bard-label">Career XP</span>
-              <strong id="menu-total-xp">0 XP</strong>
-            </div>
+      <div class="tavern-scene-viewport">
+        <div class="tavern-scene-stage">
+          <!-- Top Branding Block -->
+          <div class="tavern-title-block">
+            <img src="./assets/images/logo/title-logo-crest-transparent.png" class="tavern-crest-logo-img" alt="College of Keys Crest" aria-hidden="true" />
+            <h1 id="tavern-title-heading" class="tavern-title-heading">College of Keys</h1>
+            <p class="tavern-title-tagline">The Rusty Flagon Tavern &amp; Arcane Conservatory</p>
           </div>
-          <div class="xp-bar-section menu-xp-section">
-            <div class="xp-bar-labels">
-              <span id="menu-xp-progress-text">0 / 1,000 XP</span>
-              <span id="menu-next-level-text" class="song-xp-tag">Next Rank</span>
-            </div>
-            <div class="xp-bar-track">
-              <div id="menu-xp-bar-fill" class="xp-bar-fill" style="width: 0%;"></div>
-            </div>
-          </div>
-        </div>
 
-        <!-- The Tavern Stations / Scene Hotspots -->
-        <div class="tavern-stations-grid">
-          <!-- 1. The Hearth Stage: Continue Practice -->
+          <!-- Station 1: The Hearth Stage: Continue Practice (Left Stage) -->
           <button id="btn-menu-continue" class="tavern-station-card station-stage" title="Take the stage and practice your active spell">
             <div class="station-icon">&#127929;</div>
             <div class="station-details">
@@ -64,7 +36,7 @@
             <div class="station-action-arrow">&#9654;</div>
           </button>
 
-          <!-- 2. The Bookshelf: The Grimoire -->
+          <!-- Station 2: The Bookshelf: The Grimoire (Right Bookshelf) -->
           <button id="btn-menu-grimoire" class="tavern-station-card station-bookshelf" title="Browse your spell library and imported songs">
             <div class="station-icon">&#128214;</div>
             <div class="station-details">
@@ -75,7 +47,7 @@
             <div class="station-action-arrow">&#8594;</div>
           </button>
 
-          <!-- 3. The Quest Board: Sourcing -->
+          <!-- Station 3: Notice Board: The Quest Board (Center Wall) -->
           <button id="btn-menu-quest-board" class="tavern-station-card station-quest" title="Paste YouTube links or explore online MIDI archives">
             <div class="station-icon">&#128302;</div>
             <div class="station-details">
@@ -86,7 +58,7 @@
             <div class="station-action-arrow">&#8594;</div>
           </button>
 
-          <!-- 4. Trainer's Guild: How to Play -->
+          <!-- Station 4: Trainer's Guild: How to Play (Left Doorway / Notice) -->
           <button id="btn-menu-how-to-play" class="tavern-station-card station-training" title="View gameplay orientation, controls &amp; scoring guide">
             <div class="station-icon">&#127891;</div>
             <div class="station-details">
@@ -97,7 +69,7 @@
             <div class="station-action-arrow">&#8594;</div>
           </button>
 
-          <!-- 5. Tuning Corner: Audio & Settings -->
+          <!-- Station 5: Tuning Corner: Audio & Settings (Right Corner Nook) -->
           <button id="btn-menu-settings" class="tavern-station-card station-tuning" title="Adjust instrument tone, volume and keyboard settings">
             <div class="station-icon">&#9881;</div>
             <div class="station-details">
@@ -107,12 +79,39 @@
             </div>
             <div class="station-action-arrow">&#8594;</div>
           </button>
+
+          <!-- Center Foreground: Bard Character Spotlight (Over the Round Green Rug) -->
+          <div id="tavern-bard-card" class="tavern-bard-spotlight" role="button" tabindex="0" title="Click to view Bardic Annals &amp; Song History">
+            <div class="bard-spotlight-header">
+              <div class="bard-avatar-crest">&#9830;</div>
+              <div class="bard-spotlight-info">
+                <div class="bard-spotlight-rank-row">
+                  <span id="menu-bard-level" class="bard-level-pill">LVL 1</span>
+                  <strong id="menu-bard-title" class="menu-bard-title">Tavern Busker</strong>
+                </div>
+                <span class="menu-bard-sublabel">Character of the College &bull; Click to Open Bardic Annals</span>
+              </div>
+              <div class="menu-career-xp-box">
+                <span class="bard-label">Career XP</span>
+                <strong id="menu-total-xp">0 XP</strong>
+              </div>
+            </div>
+            <div class="xp-bar-section menu-xp-section">
+              <div class="xp-bar-labels">
+                <span id="menu-xp-progress-text">0 / 1,000 XP</span>
+                <span id="menu-next-level-text" class="song-xp-tag">Next Rank</span>
+              </div>
+              <div class="xp-bar-track">
+                <div id="menu-xp-bar-fill" class="xp-bar-fill" style="width: 0%;"></div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Footer Tavern Ambiance / Quick Info -->
         <div class="tavern-menu-footer">
           <span class="tavern-footer-hint">&#10024; Tip: Connect a 61-key MIDI keyboard or play with QWERTY keys (A&ndash;;)</span>
-          <span class="tavern-version-tag">College of Keys v1.1.2</span>
+          <span id="tavern-version-tag" class="tavern-version-tag">College of Keys</span>
         </div>
       </div>
     </div>
@@ -691,7 +690,7 @@
             <div class="highlight-content">
               <span class="highlight-tag">Most Rehearsed Ballad</span>
               <strong id="annals-fav-song" class="highlight-title">None yet</strong>
-              <span id="annals-fav-plays" class="highlight-meta">0 performances</span>
+              <span id="annals-fav-plays" class="highlight-meta">0 rehearsals</span>
             </div>
           </div>
 

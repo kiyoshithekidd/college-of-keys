@@ -7,7 +7,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## [Unreleased]
-- Future Expansion Backlog ("The Full Adventuring Party": Vocals / Spell-Singing, 4-Stem Demucs Separation, and Grand-Staff Sheet Music Split View).
+
+### Added
+- **Issue #52: The Tavern Title Screen & Main Menu Front Door (`#tavern-main-menu`):**
+  - Added full-screen Tavern landing hub featuring the 16:9 painterly fantasy backdrop (`tavern-menu-scene.png`), title crest logo (`title-logo-crest-transparent.png`), and interactive stations for Continue Practice, The Grimoire, The Quest Board, Trainer's Guild Orientation, and Audio & Keys settings.
+  - Added the Bard Character Spotlight card backed by `bard-profile-banner.png`, displaying live career XP, Level, and Title over the tavern hearth rug.
+  - Added the **Bardic Annals modal (`#bard-annals-modal`)** showcasing career highlights (Most Rehearsed Ballad, Masterpiece Incantation, Wild Magic Trial) and the Rehearsal Ledger chronicle.
+  - Added the **Trainer's Guild Orientation modal (`#how-to-play-modal`)** for first-run onboarding.
+  - Added painterly practice stage backdrop (`practice-stage-backdrop.png`) framing the Spell Highway.
+  - Added high-resolution transparent toolbar icons (`assets/images/icons/`).
+  - Added responsive percentage-based hotspot positioning on 16:9 canvas with automated card-grid fallback below 950px width.
+
+### Fixed
+- **Issue #67: Tavern Main Menu Modal Stacking, Settings Auto-Close & Continue Restore:**
+  - Raised modal z-index to 1100 to layer over `.tavern-scene-overlay`.
+  - Stopped Settings station click from bubbling to outside-click handler.
+  - Restored `lastSongPath` on boot and Continue; auto-load no longer overwrites it.
+  - Worst song and career accuracy use `lastAccuracy`; favorite song tie-breaks by recency.
+  - Gated MIDI input while Tavern menu is visible.
+- **Issue #68: History Storage Keying, XSS Prevention, Focus Management & Scene Hotspots:**
+  - Made `song_stats.json` and `SONG_STATS_STORAGE_KEY` the single source of truth for song history, eliminating unbounded profile growth in `bard_profile.json`.
+  - Keyed song history on stable content SHA1 hashes (`crypto.createHash('sha1')`) so saving to the Grimoire never splits or duplicates play counts.
+  - Added automatic migration and duplicate entry merging on load.
+  - Rebuilt Annals Rehearsal Ledger DOM using `createElement` and `textContent` without `innerHTML`.
+  - Added dynamic version tag in Tavern footer reading from `package.json`.
+  - Added focus management: remember and restore focus, focus first interactive station on open, and added `inert` attribute to background layers during main menu.
+  - Added keyboard focus trap cycling `Tab` / `Shift-Tab` inside active modals.
+  - Unified wording to "rehearsal(s)" across the app.
+  - Added breathing room padding on Bar 1 & Bar 2 to eliminate right-edge window control clipping.
 
 ---
 
