@@ -393,58 +393,8 @@
       </div>
     </section>
 
-    <!-- Phase 6: Workspace Row (The Grimoire Sidebar + Main Spell Highway Stage) -->
+    <!-- Phase 6 & Issue #69: Workspace Row (Main Spell Highway Stage) -->
     <div id="workspace-row">
-      <!-- Phase 6: The Grimoire (Local Song Library & Imports/ Folder Watcher Sidebar) -->
-      <aside id="grimoire-sidebar" aria-label="The Grimoire Spell Library">
-        <div class="grimoire-header">
-          <div class="grimoire-title-block">
-            <h2 class="grimoire-title">&#128214; The Grimoire</h2>
-            <span id="watcher-status-pill" class="watcher-pill" title="Actively watching ./Imports for new .mid files">
-              <span class="watcher-dot"></span>
-              <span id="watcher-status-text">Watching ./Imports</span>
-            </span>
-          </div>
-          <button id="btn-close-grimoire" class="btn-icon" title="Collapse Grimoire Sidebar">&#10005;</button>
-        </div>
-
-        <!-- Grimoire Action Bar -->
-        <div class="grimoire-actions">
-          <button id="btn-save-grimoire" class="tavern-btn tavern-btn-primary grimoire-btn-full" title="Save currently loaded MIDI spell into The Grimoire">
-            &#128190; Save Active Spell to Grimoire
-          </button>
-          <div class="grimoire-sub-actions">
-            <button id="btn-open-imports" class="tavern-btn grimoire-btn-half" title="Open the watched ./Imports folder in File Explorer">
-              &#128194; Open Imports/
-            </button>
-            <button id="btn-test-watcher-drop" class="tavern-btn btn-gold-outline grimoire-btn-half" title="Generate and drop a new .mid file directly into ./Imports to test automatic folder-watcher ingestion!">
-              &#9889; Drop Test .mid in Imports/
-            </button>
-          </div>
-        </div>
-
-        <!-- Search & Spell Level Filter -->
-        <div class="grimoire-filter-row">
-          <input id="grimoire-search-input" type="text" class="grimoire-search" placeholder="Search spells in Grimoire..." />
-          <select id="grimoire-filter-select" class="tavern-select grimoire-level-filter" title="Filter by D&D Spell Level">
-            <option value="all">All Levels</option>
-            <option value="Cantrip">Cantrip</option>
-            <option value="2nd-Level Spell">2nd-Level</option>
-            <option value="5th-Level Spell">5th-Level</option>
-            <option value="9th-Level Spell">9th-Level</option>
-          </select>
-        </div>
-
-        <!-- Scrollable Spell List -->
-        <div id="grimoire-spell-list" class="grimoire-spell-list">
-          <!-- Populated dynamically by renderer.js -->
-        </div>
-
-        <div class="grimoire-footer">
-          <span>Drop any <code>.mid</code> file into <code>./Imports</code> &mdash; The Grimoire ingests it automatically!</span>
-        </div>
-      </aside>
-
       <!-- Main Stage: Spell Highway + 61-Key Piano Canvas -->
       <main id="stage-container">
         <canvas id="spell-canvas"></canvas>
@@ -793,6 +743,176 @@
 
         <div class="modal-actions">
           <button id="btn-how-to-play-ready" class="tavern-btn tavern-btn-primary">&#9876; Take the Stage</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Issue #69: The Grimoire as a Flippable Spellbook Sorted by Difficulty -->
+    <div id="grimoire-spellbook-modal" class="modal-backdrop grimoire-spellbook-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="spellbook-title">
+      <div class="spellbook-container">
+        <!-- Open Spellbook Visual Backdrop -->
+        <div class="spellbook-backdrop-frame">
+          <img src="./assets/images/grimoire/grimoire-open-book.png" class="spellbook-bg-img" alt="Open Grimoire Spellbook" draggable="false" />
+        </div>
+
+        <!-- Book Header / Controls -->
+        <div class="spellbook-top-bar">
+          <div class="spellbook-header-left">
+            <span class="spellbook-crest-ornament">&#10022;</span>
+            <div>
+              <h2 id="spellbook-title" class="spellbook-main-title">The Grimoire</h2>
+              <span class="spellbook-subtitle">Arcane Tome of Cataloged Musical Spells</span>
+            </div>
+          </div>
+
+          <div class="spellbook-header-actions">
+            <button id="btn-spellbook-save-current" class="tavern-btn btn-spellbook-tool" title="Save currently active highway spell into The Grimoire">
+              &#128190; Save Current
+            </button>
+            <button id="btn-spellbook-open-imports" class="tavern-btn btn-spellbook-tool" title="Open the watched ./Imports folder in File Explorer">
+              &#128194; Open Imports/
+            </button>
+            <button id="btn-spellbook-drop-test" class="tavern-btn btn-spellbook-tool btn-gold-outline" title="Generate and drop a test MIDI spell into ./Imports to test live ingestion">
+              &#9889; Drop Test .mid
+            </button>
+            <button id="btn-close-spellbook" class="modal-close-btn spellbook-close-btn" title="Close The Grimoire (Esc)">&times;</button>
+          </div>
+        </div>
+
+        <!-- 3D Flippable Spread Stage -->
+        <div id="spellbook-stage" class="spellbook-stage">
+          <div id="spellbook-spread" class="spellbook-spread">
+            <!-- Left Page: Tier Overview & Alphabetical Song List -->
+            <div class="spellbook-page page-left">
+              <div class="page-header">
+                <div class="page-tier-badge-wrap">
+                  <span id="spellbook-tier-badge" class="tier-ribbon-badge">Cantrip Spells</span>
+                  <span id="spellbook-tier-xp" class="tier-xp-multiplier">1.0x XP</span>
+                </div>
+                <h3 id="spellbook-tier-name" class="page-tier-title">Novice Cantrips</h3>
+                <p id="spellbook-tier-desc" class="page-tier-desc">Basic cantrip melodies &amp; fundamentals (&lt; 1.5 NPS)</p>
+              </div>
+
+              <!-- Search inside current tier -->
+              <div class="page-search-row">
+                <input id="spellbook-search-input" type="text" class="spellbook-search-field" placeholder="Search spells in this tier..." />
+              </div>
+
+              <!-- Scrollable Song List on Left Page -->
+              <div id="spellbook-song-list" class="spellbook-song-list" role="listbox" aria-label="Spells in this tier">
+                <!-- Populated dynamically by renderer.js -->
+              </div>
+
+              <!-- Empty Tier State -->
+              <div id="spellbook-empty-state" class="spellbook-empty-state hidden">
+                <div class="empty-rune-icon">&#128220;</div>
+                <h4 class="empty-tier-heading">No Spells of this Level Yet</h4>
+                <p class="empty-tier-text">No spells of this level cataloged in your grimoire yet.</p>
+                <button id="btn-spellbook-quest-pointer" class="tavern-btn tavern-btn-cast btn-empty-quest" title="Visit The Quest Board to transcribe YouTube audio">
+                  &#128302; Seek Spells on the Quest Board
+                </button>
+              </div>
+
+              <!-- Page Footer: Left Page Number -->
+              <div class="page-footer page-footer-left">
+                <span id="spellbook-page-num-left" class="page-num-text">Page I &bull; Cantrips</span>
+              </div>
+            </div>
+
+            <!-- Right Page: Selected Song Details & Highway Inscription CTA -->
+            <div class="spellbook-page page-right">
+              <div id="spellbook-detail-panel" class="spellbook-detail-panel">
+                <div class="detail-top-block">
+                  <div class="detail-tier-row">
+                    <span id="spellbook-detail-tier-chip" class="detail-tier-chip">Cantrip</span>
+                    <span id="spellbook-detail-source" class="detail-song-source">Built-In Conservatory Spell</span>
+                  </div>
+                  <h3 id="spellbook-detail-title" class="detail-song-title">Select a Spell</h3>
+                  <div id="spellbook-detail-file" class="detail-song-file">scroll_demo.mid</div>
+                </div>
+
+                <div class="detail-parchment-divider"></div>
+
+                <!-- Musical Metadata Grid -->
+                <div class="detail-metrics-grid">
+                  <div class="metric-box">
+                    <span class="metric-label">Tempo</span>
+                    <strong id="spellbook-detail-bpm" class="metric-val">120 BPM</strong>
+                  </div>
+                  <div class="metric-box">
+                    <span class="metric-label">Duration</span>
+                    <strong id="spellbook-detail-duration" class="metric-val">3:45</strong>
+                  </div>
+                  <div class="metric-box">
+                    <span class="metric-label">Notes / Sec</span>
+                    <strong id="spellbook-detail-nps" class="metric-val">1.2 NPS</strong>
+                  </div>
+                  <div class="metric-box">
+                    <span class="metric-label">Playable Notes</span>
+                    <strong id="spellbook-detail-notes" class="metric-val">420</strong>
+                  </div>
+                </div>
+
+                <!-- Bard Career Stats for this Song -->
+                <div class="detail-history-box">
+                  <h4 class="history-box-heading">&#10022; Bardic Annals for this Spell &#10022;</h4>
+                  <div class="history-stats-row">
+                    <div class="history-stat">
+                      <span class="history-label">Rehearsals</span>
+                      <strong id="spellbook-detail-plays" class="history-val">0</strong>
+                    </div>
+                    <div class="history-stat">
+                      <span class="history-label">Best Mastery</span>
+                      <strong id="spellbook-detail-best-acc" class="history-val">&mdash;</strong>
+                    </div>
+                    <div class="history-stat">
+                      <span class="history-label">Latest Trial</span>
+                      <strong id="spellbook-detail-last-acc" class="history-val">&mdash;</strong>
+                    </div>
+                    <div class="history-stat">
+                      <span class="history-label">Career XP</span>
+                      <strong id="spellbook-detail-total-xp" class="history-val">0 XP</strong>
+                    </div>
+                  </div>
+                  <div class="history-meta-row">
+                    <span id="spellbook-detail-last-played">Never performed on stage</span>
+                    <span id="spellbook-detail-audio-badge" class="history-audio-tag hidden">&#127925; Backing Audio Synced</span>
+                  </div>
+                </div>
+
+                <!-- Primary Action CTA -->
+                <div class="detail-actions-row">
+                  <button id="btn-spellbook-load-song" class="tavern-btn tavern-btn-cast btn-spellbook-load" title="Load this spell onto the 61-key Spell Highway and take the stage!">
+                    &#9654; Inscribe on Highway (Load Spell)
+                  </button>
+                  <button id="btn-spellbook-delete-song" class="btn-icon btn-spellbook-delete hidden" title="Remove spell scroll from Imports/ and Grimoire">
+                    &#128465;
+                  </button>
+                </div>
+              </div>
+
+              <!-- Page Footer: Right Page Number -->
+              <div class="page-footer page-footer-right">
+                <span id="spellbook-page-num-right" class="page-num-text">Page II &bull; Grimoire Index</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Page Flipping Navigation Bar -->
+        <div class="spellbook-navigation-bar">
+          <button id="btn-spellbook-prev-page" class="tavern-btn btn-page-nav" title="Turn to Previous Spell Tier (Left Arrow / A)">
+            &#11164; Previous Tier
+          </button>
+
+          <!-- 10 Bookmark Tabs / Tier Pips -->
+          <div id="spellbook-tier-pips" class="spellbook-tier-pips" role="tablist" aria-label="Spellbook Tiers">
+            <!-- Pips 0 to 9 -->
+          </div>
+
+          <button id="btn-spellbook-next-page" class="tavern-btn btn-page-nav" title="Turn to Next Spell Tier (Right Arrow / D)">
+            Next Tier &#11166;
+          </button>
         </div>
       </div>
     </div>

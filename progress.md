@@ -15,4 +15,5 @@ NEVER execute multiple phases at once. Stop at the end of each phase, provide te
 - [x] Phase 9: "The Quest Board" (In-App Sourcing)
 - [x] Phase 10: 2-Bar Conservatory UI/UX Overhaul (v1.1.0 — Issues #18–#22) (Completed & Verified)
 - [x] Phase 11: The Tavern Title Screen & Main Menu Front Door (Issues #52, #67, #68) (Merged in PR #70)
-- [/] Phase 12: Tavern Title Splash, Palette Overhaul & Station UX (Issue #71) (Feature branch `feature/issue-71-title-splash-and-station-ux` — Ready for Verification)
+- [x] Phase 12: Tavern Title Splash, Palette Overhaul & Station UX (Issue #71) (Completed & Merged in PR #72 & PR #73)
+- [/] Phase 13: Flippable Grimoire Spellbook Sorted by Difficulty (Issue #69) (Feature branch `feature/issue-69-grimoire-spellbook` — Ready for Verification)

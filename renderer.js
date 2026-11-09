@@ -179,20 +179,52 @@ const modalStatRolls = document.getElementById('modal-stat-rolls');
 const btnModalReplay = document.getElementById('btn-modal-replay');
 const btnModalClose = document.getElementById('btn-modal-close');
 
-// DOM Elements — Phase 6 (The Grimoire Sidebar & Folder Watcher)
+// DOM Elements — Phase 6 & Issue #69 (The Flippable Grimoire Spellbook Pop-Up Module & Folder Watcher)
 const btnToggleGrimoire = document.getElementById('btn-toggle-grimoire');
 const grimoireCountBadge = document.getElementById('grimoire-count-badge');
-const grimoireSidebar = document.getElementById('grimoire-sidebar');
-const btnCloseGrimoire = document.getElementById('btn-close-grimoire');
-const watcherStatusText = document.getElementById('watcher-status-text');
-const btnSaveGrimoire = document.getElementById('btn-save-grimoire');
-const btnOpenImports = document.getElementById('btn-open-imports');
-const btnTestWatcherDrop = document.getElementById('btn-test-watcher-drop');
-const grimoireSearchInput = document.getElementById('grimoire-search-input');
-const grimoireFilterSelect = document.getElementById('grimoire-filter-select');
-const grimoireSpellList = document.getElementById('grimoire-spell-list');
 const grimoireToast = document.getElementById('grimoire-toast');
 const grimoireToastText = document.getElementById('grimoire-toast-text');
+
+// Issue #69: The Flippable Spellbook Pop-Up Module Elements
+const grimoireSpellbookModal = document.getElementById('grimoire-spellbook-modal');
+const btnCloseSpellbook = document.getElementById('btn-close-spellbook');
+const btnSpellbookSaveCurrent = document.getElementById('btn-spellbook-save-current');
+const btnSpellbookOpenImports = document.getElementById('btn-spellbook-open-imports');
+const btnSpellbookDropTest = document.getElementById('btn-spellbook-drop-test');
+const spellbookSpread = document.getElementById('spellbook-spread');
+const spellbookTierBadge = document.getElementById('spellbook-tier-badge');
+const spellbookTierXp = document.getElementById('spellbook-tier-xp');
+const spellbookTierName = document.getElementById('spellbook-tier-name');
+const spellbookTierDesc = document.getElementById('spellbook-tier-desc');
+const spellbookSearchInput = document.getElementById('spellbook-search-input');
+const spellbookSongList = document.getElementById('spellbook-song-list');
+const spellbookEmptyState = document.getElementById('spellbook-empty-state');
+const btnSpellbookQuestPointer = document.getElementById('btn-spellbook-quest-pointer');
+const spellbookPageNumLeft = document.getElementById('spellbook-page-num-left');
+const spellbookPageNumRight = document.getElementById('spellbook-page-num-right');
+
+// Right Page Details Elements
+const spellbookDetailTierChip = document.getElementById('spellbook-detail-tier-chip');
+const spellbookDetailSource = document.getElementById('spellbook-detail-source');
+const spellbookDetailTitle = document.getElementById('spellbook-detail-title');
+const spellbookDetailFile = document.getElementById('spellbook-detail-file');
+const spellbookDetailBpm = document.getElementById('spellbook-detail-bpm');
+const spellbookDetailDuration = document.getElementById('spellbook-detail-duration');
+const spellbookDetailNps = document.getElementById('spellbook-detail-nps');
+const spellbookDetailNotes = document.getElementById('spellbook-detail-notes');
+const spellbookDetailPlays = document.getElementById('spellbook-detail-plays');
+const spellbookDetailBestAcc = document.getElementById('spellbook-detail-best-acc');
+const spellbookDetailLastAcc = document.getElementById('spellbook-detail-last-acc');
+const spellbookDetailTotalXp = document.getElementById('spellbook-detail-total-xp');
+const spellbookDetailLastPlayed = document.getElementById('spellbook-detail-last-played');
+const spellbookDetailAudioBadge = document.getElementById('spellbook-detail-audio-badge');
+const btnSpellbookLoadSong = document.getElementById('btn-spellbook-load-song');
+const btnSpellbookDeleteSong = document.getElementById('btn-spellbook-delete-song');
+
+// Navigation Bar Elements
+const btnSpellbookPrevPage = document.getElementById('btn-spellbook-prev-page');
+const btnSpellbookNextPage = document.getElementById('btn-spellbook-next-page');
+const spellbookTierPips = document.getElementById('spellbook-tier-pips');
 
 // DOM Elements — Phase 9 ("The Quest Board" In-App YouTube-to-MIDI Sourcing & Quick Links)
 const btnOpenQuestBoard = document.getElementById('btn-open-quest-board');
@@ -2655,6 +2687,11 @@ function scanWatchedDirectories(notifyOnNew = false) {
     if (watcherStatusText) {
       watcherStatusText.textContent = `Ingested: ${entry.fileName}`;
     }
+    if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+      currentSpellbookTierIndex = getSpellbookTierIndexForLevel(entry.spellLevel);
+      selectedSpellbookEntryId = entry.id;
+      renderSpellbookSpread();
+    }
     if (!playbackState.isPlaying) {
       parseMidiBuffer(arrayBuf, entry.fileName, entry.filePath);
     }
@@ -2714,96 +2751,467 @@ function initGrimoireAndWatcher() {
   }, 1800);
 }
 
-/**
- * Render the scrollable Spell Cards inside #grimoire-spell-list
- */
-function renderGrimoireSidebar() {
-  if (!grimoireSpellList) return;
+// ============================================================================
+// ISSUE #69: THE FLIPPABLE GRIMOIRE SPELLBOOK ENGINE (SORTED BY DIFFICULTY)
+// ============================================================================
 
-  const totalCount = grimoireSpells.size;
-  if (grimoireCountBadge) {
-    grimoireCountBadge.textContent = String(totalCount);
+const SPELLBOOK_TIERS = [
+  { index: 0, levelName: 'Cantrip', title: 'Cantrip Spells', subtitle: 'Novice Cantrips', desc: 'Basic cantrip melodies & fundamentals (< 1.5 NPS)', xp: '1.0x XP', badgeClass: 'diff-cantrip', roman: 'I', pipLabel: 'CAN' },
+  { index: 1, levelName: '1st-Level Spell', title: '1st-Level Spells', subtitle: 'Apprentice Invocations', desc: 'Introductory harmonic arpeggios & single-hand leads', xp: '1.1x XP', badgeClass: 'diff-level1', roman: 'II', pipLabel: '1ST' },
+  { index: 2, levelName: '2nd-Level Spell', title: '2nd-Level Spells', subtitle: 'Journeyman Incantations', desc: 'Moderate tempo melodies & introductory chord rolls (1.5 - 3.0 NPS)', xp: '1.2x XP', badgeClass: 'diff-level2', roman: 'III', pipLabel: '2ND' },
+  { index: 3, levelName: '3rd-Level Spell', title: '3rd-Level Spells', subtitle: 'Adept Harmonies', desc: 'Sustained chord progressions & rhythmic syncopation', xp: '1.3x XP', badgeClass: 'diff-level3', roman: 'IV', pipLabel: '3RD' },
+  { index: 4, levelName: '4th-Level Spell', title: '4th-Level Spells', subtitle: 'Virtuoso Sonatas', desc: 'Two-hand coordination & moderate polyphony', xp: '1.4x XP', badgeClass: 'diff-level4', roman: 'V', pipLabel: '4TH' },
+  { index: 5, levelName: '5th-Level Spell', title: '5th-Level Spells', subtitle: 'Master Cantos', desc: 'High-tempo polyphony & rolling chord voicings (3.1 - 5.0 NPS)', xp: '1.5x XP', badgeClass: 'diff-level5', roman: 'VI', pipLabel: '5TH' },
+  { index: 6, levelName: '6th-Level Spell', title: '6th-Level Spells', subtitle: 'Grand Rhapsodies', desc: 'Complex hand-crossings & dense counterpoint', xp: '1.6x XP', badgeClass: 'diff-level6', roman: 'VII', pipLabel: '6TH' },
+  { index: 7, levelName: '7th-Level Spell', title: '7th-Level Spells', subtitle: 'Arcane Symphonies', desc: 'Virtuosic runs & demanding rhythmic shifts', xp: '1.7x XP', badgeClass: 'diff-level7', roman: 'VIII', pipLabel: '7TH' },
+  { index: 8, levelName: '8th-Level Spell', title: '8th-Level Spells', subtitle: 'Mythic Concertos', desc: 'Rapid octave leaps & blazing arpeggios', xp: '1.8x XP', badgeClass: 'diff-level8', roman: 'IX', pipLabel: '8TH' },
+  { index: 9, levelName: '9th-Level Spell', title: '9th-Level Spells', subtitle: 'Archmage Masterpieces', desc: 'Legendary complexity, lightning runs & grand chords (5.1+ NPS)', xp: '2.0x XP', badgeClass: 'diff-level9', roman: 'X', pipLabel: '9TH' }
+];
+
+let currentSpellbookTierIndex = 0;
+let selectedSpellbookEntryId = null;
+let previousSpellbookOrigin = 'highway'; // 'tavern' or 'highway'
+let isSpellbookFlipping = false;
+
+function getSpellbookTierIndexForLevel(spellLevel) {
+  if (!spellLevel) return 0;
+  const lower = String(spellLevel).toLowerCase();
+  if (lower.includes('cantrip')) return 0;
+  if (lower.includes('1st')) return 1;
+  if (lower.includes('2nd')) return 2;
+  if (lower.includes('3rd')) return 3;
+  if (lower.includes('4th')) return 4;
+  if (lower.includes('5th')) return 5;
+  if (lower.includes('6th')) return 6;
+  if (lower.includes('7th')) return 7;
+  if (lower.includes('8th')) return 8;
+  if (lower.includes('9th')) return 9;
+  return 0;
+}
+
+function formatAnnalsDate(isoString) {
+  if (!isoString) return 'Never performed on stage';
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return 'Recently';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return 'Recently';
+  }
+}
+
+function getSongHistoryRecord(entry) {
+  if (!entry) return null;
+  if (entry.filePath === 'BUILTIN_DEMO') {
+    return songPlayHistory['builtin::demo'] || null;
+  }
+  if (entry.id && songPlayHistory[entry.id]) {
+    return songPlayHistory[entry.id];
+  }
+  const allHistory = Object.values(songPlayHistory);
+  if (entry.filePath) {
+    try {
+      const resolved = path.resolve(entry.filePath);
+      const match = allHistory.find((h) => h.filePath && path.resolve(h.filePath) === resolved);
+      if (match) return match;
+    } catch {
+      // Ignore path resolution error
+    }
+  }
+  const normTitle = (entry.title || '').trim().toLowerCase();
+  return allHistory.find((h) => (h.title || '').trim().toLowerCase() === normTitle) || null;
+}
+
+function playSpellbookPageTurnSound() {
+  if (grandPianoSampler && grandPianoLoaded) {
+    try {
+      grandPianoSampler.triggerAttackRelease('C6', 0.12, undefined, 0.18);
+    } catch {
+      // Ignore audio glitch
+    }
+  }
+}
+
+function openGrimoireSpellbook(origin = 'highway') {
+  pausePlayback();
+  closeAllConservatoryPopovers();
+  previousSpellbookOrigin = origin;
+
+  // Default to the currently loaded song's tier if active
+  if (currentSong && currentSong.difficulty) {
+    currentSpellbookTierIndex = getSpellbookTierIndexForLevel(currentSong.difficulty.spellLevel);
+    selectedSpellbookEntryId = currentSong.songId || null;
   }
 
-  const query = (grimoireSearchInput?.value || '').trim().toLowerCase();
-  const levelFilter = grimoireFilterSelect?.value || 'all';
+  if (grimoireCountBadge) {
+    grimoireCountBadge.textContent = String(grimoireSpells.size);
+  }
 
-  const entries = Array.from(grimoireSpells.values()).filter((e) => {
-    if (levelFilter !== 'all' && e.spellLevel !== levelFilter) return false;
-    if (query && !e.title.toLowerCase().includes(query) && !e.fileName.toLowerCase().includes(query)) {
-      return false;
+  if (grimoireSpellbookModal) {
+    grimoireSpellbookModal.classList.remove('hidden');
+  }
+
+  if (spellbookSearchInput) {
+    spellbookSearchInput.value = '';
+  }
+
+  renderSpellbookSpread();
+
+  if (btnCloseSpellbook) {
+    btnCloseSpellbook.focus();
+  }
+}
+
+function closeGrimoireSpellbook() {
+  if (grimoireSpellbookModal) {
+    grimoireSpellbookModal.classList.add('hidden');
+  }
+  if (previousSpellbookOrigin === 'tavern') {
+    showTavernMenu();
+  } else {
+    hideTavernMenu();
+    if (btnPlayPause) {
+      btnPlayPause.focus();
     }
-    return true;
+    setTimeout(() => {
+      computeKeyGeometry();
+    }, 40);
+  }
+}
+
+function flipSpellbookPage(direction) {
+  if (isSpellbookFlipping) return;
+  const targetIndex = currentSpellbookTierIndex + direction;
+  if (targetIndex < 0 || targetIndex >= SPELLBOOK_TIERS.length) return;
+  navigateToSpellbookTier(targetIndex, direction > 0 ? 'forward' : 'backward');
+}
+
+function navigateToSpellbookTier(targetIndex, animDirection = 'forward') {
+  if (isSpellbookFlipping) return;
+  if (targetIndex < 0 || targetIndex >= SPELLBOOK_TIERS.length) return;
+  if (targetIndex === currentSpellbookTierIndex) return;
+
+  isSpellbookFlipping = true;
+  playSpellbookPageTurnSound();
+
+  const animClass = animDirection === 'forward' ? 'flipping-forward' : 'flipping-backward';
+  if (spellbookSpread) {
+    spellbookSpread.classList.remove('flipping-forward', 'flipping-backward');
+    void spellbookSpread.offsetWidth; // Force reflow
+    spellbookSpread.classList.add(animClass);
+  }
+
+  setTimeout(() => {
+    currentSpellbookTierIndex = targetIndex;
+    renderSpellbookSpread();
+    if (spellbookSpread) {
+      spellbookSpread.classList.remove(animClass);
+    }
+    isSpellbookFlipping = false;
+  }, 240);
+}
+
+function renderSpellbookTierPips() {
+  if (!spellbookTierPips) return;
+  spellbookTierPips.innerHTML = '';
+  SPELLBOOK_TIERS.forEach((tier, idx) => {
+    const pip = document.createElement('button');
+    pip.type = 'button';
+    pip.className = `tier-pip${idx === currentSpellbookTierIndex ? ' active' : ''}`;
+    pip.textContent = tier.pipLabel;
+    pip.title = `${tier.title} (${tier.xp}) \u2014 Click to view`;
+    pip.setAttribute('role', 'tab');
+    pip.setAttribute('aria-selected', idx === currentSpellbookTierIndex ? 'true' : 'false');
+    pip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      navigateToSpellbookTier(idx, idx > currentSpellbookTierIndex ? 'forward' : 'backward');
+    });
+    spellbookTierPips.appendChild(pip);
+  });
+}
+
+function renderSpellbookSpread() {
+  if (!grimoireSpellbookModal) return;
+
+  const tier = SPELLBOOK_TIERS[currentSpellbookTierIndex] || SPELLBOOK_TIERS[0];
+
+  // Left Page: Tier Header
+  if (spellbookTierBadge) {
+    spellbookTierBadge.textContent = tier.title;
+    spellbookTierBadge.className = `tier-ribbon-badge ${tier.badgeClass}`;
+  }
+  if (spellbookTierXp) spellbookTierXp.textContent = tier.xp;
+  if (spellbookTierName) spellbookTierName.textContent = tier.subtitle;
+  if (spellbookTierDesc) spellbookTierDesc.textContent = tier.desc;
+  if (spellbookPageNumLeft) spellbookPageNumLeft.textContent = `Page ${tier.roman} \u2022 ${tier.title}`;
+  if (spellbookPageNumRight) spellbookPageNumRight.textContent = `Page ${tier.roman}b \u2022 Details`;
+
+  // Filter songs for this tier
+  const query = (spellbookSearchInput?.value || '').trim().toLowerCase();
+  const allInTier = Array.from(grimoireSpells.values()).filter((e) => {
+    return getSpellbookTierIndexForLevel(e.spellLevel) === currentSpellbookTierIndex;
   });
 
-  grimoireSpellList.innerHTML = '';
+  const matchingSongs = allInTier.filter((e) => {
+    if (!query) return true;
+    return e.title.toLowerCase().includes(query) || e.fileName.toLowerCase().includes(query);
+  });
 
-  if (entries.length === 0) {
-    const emptyDiv = document.createElement('div');
-    emptyDiv.className = 'grimoire-empty';
-    emptyDiv.textContent = 'No matching spells in The Grimoire. Drop a .mid file into ./Imports or click "⚡ Drop Test .mid in Imports/"!';
-    grimoireSpellList.appendChild(emptyDiv);
+  // Alphabetical sort by title
+  matchingSongs.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+
+  // Render Left Page Song List or Empty State
+  if (spellbookSongList) {
+    spellbookSongList.innerHTML = '';
+  }
+
+  if (matchingSongs.length === 0) {
+    if (spellbookEmptyState) {
+      spellbookEmptyState.classList.remove('hidden');
+      const emptyHeading = spellbookEmptyState.querySelector('.empty-tier-heading');
+      if (emptyHeading) {
+        emptyHeading.textContent = query ? 'No Matching Spells in this Tier' : `No ${tier.title} Yet`;
+      }
+      const emptyText = spellbookEmptyState.querySelector('.empty-tier-text');
+      if (emptyText) {
+        emptyText.textContent = query
+          ? `No songs matched "${query}". Clear the search box or check other tiers.`
+          : `No ${tier.title.toLowerCase()} cataloged in your grimoire yet. Visit the Quest Board to forge new spells!`;
+      }
+    }
+    renderSpellbookDetails(null);
+  } else {
+    if (spellbookEmptyState) {
+      spellbookEmptyState.classList.add('hidden');
+    }
+
+    // Determine currently selected entry
+    let selectedEntry = matchingSongs.find((e) => e.id === selectedSpellbookEntryId);
+    if (!selectedEntry && currentSong) {
+      selectedEntry = matchingSongs.find((e) => {
+        return (
+          (currentSong.filePath && e.filePath && path.resolve(String(currentSong.filePath)) === path.resolve(String(e.filePath))) ||
+          currentSong.fileName.toLowerCase() === e.fileName.toLowerCase()
+        );
+      });
+    }
+    if (!selectedEntry) {
+      selectedEntry = matchingSongs[0];
+    }
+    selectedSpellbookEntryId = selectedEntry.id;
+
+    for (const entry of matchingSongs) {
+      const isSelected = entry.id === selectedSpellbookEntryId;
+      const isActiveHighway = Boolean(
+        currentSong &&
+        ((currentSong.filePath && entry.filePath && path.resolve(String(currentSong.filePath)) === path.resolve(String(entry.filePath))) ||
+         currentSong.fileName.toLowerCase() === entry.fileName.toLowerCase())
+      );
+
+      const item = document.createElement('div');
+      item.className = `spellbook-song-item${isSelected ? ' selected' : ''}${entry.newlyIngested ? ' newly-ingested' : ''}`;
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+      item.tabIndex = 0;
+
+      const titleWrap = document.createElement('div');
+      titleWrap.className = 'spellbook-song-item-title';
+
+      if (isActiveHighway) {
+        const star = document.createElement('span');
+        star.className = 'song-active-indicator';
+        star.title = 'Currently Loaded on Spell Highway';
+        star.textContent = '\u2605 ';
+        titleWrap.appendChild(star);
+      }
+
+      const titleText = document.createElement('span');
+      titleText.textContent = entry.title;
+      titleWrap.appendChild(titleText);
+
+      const metaSpan = document.createElement('span');
+      metaSpan.className = 'spellbook-song-item-meta';
+      metaSpan.textContent = `${entry.bpm} BPM \u2022 ${formatSeconds(entry.duration)}`;
+
+      item.appendChild(titleWrap);
+      item.appendChild(metaSpan);
+
+      item.addEventListener('click', () => {
+        entry.newlyIngested = false;
+        selectedSpellbookEntryId = entry.id;
+        // Update selection UI
+        spellbookSongList.querySelectorAll('.spellbook-song-item').forEach((el) => el.classList.remove('selected'));
+        item.classList.add('selected');
+        renderSpellbookDetails(entry);
+      });
+
+      item.addEventListener('dblclick', () => {
+        entry.newlyIngested = false;
+        selectedSpellbookEntryId = entry.id;
+        loadSelectedSpellbookSong();
+      });
+
+      item.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          entry.newlyIngested = false;
+          selectedSpellbookEntryId = entry.id;
+          loadSelectedSpellbookSong();
+        }
+      });
+
+      spellbookSongList.appendChild(item);
+    }
+
+    renderSpellbookDetails(selectedEntry);
+  }
+
+  // Navigation button states & 10 Bookmark Tabs / Tier Pips
+  if (btnSpellbookPrevPage) {
+    btnSpellbookPrevPage.disabled = currentSpellbookTierIndex <= 0;
+  }
+  if (btnSpellbookNextPage) {
+    btnSpellbookNextPage.disabled = currentSpellbookTierIndex >= SPELLBOOK_TIERS.length - 1;
+  }
+
+  renderSpellbookTierPips();
+}
+
+function renderSpellbookDetails(entry) {
+  const tier = SPELLBOOK_TIERS[currentSpellbookTierIndex] || SPELLBOOK_TIERS[0];
+
+  if (!entry) {
+    if (spellbookDetailTierChip) spellbookDetailTierChip.textContent = tier.levelName;
+    if (spellbookDetailSource) spellbookDetailSource.textContent = '\u2014';
+    if (spellbookDetailTitle) spellbookDetailTitle.textContent = 'No Spell Selected';
+    if (spellbookDetailFile) spellbookDetailFile.textContent = '\u2014';
+    if (spellbookDetailBpm) spellbookDetailBpm.textContent = '\u2014 BPM';
+    if (spellbookDetailDuration) spellbookDetailDuration.textContent = '\u2014';
+    if (spellbookDetailNps) spellbookDetailNps.textContent = '\u2014 NPS';
+    if (spellbookDetailNotes) spellbookDetailNotes.textContent = '\u2014';
+    if (spellbookDetailPlays) spellbookDetailPlays.textContent = '0';
+    if (spellbookDetailBestAcc) spellbookDetailBestAcc.textContent = '\u2014';
+    if (spellbookDetailLastAcc) spellbookDetailLastAcc.textContent = '\u2014';
+    if (spellbookDetailTotalXp) spellbookDetailTotalXp.textContent = '0 XP';
+    if (spellbookDetailLastPlayed) spellbookDetailLastPlayed.textContent = 'Never performed on stage';
+    if (spellbookDetailAudioBadge) spellbookDetailAudioBadge.classList.add('hidden');
+    if (btnSpellbookLoadSong) btnSpellbookLoadSong.disabled = true;
+    if (btnSpellbookDeleteSong) btnSpellbookDeleteSong.classList.add('hidden');
     return;
   }
 
-  for (const entry of entries) {
-    const isActive = Boolean(
-      currentSong &&
-      (currentSong.filePath && entry.filePath
-        ? path.resolve(String(currentSong.filePath)) === path.resolve(String(entry.filePath))
-        : currentSong.fileName.toLowerCase() === entry.fileName.toLowerCase())
-    );
+  if (spellbookDetailTierChip) {
+    spellbookDetailTierChip.textContent = `${entry.spellLevel} (${entry.xpMultiplier.toFixed(1)}x XP)`;
+  }
+  if (spellbookDetailSource) {
+    spellbookDetailSource.textContent = entry.filePath === 'BUILTIN_DEMO' ? 'Built-In Conservatory Spell' : entry.sourceTag;
+  }
+  if (spellbookDetailTitle) {
+    spellbookDetailTitle.textContent = entry.title;
+  }
+  if (spellbookDetailFile) {
+    spellbookDetailFile.textContent = entry.fileName;
+  }
+  if (spellbookDetailBpm) {
+    spellbookDetailBpm.textContent = `${entry.bpm} BPM`;
+  }
+  if (spellbookDetailDuration) {
+    spellbookDetailDuration.textContent = formatSeconds(entry.duration);
+  }
+  if (spellbookDetailNps) {
+    spellbookDetailNps.textContent = `${entry.nps.toFixed(2)} NPS`;
+  }
+  if (spellbookDetailNotes) {
+    spellbookDetailNotes.textContent = String(entry.totalNotes || '\u2014');
+  }
 
-    const card = document.createElement('div');
-    card.className = `grimoire-card${isActive ? ' active-spell' : ''}${entry.newlyIngested ? ' newly-ingested' : ''}`;
+  // Load rehearsal history from songPlayHistory store
+  const hist = getSongHistoryRecord(entry);
+  if (spellbookDetailPlays) {
+    const plays = hist ? Number(hist.plays) || 0 : 0;
+    spellbookDetailPlays.textContent = `${plays}`;
+  }
+  if (spellbookDetailBestAcc) {
+    const bestAcc = hist && typeof hist.bestAccuracy === 'number' && hist.bestAccuracy > 0 ? hist.bestAccuracy : null;
+    spellbookDetailBestAcc.textContent = bestAcc !== null ? `${bestAcc}%` : '\u2014';
+  }
+  if (spellbookDetailLastAcc) {
+    const lastAcc = hist && typeof hist.lastAccuracy === 'number' && hist.lastAccuracy > 0 ? hist.lastAccuracy : null;
+    spellbookDetailLastAcc.textContent = lastAcc !== null ? `${lastAcc}%` : '\u2014';
+  }
+  if (spellbookDetailTotalXp) {
+    const xp = hist ? Number(hist.totalXpEarned) || 0 : 0;
+    spellbookDetailTotalXp.textContent = `${xp.toLocaleString()} XP`;
+  }
+  if (spellbookDetailLastPlayed) {
+    spellbookDetailLastPlayed.textContent = hist && hist.lastPlayed
+      ? `Last played: ${formatAnnalsDate(hist.lastPlayed)}`
+      : 'Never performed on stage';
+  }
 
-    const topRow = document.createElement('div');
-    topRow.className = 'grimoire-card-top';
-
-    const titleEl = document.createElement('div');
-    titleEl.className = 'grimoire-card-title';
-    titleEl.textContent = entry.title;
-    topRow.appendChild(titleEl);
-
-    if (entry.filePath !== 'BUILTIN_DEMO' && entry.sourceTag === 'Imports/') {
-      const delBtn = document.createElement('button');
-      delBtn.className = 'grimoire-delete-btn';
-      delBtn.title = 'Remove spell from Imports/ and Grimoire';
-      delBtn.textContent = '🗑';
-      delBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        removeGrimoireEntry(entry);
-      });
-      topRow.appendChild(delBtn);
+  // Backing audio badge
+  if (spellbookDetailAudioBadge) {
+    if (entry.backingAudioPath) {
+      spellbookDetailAudioBadge.classList.remove('hidden');
+      spellbookDetailAudioBadge.textContent = '\uD83C\uDFB5 Backing Audio Synced';
+    } else {
+      spellbookDetailAudioBadge.classList.add('hidden');
     }
+  }
 
-    const badgesRow = document.createElement('div');
-    badgesRow.className = 'grimoire-card-badges';
+  if (btnSpellbookLoadSong) {
+    btnSpellbookLoadSong.disabled = false;
+  }
 
-    const diffBadge = document.createElement('span');
-    diffBadge.className = `difficulty-badge ${entry.badgeClass}`;
-    diffBadge.textContent = `${entry.spellLevel} (${entry.xpMultiplier.toFixed(1)}x)`;
-    badgesRow.appendChild(diffBadge);
+  // Delete button only available for user-imported files in Imports/
+  if (btnSpellbookDeleteSong) {
+    if (entry.filePath !== 'BUILTIN_DEMO' && entry.sourceTag === 'Imports/') {
+      btnSpellbookDeleteSong.classList.remove('hidden');
+    } else {
+      btnSpellbookDeleteSong.classList.add('hidden');
+    }
+  }
+}
 
-    const srcBadge = document.createElement('span');
-    srcBadge.className = 'grimoire-source-tag';
-    srcBadge.textContent = entry.backingAudioPath ? `${entry.sourceTag} + Audio` : entry.sourceTag;
-    badgesRow.appendChild(srcBadge);
+function loadSelectedSpellbookSong() {
+  const allInTier = Array.from(grimoireSpells.values()).filter((e) => {
+    return getSpellbookTierIndexForLevel(e.spellLevel) === currentSpellbookTierIndex;
+  });
+  const entry = allInTier.find((e) => e.id === selectedSpellbookEntryId) || allInTier[0];
+  if (!entry) return;
 
-    const metaRow = document.createElement('div');
-    metaRow.className = 'grimoire-card-meta';
-    metaRow.innerHTML = `<span>NPS: ${entry.nps.toFixed(2)} &bull; ${entry.bpm} BPM</span><span>${formatSeconds(entry.duration)}</span>`;
+  loadGrimoireEntry(entry);
+  closeGrimoireSpellbook();
+  hideTavernMenu();
+  resetPlaybackToStart();
+  showGrimoireToast(`\uD83D\uDCD6 Inscribed "${entry.title}" (${entry.spellLevel}) on Spell Highway!`);
+}
 
-    card.appendChild(topRow);
-    card.appendChild(badgesRow);
-    card.appendChild(metaRow);
+function deleteSelectedSpellbookSong() {
+  const allInTier = Array.from(grimoireSpells.values()).filter((e) => {
+    return getSpellbookTierIndexForLevel(e.spellLevel) === currentSpellbookTierIndex;
+  });
+  const entry = allInTier.find((e) => e.id === selectedSpellbookEntryId);
+  if (!entry) return;
 
-    card.addEventListener('click', () => {
-      entry.newlyIngested = false;
-      loadGrimoireEntry(entry);
-    });
+  if (confirm(`Remove spell scroll "${entry.title}" from ./Imports and The Grimoire?`)) {
+    removeGrimoireEntry(entry);
+    selectedSpellbookEntryId = null;
+    renderSpellbookSpread();
+  }
+}
 
-    grimoireSpellList.appendChild(card);
+/**
+ * Backward-compatible helper called across the codebase to update Grimoire stats
+ * and refresh the open spellbook spread
+ */
+function renderGrimoireSidebar() {
+  if (grimoireCountBadge) {
+    grimoireCountBadge.textContent = String(grimoireSpells.size);
+  }
+  updateTavernMenuStats();
+  if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+    renderSpellbookSpread();
   }
 }
 
@@ -3896,13 +4304,19 @@ function isAnyModalOpen() {
   const questOpen = questBoardModal && !questBoardModal.classList.contains('hidden');
   const annalsOpen = bardAnnalsModal && !bardAnnalsModal.classList.contains('hidden');
   const howToOpen = howToPlayModal && !howToPlayModal.classList.contains('hidden');
-  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen);
+  const spellbookOpen = grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden');
+  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen);
 }
 
 window.addEventListener('keydown', (e) => {
   // Close open popovers and modals on Escape (Issue #33)
   if (e.key === 'Escape') {
     closeAllConservatoryPopovers();
+    if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeGrimoireSpellbook();
+      return;
+    }
     if (bardAnnalsModal && !bardAnnalsModal.classList.contains('hidden')) {
       e.preventDefault();
       closeBardAnnalsModal();
@@ -3922,6 +4336,22 @@ window.addEventListener('keydown', (e) => {
       e.preventDefault();
       closeQuestBoardModal();
       return;
+    }
+  }
+
+  // Keyboard navigation for open Grimoire Spellbook (ArrowLeft/A, ArrowRight/D) (Issue #69)
+  if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+    if (e.target !== spellbookSearchInput) {
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        flipSpellbookPage(-1);
+        return;
+      }
+      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        flipSpellbookPage(1);
+        return;
+      }
     }
   }
 
@@ -4367,49 +4797,95 @@ performanceCheckModal.addEventListener('click', (e) => {
   }
 });
 
-// Phase 6 UI Listeners: The Grimoire Sidebar & ./Imports Folder Watcher
-function toggleGrimoireSidebar() {
-  if (!grimoireSidebar) return;
-  grimoireSidebar.classList.toggle('collapsed');
-  setTimeout(() => computeKeyGeometry(), 30);
+// ============================================================================
+// ISSUE #69 UI LISTENERS: THE FLIPPABLE GRIMOIRE SPELLBOOK POP-UP MODULE
+// ============================================================================
+
+if (btnToggleGrimoire) {
+  btnToggleGrimoire.addEventListener('click', () => {
+    if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+      closeGrimoireSpellbook();
+    } else {
+      openGrimoireSpellbook('highway');
+    }
+  });
 }
 
-btnToggleGrimoire.addEventListener('click', () => {
-  toggleGrimoireSidebar();
-});
+if (btnCloseSpellbook) {
+  btnCloseSpellbook.addEventListener('click', () => {
+    closeGrimoireSpellbook();
+  });
+}
 
-btnCloseGrimoire.addEventListener('click', () => {
-  if (!grimoireSidebar) return;
-  grimoireSidebar.classList.add('collapsed');
-  setTimeout(() => computeKeyGeometry(), 30);
-});
-
-btnSaveGrimoire.addEventListener('click', () => {
-  saveActiveSpellToGrimoire();
-});
-
-btnOpenImports.addEventListener('click', () => {
-  try {
-    if (!fs.existsSync(IMPORTS_DIR)) {
-      fs.mkdirSync(IMPORTS_DIR, { recursive: true });
+if (grimoireSpellbookModal) {
+  grimoireSpellbookModal.addEventListener('click', (e) => {
+    if (e.target === grimoireSpellbookModal) {
+      closeGrimoireSpellbook();
     }
-    shell.openPath(IMPORTS_DIR);
-  } catch (err) {
-    alert(`Could not open Imports folder: ${err.message}`);
-  }
-});
+  });
+}
 
-btnTestWatcherDrop.addEventListener('click', () => {
-  dropTestMidiIntoImports();
-});
+if (btnSpellbookSaveCurrent) {
+  btnSpellbookSaveCurrent.addEventListener('click', () => {
+    saveActiveSpellToGrimoire();
+  });
+}
 
-grimoireSearchInput.addEventListener('input', () => {
-  renderGrimoireSidebar();
-});
+if (btnSpellbookOpenImports) {
+  btnSpellbookOpenImports.addEventListener('click', () => {
+    try {
+      if (!fs.existsSync(IMPORTS_DIR)) {
+        fs.mkdirSync(IMPORTS_DIR, { recursive: true });
+      }
+      shell.openPath(IMPORTS_DIR);
+    } catch (err) {
+      alert(`Could not open Imports folder: ${err.message}`);
+    }
+  });
+}
 
-grimoireFilterSelect.addEventListener('change', () => {
-  renderGrimoireSidebar();
-});
+if (btnSpellbookDropTest) {
+  btnSpellbookDropTest.addEventListener('click', () => {
+    dropTestMidiIntoImports();
+  });
+}
+
+if (btnSpellbookQuestPointer) {
+  btnSpellbookQuestPointer.addEventListener('click', () => {
+    closeGrimoireSpellbook();
+    openQuestBoardModal();
+  });
+}
+
+if (btnSpellbookPrevPage) {
+  btnSpellbookPrevPage.addEventListener('click', () => {
+    flipSpellbookPage(-1);
+  });
+}
+
+if (btnSpellbookNextPage) {
+  btnSpellbookNextPage.addEventListener('click', () => {
+    flipSpellbookPage(1);
+  });
+}
+
+if (btnSpellbookLoadSong) {
+  btnSpellbookLoadSong.addEventListener('click', () => {
+    loadSelectedSpellbookSong();
+  });
+}
+
+if (btnSpellbookDeleteSong) {
+  btnSpellbookDeleteSong.addEventListener('click', () => {
+    deleteSelectedSpellbookSong();
+  });
+}
+
+if (spellbookSearchInput) {
+  spellbookSearchInput.addEventListener('input', () => {
+    renderSpellbookSpread();
+  });
+}
 
 // ============================================================================
 // PHASE 9: "THE QUEST BOARD" (IN-APP YOUTUBE-TO-MIDI SOURCING & QUICK LINKS)
@@ -5238,9 +5714,7 @@ if (btnMenuContinue) {
 if (btnMenuGrimoire) {
   btnMenuGrimoire.addEventListener('click', () => {
     hideTavernMenu();
-    if (grimoireSidebar && grimoireSidebar.classList.contains('collapsed')) {
-      toggleGrimoireSidebar();
-    }
+    openGrimoireSpellbook('tavern');
   });
 }
 
