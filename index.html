@@ -8,10 +8,121 @@
 </head>
 <body>
   <div id="app-shell">
+    <!-- Issue #52 & #68: The Tavern Title Screen & Main Menu Front Door -->
+    <div id="tavern-main-menu" class="tavern-scene-overlay" role="main" aria-labelledby="tavern-title-heading">
+      <div class="tavern-scene-backdrop">
+        <div class="tavern-hearth-glow"></div>
+        <div class="tavern-lantern-left"></div>
+        <div class="tavern-lantern-right"></div>
+      </div>
+
+      <div class="tavern-scene-viewport">
+        <div class="tavern-scene-stage">
+          <!-- Top Branding Block -->
+          <div class="tavern-title-block">
+            <img src="./assets/images/logo/title-logo-crest-transparent.png" class="tavern-crest-logo-img" alt="College of Keys Crest" aria-hidden="true" />
+            <h1 id="tavern-title-heading" class="tavern-title-heading">College of Keys</h1>
+            <p class="tavern-title-tagline">The Rusty Flagon Tavern &amp; Arcane Conservatory</p>
+          </div>
+
+          <!-- Station 1: The Hearth Stage: Continue Practice (Left Stage) -->
+          <button id="btn-menu-continue" class="tavern-station-card station-stage" title="Take the stage and practice your active spell">
+            <div class="station-icon">&#127929;</div>
+            <div class="station-details">
+              <span class="station-badge">The Hearth Stage</span>
+              <strong class="station-title">Continue Practice</strong>
+              <span id="menu-last-song-label" class="station-desc">Loading spell scroll...</span>
+            </div>
+            <div class="station-action-arrow">&#9654;</div>
+          </button>
+
+          <!-- Station 2: The Bookshelf: The Grimoire (Right Bookshelf) -->
+          <button id="btn-menu-grimoire" class="tavern-station-card station-bookshelf" title="Browse your spell library and imported songs">
+            <div class="station-icon">&#128214;</div>
+            <div class="station-details">
+              <span class="station-badge">Arcane Bookshelf</span>
+              <strong class="station-title">The Grimoire</strong>
+              <span id="menu-grimoire-summary" class="station-desc">Browse &amp; load spell scrolls</span>
+            </div>
+            <div class="station-action-arrow">&#8594;</div>
+          </button>
+
+          <!-- Station 3: Notice Board: The Quest Board (Center Wall) -->
+          <button id="btn-menu-quest-board" class="tavern-station-card station-quest" title="Paste YouTube links or explore online MIDI archives">
+            <div class="station-icon">&#128302;</div>
+            <div class="station-details">
+              <span class="station-badge">Notice Board</span>
+              <strong class="station-title">The Quest Board</strong>
+              <span class="station-desc">YouTube ML transcriber &amp; web archives</span>
+            </div>
+            <div class="station-action-arrow">&#8594;</div>
+          </button>
+
+          <!-- Station 4: Trainer's Guild: How to Play (Left Doorway / Notice) -->
+          <button id="btn-menu-how-to-play" class="tavern-station-card station-training" title="View gameplay orientation, controls &amp; scoring guide">
+            <div class="station-icon">&#127891;</div>
+            <div class="station-details">
+              <span class="station-badge">Trainer's Guild</span>
+              <strong class="station-title">How to Play</strong>
+              <span class="station-desc">Controls, Wait Mode &amp; roll rules</span>
+            </div>
+            <div class="station-action-arrow">&#8594;</div>
+          </button>
+
+          <!-- Station 5: Tuning Corner: Audio & Settings (Right Corner Nook) -->
+          <button id="btn-menu-settings" class="tavern-station-card station-tuning" title="Adjust instrument tone, volume and keyboard settings">
+            <div class="station-icon">&#9881;</div>
+            <div class="station-details">
+              <span class="station-badge">Tuning Corner</span>
+              <strong class="station-title">Audio &amp; Keys</strong>
+              <span class="station-desc">Instrument tone, volume &amp; MIDI status</span>
+            </div>
+            <div class="station-action-arrow">&#8594;</div>
+          </button>
+
+          <!-- Center Foreground: Bard Character Spotlight (Over the Round Green Rug) -->
+          <div id="tavern-bard-card" class="tavern-bard-spotlight" role="button" tabindex="0" title="Click to view Bardic Annals &amp; Song History">
+            <div class="bard-spotlight-header">
+              <div class="bard-avatar-crest">&#9830;</div>
+              <div class="bard-spotlight-info">
+                <div class="bard-spotlight-rank-row">
+                  <span id="menu-bard-level" class="bard-level-pill">LVL 1</span>
+                  <strong id="menu-bard-title" class="menu-bard-title">Tavern Busker</strong>
+                </div>
+                <span class="menu-bard-sublabel">Character of the College &bull; Click to Open Bardic Annals</span>
+              </div>
+              <div class="menu-career-xp-box">
+                <span class="bard-label">Career XP</span>
+                <strong id="menu-total-xp">0 XP</strong>
+              </div>
+            </div>
+            <div class="xp-bar-section menu-xp-section">
+              <div class="xp-bar-labels">
+                <span id="menu-xp-progress-text">0 / 1,000 XP</span>
+                <span id="menu-next-level-text" class="song-xp-tag">Next Rank</span>
+              </div>
+              <div class="xp-bar-track">
+                <div id="menu-xp-bar-fill" class="xp-bar-fill" style="width: 0%;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer Tavern Ambiance / Quick Info -->
+        <div class="tavern-menu-footer">
+          <span class="tavern-footer-hint">&#10024; Tip: Connect a 61-key MIDI keyboard or play with QWERTY keys (A&ndash;;)</span>
+          <span id="tavern-version-tag" class="tavern-version-tag">College of Keys</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Phase 10 (v1.1.0): 2-Bar Conservatory Layout — Bar 1: Identity, Sourcing, Inline Bardic Character Banner & Settings Popover -->
     <header id="tavern-header">
       <div class="header-left-group">
         <div class="brand-block">
+          <button id="btn-return-tavern" class="tavern-btn btn-tavern-home" title="Return to The Tavern Title Screen">
+            &#127984; Tavern
+          </button>
           <div class="arcane-crest" aria-hidden="true">&#9830;</div>
           <div>
             <h1 class="app-title">College of Keys</h1>
@@ -527,6 +638,147 @@
         <div class="modal-actions quest-footer-actions">
           <button id="btn-quest-open-imports" class="tavern-btn btn-gold-outline">&#128194; Open ./Imports Folder</button>
           <button id="btn-quest-close-bottom" class="tavern-btn tavern-btn-primary">&#128220; Return to Conservatory</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Issue #52: The Bardic Annals Modal (Detailed Character & Per-Song Play History Stats) -->
+    <div id="bard-annals-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="annals-modal-title">
+      <div class="modal-card bard-annals-card">
+        <div class="modal-header">
+          <div class="modal-header-left">
+            <div class="arcane-crest">&#9830;</div>
+            <div>
+              <h2 id="annals-modal-title" class="modal-title">The Bardic Annals</h2>
+              <span class="modal-subtitle">Career Chronicle &amp; Performance Statistics</span>
+            </div>
+          </div>
+          <button id="btn-close-annals" class="modal-close-btn" title="Close Annals">&times;</button>
+        </div>
+
+        <!-- Career Summary Row -->
+        <div class="annals-profile-summary">
+          <div class="annals-rank-badge">
+            <span id="annals-bard-level" class="bard-level-pill">LVL 1</span>
+            <strong id="annals-bard-title">Tavern Busker</strong>
+          </div>
+          <div class="annals-stats-row">
+            <div class="annals-stat-box">
+              <span class="annals-stat-label">Career XP</span>
+              <strong id="annals-total-xp">0 XP</strong>
+            </div>
+            <div class="annals-stat-box">
+              <span class="annals-stat-label">Spells Cast</span>
+              <strong id="annals-songs-completed">0</strong>
+            </div>
+            <div class="annals-stat-box">
+              <span class="annals-stat-label">Best Chain</span>
+              <strong id="annals-best-chain">0</strong>
+            </div>
+            <div class="annals-stat-box">
+              <span class="annals-stat-label">Somatic Accuracy</span>
+              <strong id="annals-career-accuracy">&mdash;</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- D&D-Flavored Song Highlights Grid -->
+        <div class="annals-highlights-grid">
+          <!-- Favorite Song (Most Rehearsed) -->
+          <div class="annals-highlight-card card-favorite">
+            <div class="highlight-icon">&#127775;</div>
+            <div class="highlight-content">
+              <span class="highlight-tag">Most Rehearsed Ballad</span>
+              <strong id="annals-fav-song" class="highlight-title">None yet</strong>
+              <span id="annals-fav-plays" class="highlight-meta">0 rehearsals</span>
+            </div>
+          </div>
+
+          <!-- Best Song (Masterpiece) -->
+          <div class="annals-highlight-card card-best">
+            <div class="highlight-icon">&#128081;</div>
+            <div class="highlight-content">
+              <span class="highlight-tag">Masterpiece Incantation</span>
+              <strong id="annals-best-song" class="highlight-title">None yet</strong>
+              <span id="annals-best-accuracy" class="highlight-meta">&mdash; accuracy</span>
+            </div>
+          </div>
+
+          <!-- Worst Song (Needs Practice) -->
+          <div class="annals-highlight-card card-worst">
+            <div class="highlight-icon">&#9876;</div>
+            <div class="highlight-content">
+              <span class="highlight-tag">Wild Magic Trial (Needs Practice)</span>
+              <strong id="annals-worst-song" class="highlight-title">None yet</strong>
+              <span id="annals-worst-accuracy" class="highlight-meta">&mdash; accuracy</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Song Performance History Ledger -->
+        <div class="annals-history-section">
+          <h3 class="annals-section-heading">&#128220; Spell Rehearsal Ledger</h3>
+          <div id="annals-history-list" class="annals-history-list">
+            <div class="annals-empty-history">No spells rehearsed yet. Take the stage to begin your chronicle!</div>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="btn-annals-close-bottom" class="tavern-btn tavern-btn-primary">&#127984; Return to Tavern</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Issue #52: Trainer's Guild Orientation Modal ("How to Play" First-Run Guide) -->
+    <div id="how-to-play-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="how-to-play-title">
+      <div class="modal-card how-to-play-card">
+        <div class="modal-header">
+          <div class="modal-header-left">
+            <div class="arcane-crest">&#9830;</div>
+            <div>
+              <h2 id="how-to-play-title" class="modal-title">Trainer's Guild Orientation</h2>
+              <span class="modal-subtitle">How to Cast Musical Spells in the College of Keys</span>
+            </div>
+          </div>
+          <button id="btn-close-how-to-play" class="modal-close-btn" title="Close Orientation">&times;</button>
+        </div>
+
+        <div class="how-to-play-grid">
+          <div class="guild-guide-box">
+            <div class="guild-guide-icon">&#127929;</div>
+            <div class="guild-guide-text">
+              <strong>1. The 61-Key Arcane Keyboard (C2&ndash;C7)</strong>
+              <p>Connect any physical 61-key USB MIDI keyboard for native zero-latency response. Alternatively, play using your computer's <code>A S D F G H J K L ;</code> QWERTY keys (with <code>Z</code> / <code>X</code> to shift octaves) or mouse clicks.</p>
+            </div>
+          </div>
+
+          <div class="guild-guide-box">
+            <div class="guild-guide-icon">&#10024;</div>
+            <div class="guild-guide-text">
+              <strong>2. The Spell Highway</strong>
+              <p>Glyphs fall toward the golden Strike Line. <strong style="color: #ffd700;">Radiant Gold</strong> is your Right Hand (Lead); <strong style="color: #00e5ff;">Eldritch Blue</strong> is your Left Hand (Accompaniment). Staggered chords roll cleanly.</p>
+            </div>
+          </div>
+
+          <div class="guild-guide-box">
+            <div class="guild-guide-icon">&#9203;</div>
+            <div class="guild-guide-text">
+              <strong>3. Wait Mode &amp; 100ms Chord Roll</strong>
+              <p>In <strong>Wait Mode</strong>, playback freezes at the strike line until you play the required pitches. Rolling a chord within 100ms registers as a clean strike!</p>
+            </div>
+          </div>
+
+          <div class="guild-guide-box">
+            <div class="guild-guide-icon">&#128293;</div>
+            <div class="guild-guide-text">
+              <strong>4. Bardic Inspiration &amp; XP</strong>
+              <p>Build a <strong>50+ Spell Chain</strong> to trigger Bardic Inspiration for 2x XP and an arcane tavern glow. At song end, roll your d20 Performance Check!</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="btn-how-to-play-ready" class="tavern-btn tavern-btn-primary">&#9876; Take the Stage</button>
         </div>
       </div>
     </div>

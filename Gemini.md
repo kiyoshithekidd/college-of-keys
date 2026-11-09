@@ -369,7 +369,27 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
     4. **Issue #58 (`MIDI`):** Cleared all held active input notes upon physical MIDI controller disconnect and filtered out modal dialog and channel 10 MIDI events.
     5. **Issue #59 (`Highway`):** Calculated measure and beat line durations (`beatDur`) using the time signature denominator for compound and asymmetric meters (e.g. 6/8, 12/8).
     6. **Issue #60 (`UI/Gameplay`):** Fixed chord roll badge text, elevated modal z-index stacking above popovers, and normalized Windows path separators in Python batch scripts.
-- **Current status:** Current codebase is fully synchronized with remote `origin/main` at commit `023516d` (`v1.1.2`).
+- **Current status:** Release `v1.1.2` is published on GitHub. Active development is consolidated on isolated feature branch `feature/issue-52-tavern-main-menu` with PR #70 open for review.
+
+### 2026-11-09 — Session 16: Consolidation, Painterly Fantasy Art & Tavern Main Menu Polish (Issues #52, #67, #68)
+- **What we did:**
+  - **Branch & Assets Consolidation:** Switched to `feature/issue-52-tavern-main-menu`, fast-forward pulled remote fixes from commit `5de5f06` (fixing Issue #67), and committed all AI-generated painterly fantasy 16:9 art backdrops and transparent toolbar icons:
+    - `assets/images/menu/tavern-menu-scene.png`
+    - `assets/images/practice/practice-stage-backdrop.png`
+    - `assets/images/quest-board/quest-board-closeup.png`
+    - `assets/images/grimoire/grimoire-open-book.png`
+    - `assets/images/logo/title-logo-crest-transparent.png`
+    - `assets/images/profile/bard-profile-banner.png`
+    - `assets/images/icons/*.png`
+  - **Issue #68 Follow-Up Remediation:**
+    1. **Storage Single Source of Truth:** Stored song performance history exclusively in `song_stats.json` and `SONG_STATS_STORAGE_KEY` via `saveSongStats()`, removing redundant nested `songHistory` in `bard_profile.json`.
+    2. **Content-Hash Keying:** Keyed song history on stable content SHA1 hashes (`crypto.createHash('sha1').update(rawBuffer).digest('hex')`) so saving active spells to the Grimoire never splits or duplicates play history. Added automatic migration and duplicate merging on boot.
+    3. **DOM Security (No `innerHTML`):** Rebuilt the Rehearsal Ledger in `openBardAnnalsModal()` using `createElement` and `textContent`, strictly coercing stored numeric values.
+    4. **Dynamic Version Tag:** Populated the Tavern footer version tag dynamically from `package.json` on boot.
+    5. **Focus & A11y Management:** Set `inert` on `#tavern-header`, `#spell-scroll-bar`, and `#stage-container` while `#tavern-main-menu` is active. Added focus tracking and automatic return on modal close, plus keyboard `Tab` / `Shift-Tab` focus cycling within open dialogs.
+    6. **Painterly Scene Hotspot Layout:** Replaced the plain grid with a 16:9 scene viewport overlaying `tavern-menu-scene.png`, positioning interactive stations over scene landmarks (Stage, Bookshelf, Notice Board, Tuning Corner, Trainer's Guild, and Hearth Rug Bard Card) with automated card-grid fallback below 950px width.
+    7. **Window Edge Breathing Room:** Added padding and flex compression to Bar 1 and Bar 2 to eliminate right-edge window control clipping.
+  - **Pull Request Created:** Opened PR [#70](https://github.com/kiyoshithekidd/college-of-keys/pull/70) from `feature/issue-52-tavern-main-menu` to `main` referencing #52, #67, and #68. Main branch remains completely untouched and clean.
 
 
 

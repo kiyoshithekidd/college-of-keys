@@ -13,6 +13,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { pathToFileURL } = require('url');
 const { shell } = require('electron');
@@ -38,6 +39,9 @@ const LEVEL_1_XP_THRESHOLD = 1000;       // Level 1 requires 1,000 XP
 const LEVEL_XP_SCALE_FACTOR = 1.5;       // Scales by 1.5x per level
 const BARD_PROFILE_STORAGE_KEY = 'collegeOfKeys_bardProfile_v1';
 const BARD_PROFILE_FILE_PATH = path.join(__dirname, 'bard_profile.json');
+const SONG_STATS_STORAGE_KEY = 'collegeOfKeys_songStats_v1';
+const SONG_STATS_FILE_PATH = path.join(__dirname, 'song_stats.json');
+const FIRST_RUN_STORAGE_KEY = 'collegeOfKeys_hasSeenIntro_v1';
 
 // Phase 6 Constants: The Grimoire & Watched Directories
 const IMPORTS_DIR = path.join(__dirname, 'Imports');
@@ -209,6 +213,49 @@ const btnLinkVgmusic = document.getElementById('btn-link-vgmusic');
 const btnLinkYoutube = document.getElementById('btn-link-youtube');
 const btnQuestOpenImports = document.getElementById('btn-quest-open-imports');
 const btnQuestCloseBottom = document.getElementById('btn-quest-close-bottom');
+
+// DOM Elements — Issue #52 (The Tavern Title Screen & Main Menu, Bardic Annals & Orientation)
+const tavernMainMenu = document.getElementById('tavern-main-menu');
+const btnReturnTavern = document.getElementById('btn-return-tavern');
+const tavernBardCard = document.getElementById('tavern-bard-card');
+const menuBardLevel = document.getElementById('menu-bard-level');
+const menuBardTitle = document.getElementById('menu-bard-title');
+const menuTotalXp = document.getElementById('menu-total-xp');
+const menuXpProgressText = document.getElementById('menu-xp-progress-text');
+const menuNextLevelText = document.getElementById('menu-next-level-text');
+const menuXpBarFill = document.getElementById('menu-xp-bar-fill');
+const btnMenuContinue = document.getElementById('btn-menu-continue');
+const menuLastSongLabel = document.getElementById('menu-last-song-label');
+const btnMenuGrimoire = document.getElementById('btn-menu-grimoire');
+const menuGrimoireSummary = document.getElementById('menu-grimoire-summary');
+const btnMenuQuestBoard = document.getElementById('btn-menu-quest-board');
+const btnMenuHowToPlay = document.getElementById('btn-menu-how-to-play');
+const btnMenuSettings = document.getElementById('btn-menu-settings');
+
+const bardAnnalsModal = document.getElementById('bard-annals-modal');
+const btnCloseAnnals = document.getElementById('btn-close-annals');
+const btnAnnalsCloseBottom = document.getElementById('btn-annals-close-bottom');
+const annalsBardLevel = document.getElementById('annals-bard-level');
+const annalsBardTitle = document.getElementById('annals-bard-title');
+const annalsTotalXp = document.getElementById('annals-total-xp');
+const annalsSongsCompleted = document.getElementById('annals-songs-completed');
+const annalsBestChain = document.getElementById('annals-best-chain');
+const annalsCareerAccuracy = document.getElementById('annals-career-accuracy');
+const annalsFavSong = document.getElementById('annals-fav-song');
+const annalsFavPlays = document.getElementById('annals-fav-plays');
+const annalsBestSong = document.getElementById('annals-best-song');
+const annalsBestAccuracy = document.getElementById('annals-best-accuracy');
+const annalsWorstSong = document.getElementById('annals-worst-song');
+const annalsWorstAccuracy = document.getElementById('annals-worst-accuracy');
+const annalsHistoryList = document.getElementById('annals-history-list');
+
+const howToPlayModal = document.getElementById('how-to-play-modal');
+const btnCloseHowToPlay = document.getElementById('btn-close-how-to-play');
+const btnHowToPlayReady = document.getElementById('btn-how-to-play-ready');
+
+// Issue #52 State: Main Menu Visibility & Persistent Song Play History
+let isTavernMenuVisible = true;
+const songPlayHistory = {};
 
 // Keyboard & Input State
 const keyGeometry = {}; // midi -> { midi, name, isBlack, x, y, width, height, whiteIndex }
@@ -805,11 +852,18 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     }
   }
 
+  const rawBuf = Buffer.from(arrayBuffer);
+  const isDemo = fileName === 'Demo Spell (The Tavern Busker)' || cleanTitle.toLowerCase().includes('demo spell');
+  const songId = isDemo
+    ? 'builtin::demo'
+    : crypto.createHash('sha1').update(rawBuf).digest('hex');
+
   currentSong = {
+    songId,
     title: cleanTitle,
     fileName,
     filePath,
-    rawBuffer: Buffer.from(arrayBuffer),
+    rawBuffer: rawBuf,
     bpm,
     timeSignature: timeSig,
     timeSigNumerator,
@@ -1126,15 +1180,105 @@ function loadBardProfile() {
     bardProfile.totalXp = Math.max(0, Number(loaded.totalXp) || 0);
     bardProfile.bestCareerChain = Math.max(0, Number(loaded.bestCareerChain) || 0);
     bardProfile.songsCompleted = Math.max(0, Number(loaded.songsCompleted) || 0);
+    bardProfile.lastSongTitle = loaded.lastSongTitle || null;
+    bardProfile.lastSongPath = loaded.lastSongPath || null;
+  }
+
+  // Load per-song play history stats store (Issue #52 & #68)
+  let loadedHistory = null;
+  try {
+    if (fs.existsSync(SONG_STATS_FILE_PATH)) {
+      const rawFile = fs.readFileSync(SONG_STATS_FILE_PATH, 'utf8');
+      loadedHistory = JSON.parse(rawFile);
+    }
+  } catch {
+    // Ignore file read error
+  }
+  if (!loadedHistory) {
+    try {
+      const rawHist = localStorage.getItem(SONG_STATS_STORAGE_KEY);
+      if (rawHist) {
+        loadedHistory = JSON.parse(rawHist);
+      }
+    } catch {
+      // Ignore storage read error
+    }
+  }
+  if (!loadedHistory && loaded && loaded.songHistory) {
+    loadedHistory = loaded.songHistory;
+  }
+
+  // Issue #68: Migrate legacy path-based keys to stable SHA1 content IDs and merge duplicates
+  if (loadedHistory && typeof loadedHistory === 'object') {
+    const migratedHistory = {};
+    for (const [key, rawEntry] of Object.entries(loadedHistory)) {
+      if (!rawEntry || typeof rawEntry !== 'object') continue;
+      let targetKey = key;
+      const lowerKey = key.toLowerCase();
+      if (lowerKey === 'builtin::demo' || lowerKey.includes('demo spell')) {
+        targetKey = 'builtin::demo';
+      } else if (!/^[0-9a-f]{40}$/i.test(key)) {
+        if (rawEntry.filePath && fs.existsSync(rawEntry.filePath)) {
+          try {
+            const buf = fs.readFileSync(rawEntry.filePath);
+            targetKey = crypto.createHash('sha1').update(buf).digest('hex');
+          } catch {
+            targetKey = lowerKey;
+          }
+        } else {
+          targetKey = lowerKey;
+        }
+      }
+
+      const plays = Number(rawEntry.plays) || 0;
+      const bestAcc = Number(rawEntry.bestAccuracy) || 0;
+      const lastAcc = Number(rawEntry.lastAccuracy) || bestAcc;
+      const bestChain = Number(rawEntry.bestChain) || 0;
+      const totalXp = Number(rawEntry.totalXpEarned) || 0;
+
+      if (!migratedHistory[targetKey]) {
+        migratedHistory[targetKey] = {
+          songId: targetKey,
+          title: rawEntry.title || 'Untitled Scroll',
+          filePath: rawEntry.filePath || null,
+          plays,
+          bestAccuracy: bestAcc,
+          lastAccuracy: lastAcc,
+          bestChain,
+          totalXpEarned: totalXp,
+          lastPlayed: rawEntry.lastPlayed || null,
+          firstPlayed: rawEntry.firstPlayed || new Date().toISOString()
+        };
+      } else {
+        // Merge duplicates (e.g. before and after saving to Grimoire)
+        const existing = migratedHistory[targetKey];
+        existing.plays = (existing.plays || 0) + plays;
+        existing.bestAccuracy = Math.max(existing.bestAccuracy || 0, bestAcc);
+        existing.bestChain = Math.max(existing.bestChain || 0, bestChain);
+        existing.totalXpEarned = (existing.totalXpEarned || 0) + totalXp;
+        if (rawEntry.lastPlayed && (!existing.lastPlayed || new Date(rawEntry.lastPlayed) > new Date(existing.lastPlayed))) {
+          existing.lastPlayed = rawEntry.lastPlayed;
+          existing.lastAccuracy = lastAcc;
+        }
+        if (rawEntry.filePath && !existing.filePath) {
+          existing.filePath = rawEntry.filePath;
+        }
+      }
+    }
+
+    Object.keys(songPlayHistory).forEach(k => delete songPlayHistory[k]);
+    Object.assign(songPlayHistory, migratedHistory);
+    saveSongStats();
   }
 
   recomputeBardLevelFromTotalXp();
   songSessionStats.startingLevel = bardProfile.level;
   updateLitrpgHUD();
+  updateTavernMenuStats();
 }
 
 /**
- * Save persistent Bard profile to both localStorage and bard_profile.json
+ * Save persistent Bard profile to localStorage and bard_profile.json (songHistory stored separately in song_stats.json)
  */
 function saveBardProfile() {
   const payload = {
@@ -1143,6 +1287,9 @@ function saveBardProfile() {
     title: bardProfile.title,
     bestCareerChain: bardProfile.bestCareerChain,
     songsCompleted: bardProfile.songsCompleted,
+    // Last song is only updated by recordSongPerformance so boot auto-load never overwrites it (Issue #67)
+    lastSongTitle: bardProfile.lastSongTitle || null,
+    lastSongPath: bardProfile.lastSongPath || null,
     updatedAt: new Date().toISOString()
   };
 
@@ -1154,6 +1301,23 @@ function saveBardProfile() {
 
   try {
     fs.writeFileSync(BARD_PROFILE_FILE_PATH, JSON.stringify(payload, null, 2), 'utf8');
+  } catch {
+    // Ignore disk write errors
+  }
+}
+
+/**
+ * Save per-song play history stats store (Issue #68 single source of truth)
+ */
+function saveSongStats() {
+  try {
+    localStorage.setItem(SONG_STATS_STORAGE_KEY, JSON.stringify(songPlayHistory));
+  } catch {
+    // Ignore localStorage quota errors
+  }
+
+  try {
+    fs.writeFileSync(SONG_STATS_FILE_PATH, JSON.stringify(songPlayHistory, null, 2), 'utf8');
   } catch {
     // Ignore disk write errors
   }
@@ -1319,7 +1483,7 @@ function updateLitrpgHUD() {
 /**
  * Open the Post-Song "Performance Check" Modal with D20 Grade & LitRPG Breakdown
  */
-function openPerformanceCheckModal() {
+function openPerformanceCheckModal({ recordPlay = false } = {}) {
   pausePlayback();
   closeAllConservatoryPopovers();
 
@@ -1392,6 +1556,17 @@ function openPerformanceCheckModal() {
   modalStatClean.textContent = String(songSessionStats.cleanNotesHit);
   modalStatFumbled.textContent = String(songSessionStats.fumbledNotesHit);
   modalStatRolls.textContent = `${songSessionStats.cleanChordRolls} Rolls • ${songSessionStats.wrongOrMissedNotes} Off-Key`;
+
+  // Record song play history stats store (Issue #52)
+  // Only the natural end-of-song path records play history; the manual button does not (Issue #67)
+  if (recordPlay && currentSong && totalAttempts > 0) {
+    recordSongPerformance(
+      currentSong,
+      accuracyPct,
+      songSessionStats.maxSpellChain,
+      songSessionStats.songXpEarned
+    );
+  }
 
   performanceCheckModal.classList.remove('hidden');
 }
@@ -2099,7 +2274,7 @@ function animationLoop(timestamp) {
         songSessionStats.hasShownEndModal = true;
         bardProfile.songsCompleted++;
         saveBardProfile();
-        openPerformanceCheckModal();
+        openPerformanceCheckModal({ recordPlay: true });
       }
     }
   }
@@ -3610,7 +3785,8 @@ function onMidiMessage(event) {
   if (!data || data.length < 2) return;
 
   // Ignore MIDI input while modal dialogs are open or if event originates on Channel 10 (drums/percussion) (Issue #58)
-  if (isAnyModalOpen()) return;
+  // Also ignore while the Tavern Main Menu is visible, matching the QWERTY gate (Issue #67)
+  if (isTavernMenuVisible || isAnyModalOpen()) return;
   const channel = data[0] & 0x0f;
   if (channel === 9) return;
 
@@ -3704,13 +3880,25 @@ function closeAllConservatoryPopovers() {
 function isAnyModalOpen() {
   const perfOpen = performanceCheckModal && !performanceCheckModal.classList.contains('hidden');
   const questOpen = questBoardModal && !questBoardModal.classList.contains('hidden');
-  return Boolean(perfOpen || questOpen);
+  const annalsOpen = bardAnnalsModal && !bardAnnalsModal.classList.contains('hidden');
+  const howToOpen = howToPlayModal && !howToPlayModal.classList.contains('hidden');
+  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen);
 }
 
 window.addEventListener('keydown', (e) => {
   // Close open popovers and modals on Escape (Issue #33)
   if (e.key === 'Escape') {
     closeAllConservatoryPopovers();
+    if (bardAnnalsModal && !bardAnnalsModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeBardAnnalsModal();
+      return;
+    }
+    if (howToPlayModal && !howToPlayModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeHowToPlayModal();
+      return;
+    }
     if (performanceCheckModal && !performanceCheckModal.classList.contains('hidden')) {
       e.preventDefault();
       closePerformanceCheckModal();
@@ -3733,8 +3921,8 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  // Block Spacebar playback and QWERTY piano keys while a modal dialog is open (Issue #33)
-  if (isAnyModalOpen()) {
+  // Block Spacebar playback and QWERTY piano keys while the Tavern Main Menu or any modal dialog is open (Issue #33, Issue #52)
+  if (isTavernMenuVisible || isAnyModalOpen()) {
     return;
   }
 
@@ -4580,11 +4768,488 @@ window.addEventListener('beforeunload', () => {
   }
 });
 
+// ============================================================================
+// ISSUE #52: THE TAVERN TITLE SCREEN, BARDIC ANNALS & ORIENTATION
+// ============================================================================
+
+/**
+ * Reload the last performed song (bardProfile.lastSongPath) onto the Spell Highway.
+ * Returns true if the song was restored, false if unavailable (Issue #67).
+ */
+function restoreLastSong() {
+  const lastPath = bardProfile.lastSongPath;
+  if (!lastPath) return false;
+  try {
+    if (lastPath === 'BUILTIN_DEMO') {
+      loadBuiltInDemoSpell();
+      return true;
+    }
+    if (!fs.existsSync(lastPath)) return false;
+    const buf = fs.readFileSync(lastPath);
+    parseMidiBuffer(
+      buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+      path.basename(lastPath),
+      lastPath
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+let previousMenuFocusElement = null;
+let previousModalFocusElement = null;
+
+function recordSongPerformance(song, accuracyPct, maxChain, xpEarned) {
+  if (!song) return;
+  const key = song.songId || (song.filePath || song.title || 'Demo Spell').toLowerCase();
+  const title = song.title || 'Untitled Scroll';
+  const existing = songPlayHistory[key] || {
+    songId: song.songId || key,
+    title,
+    filePath: song.filePath || null,
+    plays: 0,
+    bestAccuracy: 0,
+    lastAccuracy: 0,
+    bestChain: 0,
+    totalXpEarned: 0,
+    lastPlayed: null,
+    firstPlayed: new Date().toISOString()
+  };
+
+  existing.plays = (Number(existing.plays) || 0) + 1;
+  existing.lastAccuracy = accuracyPct;
+  existing.bestAccuracy = Math.max(Number(existing.bestAccuracy) || 0, accuracyPct);
+  existing.bestChain = Math.max(Number(existing.bestChain) || 0, maxChain);
+  existing.totalXpEarned = (Number(existing.totalXpEarned) || 0) + xpEarned;
+  existing.lastPlayed = new Date().toISOString();
+  existing.title = title;
+  if (song.filePath) {
+    existing.filePath = song.filePath;
+  }
+
+  songPlayHistory[key] = existing;
+  bardProfile.lastSongTitle = title;
+  bardProfile.lastSongPath = song.filePath;
+
+  saveBardProfile();
+  saveSongStats();
+  updateTavernMenuStats();
+}
+
+function computeTavernSongStats() {
+  const historyEntries = Object.values(songPlayHistory);
+  if (historyEntries.length === 0) {
+    return {
+      favorite: null,
+      best: null,
+      worst: null,
+      careerAccuracy: null
+    };
+  }
+
+  let fav = null;
+  let best = null;
+  let worst = null;
+  let totalAcc = 0;
+  let countWithAcc = 0;
+
+  for (const entry of historyEntries) {
+    // Favorite = most rehearsals; ties broken by most recently played (Issue #67)
+    if (
+      !fav ||
+      entry.plays > fav.plays ||
+      (entry.plays === fav.plays && (entry.lastPlayed || '') > (fav.lastPlayed || ''))
+    ) {
+      fav = entry;
+    }
+    if (typeof entry.bestAccuracy === 'number' && (!best || entry.bestAccuracy > best.bestAccuracy)) {
+      best = entry;
+    }
+    // Worst song & career accuracy use current (last) accuracy, not best-ever (Issue #67)
+    if (typeof entry.lastAccuracy === 'number') {
+      if (!worst || entry.lastAccuracy < worst.lastAccuracy) {
+        worst = entry;
+      }
+      totalAcc += entry.lastAccuracy;
+      countWithAcc++;
+    }
+  }
+
+  const careerAccuracy = countWithAcc > 0 ? Math.round(totalAcc / countWithAcc) : null;
+  return { favorite: fav, best, worst, careerAccuracy };
+}
+
+function updateTavernMenuStats() {
+  if (!tavernMainMenu) return;
+
+  if (menuBardLevel) menuBardLevel.textContent = `LVL ${bardProfile.level}`;
+  if (menuBardTitle) menuBardTitle.textContent = bardProfile.title;
+  if (menuTotalXp) menuTotalXp.textContent = `${bardProfile.totalXp.toLocaleString()} XP`;
+
+  const nextLvl = bardProfile.level + 1;
+  if (menuXpProgressText) {
+    menuXpProgressText.textContent = `${bardProfile.xpIntoLevel.toLocaleString()} / ${bardProfile.xpForNextLevel.toLocaleString()} XP`;
+  }
+  if (menuNextLevelText) {
+    menuNextLevelText.textContent = `To Lvl ${nextLvl}`;
+  }
+  const pct = bardProfile.xpForNextLevel > 0
+    ? Math.min(100, Math.max(0, (bardProfile.xpIntoLevel / bardProfile.xpForNextLevel) * 100))
+    : 0;
+  if (menuXpBarFill) {
+    menuXpBarFill.style.width = `${pct.toFixed(1)}%`;
+  }
+
+  // Update The Hearth Stage button with the last performed song (falls back to the loaded song) (Issue #67)
+  const activeTitle = bardProfile.lastSongTitle || currentSong?.title || 'Ballad of the Silver Flagon (Demo)';
+  if (menuLastSongLabel) {
+    menuLastSongLabel.textContent = `Play: "${activeTitle}"`;
+  }
+
+  // Update The Bookshelf summary with total spells in Grimoire
+  const totalSpells = grimoireSpells.size;
+  if (menuGrimoireSummary) {
+    menuGrimoireSummary.textContent = `${totalSpells} spell scroll${totalSpells === 1 ? '' : 's'} cataloged`;
+  }
+}
+
+function showTavernMenu() {
+  pausePlayback();
+  clearAllHeldInputNotes();
+  closeAllConservatoryPopovers();
+  isTavernMenuVisible = true;
+  previousMenuFocusElement = document.activeElement;
+
+  // Set inert on background layers while Tavern Main Menu is active (Issue #68)
+  const header = document.getElementById('tavern-header');
+  const scrollBar = document.getElementById('spell-scroll-bar');
+  const stage = document.getElementById('stage-container');
+  if (header) header.setAttribute('inert', '');
+  if (scrollBar) scrollBar.setAttribute('inert', '');
+  if (stage) stage.setAttribute('inert', '');
+
+  if (tavernMainMenu) {
+    tavernMainMenu.classList.remove('hidden');
+  }
+  updateTavernMenuStats();
+
+  // Focus primary action button (Issue #68)
+  const continueBtn = document.getElementById('btn-menu-continue');
+  if (continueBtn) {
+    continueBtn.focus();
+  }
+}
+
+function hideTavernMenu() {
+  isTavernMenuVisible = false;
+  if (tavernMainMenu) {
+    tavernMainMenu.classList.add('hidden');
+  }
+
+  // Remove inert from background layers
+  const header = document.getElementById('tavern-header');
+  const scrollBar = document.getElementById('spell-scroll-bar');
+  const stage = document.getElementById('stage-container');
+  if (header) header.removeAttribute('inert');
+  if (scrollBar) scrollBar.removeAttribute('inert');
+  if (stage) stage.removeAttribute('inert');
+
+  // Return focus to triggering control or primary play button
+  if (previousMenuFocusElement && typeof previousMenuFocusElement.focus === 'function' && previousMenuFocusElement !== document.body) {
+    previousMenuFocusElement.focus();
+  } else if (btnPlayPause) {
+    btnPlayPause.focus();
+  }
+
+  setTimeout(() => {
+    computeKeyGeometry();
+  }, 40);
+}
+
+function openBardAnnalsModal() {
+  pausePlayback();
+  closeAllConservatoryPopovers();
+  if (!bardAnnalsModal) return;
+
+  previousModalFocusElement = document.activeElement;
+  const stats = computeTavernSongStats();
+
+  if (annalsBardLevel) annalsBardLevel.textContent = `LVL ${bardProfile.level}`;
+  if (annalsBardTitle) annalsBardTitle.textContent = bardProfile.title;
+  if (annalsTotalXp) annalsTotalXp.textContent = `${bardProfile.totalXp.toLocaleString()} XP`;
+  if (annalsSongsCompleted) annalsSongsCompleted.textContent = String(bardProfile.songsCompleted);
+  if (annalsBestChain) annalsBestChain.textContent = String(bardProfile.bestCareerChain);
+  if (annalsCareerAccuracy) {
+    annalsCareerAccuracy.textContent = stats.careerAccuracy !== null ? `${stats.careerAccuracy}%` : '—';
+  }
+
+  // Highlights
+  if (annalsFavSong) {
+    annalsFavSong.textContent = stats.favorite ? stats.favorite.title : 'None yet';
+  }
+  if (annalsFavPlays) {
+    annalsFavPlays.textContent = stats.favorite ? `${stats.favorite.plays} rehearsal${stats.favorite.plays === 1 ? '' : 's'}` : '0 rehearsals';
+  }
+
+  if (annalsBestSong) {
+    annalsBestSong.textContent = stats.best ? stats.best.title : 'None yet';
+  }
+  if (annalsBestAccuracy) {
+    annalsBestAccuracy.textContent = stats.best ? `${stats.best.bestAccuracy}% mastery` : '— accuracy';
+  }
+
+  if (annalsWorstSong) {
+    annalsWorstSong.textContent = stats.worst ? stats.worst.title : 'None yet';
+  }
+  if (annalsWorstAccuracy) {
+    annalsWorstAccuracy.textContent = stats.worst ? `${stats.worst.lastAccuracy}% latest trial` : '— accuracy';
+  }
+
+  // Issue #68: Build rehearsal ledger safely with createElement / textContent without innerHTML
+  if (annalsHistoryList) {
+    while (annalsHistoryList.firstChild) {
+      annalsHistoryList.removeChild(annalsHistoryList.firstChild);
+    }
+    const entries = Object.values(songPlayHistory).sort((a, b) => (Number(b.plays) || 0) - (Number(a.plays) || 0));
+    if (entries.length === 0) {
+      const emptyDiv = document.createElement('div');
+      emptyDiv.className = 'annals-empty-history';
+      emptyDiv.textContent = 'No spells rehearsed yet. Take the stage to begin your chronicle!';
+      annalsHistoryList.appendChild(emptyDiv);
+    } else {
+      for (const e of entries) {
+        const row = document.createElement('div');
+        row.className = 'annals-history-row';
+
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'annals-row-title';
+        titleSpan.textContent = String(e.title || 'Untitled Scroll');
+
+        const statsDiv = document.createElement('div');
+        statsDiv.className = 'annals-row-stats';
+
+        const playsNum = Number(e.plays) || 0;
+        const playsSpan = document.createElement('span');
+        playsSpan.textContent = `${playsNum} rehearsal${playsNum === 1 ? '' : 's'}`;
+
+        const dotSpan = document.createElement('span');
+        dotSpan.textContent = ' • ';
+        dotSpan.setAttribute('aria-hidden', 'true');
+
+        const accStrong = document.createElement('strong');
+        accStrong.className = 'annals-row-accuracy';
+        accStrong.textContent = `${Number(e.bestAccuracy) || 0}%`;
+
+        statsDiv.appendChild(playsSpan);
+        statsDiv.appendChild(dotSpan);
+        statsDiv.appendChild(accStrong);
+
+        row.appendChild(titleSpan);
+        row.appendChild(statsDiv);
+        annalsHistoryList.appendChild(row);
+      }
+    }
+  }
+
+  bardAnnalsModal.classList.remove('hidden');
+  const closeBtn = document.getElementById('btn-close-annals');
+  if (closeBtn) closeBtn.focus();
+}
+
+function closeBardAnnalsModal() {
+  if (bardAnnalsModal) {
+    bardAnnalsModal.classList.add('hidden');
+  }
+  if (previousModalFocusElement && typeof previousModalFocusElement.focus === 'function') {
+    previousModalFocusElement.focus();
+  }
+}
+
+function openHowToPlayModal() {
+  pausePlayback();
+  closeAllConservatoryPopovers();
+  previousModalFocusElement = document.activeElement;
+  if (howToPlayModal) {
+    howToPlayModal.classList.remove('hidden');
+    const closeBtn = document.getElementById('btn-close-how-to-play');
+    if (closeBtn) closeBtn.focus();
+  }
+}
+
+function closeHowToPlayModal() {
+  try {
+    localStorage.setItem(FIRST_RUN_STORAGE_KEY, 'true');
+  } catch {
+    // Ignore storage quota error
+  }
+  if (howToPlayModal) {
+    howToPlayModal.classList.add('hidden');
+  }
+  if (previousModalFocusElement && typeof previousModalFocusElement.focus === 'function') {
+    previousModalFocusElement.focus();
+  }
+}
+
+// Modal Focus Trap Helper (Issue #68)
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return;
+  const activeModal = document.querySelector('.modal-backdrop:not(.hidden)');
+  if (!activeModal) return;
+
+  const focusables = Array.from(activeModal.querySelectorAll('button:not([disabled]), [tabindex]:not([tabindex="-1"]), input:not([disabled]), select:not([disabled])'));
+  if (focusables.length === 0) return;
+
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+
+  if (e.shiftKey) {
+    if (document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    }
+  } else {
+    if (document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+});
+
+// Event Listeners for Issue #52
+if (btnReturnTavern) {
+  btnReturnTavern.addEventListener('click', () => {
+    showTavernMenu();
+  });
+}
+
+if (tavernBardCard) {
+  tavernBardCard.addEventListener('click', () => {
+    openBardAnnalsModal();
+  });
+  tavernBardCard.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openBardAnnalsModal();
+    }
+  });
+}
+
+if (btnMenuContinue) {
+  btnMenuContinue.addEventListener('click', () => {
+    hideTavernMenu();
+    if (bardProfile.lastSongPath && currentSong?.filePath !== bardProfile.lastSongPath) {
+      restoreLastSong();
+    }
+    resetPlaybackToStart();
+  });
+}
+
+if (btnMenuGrimoire) {
+  btnMenuGrimoire.addEventListener('click', () => {
+    hideTavernMenu();
+    if (grimoireSidebar && grimoireSidebar.classList.contains('collapsed')) {
+      toggleGrimoireSidebar();
+    }
+  });
+}
+
+if (btnMenuQuestBoard) {
+  btnMenuQuestBoard.addEventListener('click', () => {
+    hideTavernMenu();
+    openQuestBoardModal();
+  });
+}
+
+if (btnMenuHowToPlay) {
+  btnMenuHowToPlay.addEventListener('click', () => {
+    openHowToPlayModal();
+  });
+}
+
+if (btnMenuSettings) {
+  btnMenuSettings.addEventListener('click', (e) => {
+    // Prevent the global document outside-click handler from instantly closing the popover (Issue #67)
+    e.stopPropagation();
+    hideTavernMenu();
+    if (settingsPopover) {
+      settingsPopover.classList.remove('hidden');
+      if (btnToggleSettings) {
+        btnToggleSettings.classList.add('active');
+        btnToggleSettings.setAttribute('aria-expanded', 'true');
+      }
+    }
+  });
+}
+
+if (btnCloseAnnals) {
+  btnCloseAnnals.addEventListener('click', () => {
+    closeBardAnnalsModal();
+  });
+}
+
+if (btnAnnalsCloseBottom) {
+  btnAnnalsCloseBottom.addEventListener('click', () => {
+    closeBardAnnalsModal();
+  });
+}
+
+if (bardAnnalsModal) {
+  bardAnnalsModal.addEventListener('click', (e) => {
+    if (e.target === bardAnnalsModal) {
+      closeBardAnnalsModal();
+    }
+  });
+}
+
+if (btnCloseHowToPlay) {
+  btnCloseHowToPlay.addEventListener('click', () => {
+    closeHowToPlayModal();
+  });
+}
+
+if (btnHowToPlayReady) {
+  btnHowToPlayReady.addEventListener('click', () => {
+    closeHowToPlayModal();
+  });
+}
+
+if (howToPlayModal) {
+  howToPlayModal.addEventListener('click', (e) => {
+    if (e.target === howToPlayModal) {
+      closeHowToPlayModal();
+    }
+  });
+}
+
 // Boot Application & Start 60 FPS Spell Highway Loop
+const tavernVersionTag = document.getElementById('tavern-version-tag');
+if (tavernVersionTag) {
+  try {
+    const pkg = require('./package.json');
+    tavernVersionTag.textContent = `College of Keys v${pkg.version}`;
+  } catch {
+    tavernVersionTag.textContent = 'College of Keys';
+  }
+}
+
 computeKeyGeometry();
 loadBardProfile();
 initGrimoireAndWatcher();
 initAudioEngine();
 initWebMIDI();
-tryAutoLoadWorkspaceMidi();
+// Restore the last performed song first; fall back to workspace auto-load / demo (Issue #67)
+if (!restoreLastSong()) {
+  tryAutoLoadWorkspaceMidi();
+}
+showTavernMenu();
+let hasSeenIntro = false;
+try {
+  hasSeenIntro = Boolean(localStorage.getItem(FIRST_RUN_STORAGE_KEY));
+} catch {
+  // Ignore storage read error
+}
+if (!hasSeenIntro) {
+  openHowToPlayModal();
+}
 requestAnimationFrame(animationLoop);

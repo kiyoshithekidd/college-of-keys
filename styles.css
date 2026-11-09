@@ -44,7 +44,7 @@ html, body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 5px 12px;
+  padding: 5px 18px 5px 12px;
   background: linear-gradient(180deg, #1d1732 0%, #120e21 100%);
   border-bottom: 1px solid var(--border-brass);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
@@ -247,7 +247,7 @@ html, body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 4px 12px;
+  padding: 4px 18px 4px 12px;
   background: linear-gradient(180deg, #161129 0%, #0f0c1c 100%);
   border-bottom: 2px solid var(--border-brass);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
@@ -613,7 +613,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: radial-gradient(circle at 50% 25%, #1a1333 0%, #0b0914 75%);
+  background: #0b0914 url('./assets/images/practice/practice-stage-backdrop.png') center bottom / cover no-repeat;
 }
 
 #stage-container.drag-over {
@@ -1699,7 +1699,7 @@ html, body {
 @media (max-width: 1280px) {
   #tavern-header,
   #spell-scroll-bar {
-    padding: 4px 8px;
+    padding: 4px 16px 4px 8px;
     gap: 6px;
   }
 
@@ -1824,4 +1824,745 @@ html, body {
     font-size: 0.7rem;
   }
 }
+
+/* ============================================================================
+   ISSUE #52: THE TAVERN TITLE SCREEN & MAIN MENU
+   ============================================================================ */
+
+.btn-tavern-home {
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.22) 0%, rgba(138, 109, 47, 0.35) 100%);
+  border: 1px solid var(--border-gold-bright);
+  color: var(--radiant-gold);
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-tavern-home:hover {
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.45) 0%, rgba(138, 109, 47, 0.6) 100%);
+  border-color: #ffe066;
+  box-shadow: 0 0 12px var(--radiant-gold-glow);
+  transform: translateY(-1px);
+}
+
+.tavern-scene-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at 50% 20%, #261c47 0%, #130e25 55%, #07050f 100%);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px;
+  animation: tavernFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tavern-scene-overlay.hidden {
+  display: none !important;
+}
+
+@keyframes tavernFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.tavern-scene-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+  background: #07050f url('./assets/images/menu/tavern-menu-scene.png') center center / cover no-repeat;
+  filter: blur(3px) brightness(0.55);
+}
+
+.tavern-hearth-glow {
+  position: absolute;
+  top: -10%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 720px;
+  height: 480px;
+  background: radial-gradient(circle, rgba(255, 170, 0, 0.16) 0%, rgba(212, 175, 55, 0.08) 45%, transparent 70%);
+  filter: blur(40px);
+  animation: hearthFlicker 4.5s ease-in-out infinite alternate;
+}
+
+@keyframes hearthFlicker {
+  0% { opacity: 0.75; transform: translateX(-50%) scale(0.96); }
+  50% { opacity: 1.0; transform: translateX(-50%) scale(1.04); }
+  100% { opacity: 0.85; transform: translateX(-50%) scale(1.0); }
+}
+
+.tavern-lantern-left,
+.tavern-lantern-right {
+  position: absolute;
+  top: 15%;
+  width: 220px;
+  height: 380px;
+  background: radial-gradient(circle, rgba(0, 229, 255, 0.09) 0%, transparent 65%);
+  filter: blur(30px);
+  pointer-events: none;
+}
+
+.tavern-lantern-left { left: 5%; }
+.tavern-lantern-right { right: 5%; }
+
+/* Issue #52 & #68: 16:9 Painterly Scene Viewport & Hotspots */
+.tavern-scene-viewport {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 1360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.tavern-scene-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: calc(100vh - 84px);
+  background: #0c0919 url('./assets/images/menu/tavern-menu-scene.png') center center / cover no-repeat;
+  border-radius: 12px;
+  border: 1px solid var(--border-gold-bright);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.9), inset 0 0 50px rgba(0, 0, 0, 0.65);
+  overflow: hidden;
+}
+
+/* Tavern Title Block */
+.tavern-scene-stage .tavern-title-block {
+  position: absolute;
+  top: 2%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  z-index: 10;
+  pointer-events: none;
+  text-align: center;
+}
+
+.tavern-crest-logo-img {
+  width: 58px;
+  height: 58px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 12px rgba(255, 215, 0, 0.75));
+  animation: crestBob 3.5s ease-in-out infinite alternate;
+}
+
+@keyframes crestBob {
+  0% { transform: translateY(0); filter: drop-shadow(0 0 8px var(--radiant-gold-glow)); }
+  100% { transform: translateY(-3px); filter: drop-shadow(0 0 16px rgba(255, 215, 0, 0.85)); }
+}
+
+.tavern-scene-stage .tavern-title-heading {
+  font-size: 1.85rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--radiant-gold);
+  text-shadow: 0 3px 12px rgba(0, 0, 0, 0.95), 0 0 20px rgba(212, 175, 55, 0.6);
+  font-family: Georgia, 'Times New Roman', serif;
+  line-height: 1.1;
+}
+
+.tavern-scene-stage .tavern-title-tagline {
+  font-size: 0.72rem;
+  color: #eeddbb;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  font-weight: 600;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+}
+
+/* Bard Character Spotlight Card: Over the round green rug */
+.tavern-scene-stage #tavern-bard-card {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 3.5%;
+  width: 38%;
+  min-width: 310px;
+  max-width: 450px;
+  z-index: 6;
+}
+
+.tavern-bard-spotlight {
+  background: linear-gradient(135deg, rgba(26, 20, 44, 0.82) 0%, rgba(14, 11, 25, 0.82) 100%),
+              url('./assets/images/profile/bard-profile-banner.png') center center / cover no-repeat;
+  border: 1px solid var(--border-gold-bright);
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+  transition: all 0.22s ease;
+  outline: none;
+}
+
+.tavern-bard-spotlight:hover,
+.tavern-bard-spotlight:focus-visible {
+  border-color: #ffd700;
+  box-shadow: 0 10px 32px rgba(255, 215, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transform: translateX(-50%) translateY(-2px);
+}
+
+.bard-spotlight-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bard-avatar-crest {
+  font-size: 1.6rem;
+  color: var(--radiant-gold);
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(212, 175, 55, 0.15);
+  border: 1px solid var(--border-gold-bright);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.3);
+  flex-shrink: 0;
+}
+
+.bard-spotlight-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 160px;
+}
+
+.bard-spotlight-rank-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menu-bard-title {
+  font-size: 1.1rem;
+  color: var(--text-parchment);
+  font-family: Georgia, serif;
+}
+
+.menu-bard-sublabel {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.menu-career-xp-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  text-align: right;
+}
+
+.menu-career-xp-box strong {
+  font-size: 1.05rem;
+  color: var(--radiant-gold);
+}
+
+.menu-xp-section {
+  width: 100%;
+}
+
+/* Tavern Stations / Hotspots positioned on 16:9 canvas */
+.tavern-scene-stage .tavern-station-card {
+  position: absolute;
+  z-index: 4;
+}
+
+.tavern-scene-stage .station-stage {
+  left: 3%;
+  bottom: 5.5%;
+  width: 27%;
+  max-width: 320px;
+}
+
+.tavern-scene-stage .station-training {
+  left: 3%;
+  top: 22%;
+  width: 25%;
+  max-width: 300px;
+}
+
+.tavern-scene-stage .station-quest {
+  left: 50%;
+  transform: translateX(-50%);
+  top: 19%;
+  width: 27%;
+  max-width: 320px;
+}
+
+.tavern-scene-stage .station-bookshelf {
+  right: 3%;
+  top: 22%;
+  width: 26%;
+  max-width: 310px;
+}
+
+.tavern-scene-stage .station-tuning {
+  right: 3%;
+  bottom: 5.5%;
+  width: 24%;
+  max-width: 290px;
+}
+
+.tavern-station-card {
+  background: linear-gradient(135deg, rgba(26, 20, 44, 0.92) 0%, rgba(16, 12, 28, 0.92) 100%);
+  border: 1px solid rgba(138, 109, 47, 0.55);
+  border-radius: 9px;
+  padding: 11px 14px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.22s ease;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  outline: none;
+  color: var(--text-parchment);
+}
+
+.tavern-station-card:hover,
+.tavern-station-card:focus-visible {
+  border-color: var(--radiant-gold);
+  background: linear-gradient(135deg, rgba(38, 30, 64, 0.96) 0%, rgba(24, 18, 42, 0.96) 100%);
+  box-shadow: 0 8px 24px rgba(255, 215, 0, 0.28);
+}
+
+.tavern-station-card.station-stage {
+  border-color: var(--radiant-gold);
+  background: linear-gradient(135deg, rgba(46, 35, 75, 0.95) 0%, rgba(24, 18, 44, 0.95) 100%);
+  box-shadow: 0 6px 20px rgba(255, 215, 0, 0.28);
+}
+
+.tavern-station-card.station-stage:hover,
+.tavern-station-card.station-stage:focus-visible {
+  background: linear-gradient(135deg, rgba(58, 44, 94, 0.98) 0%, rgba(30, 22, 54, 0.98) 100%);
+  box-shadow: 0 10px 28px rgba(255, 215, 0, 0.42);
+}
+
+.station-icon {
+  font-size: 1.5rem;
+  width: 38px;
+  height: 38px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.station-stage .station-icon {
+  background: rgba(255, 215, 0, 0.15);
+  border-color: var(--border-gold-bright);
+}
+
+.station-bookshelf .station-icon {
+  background: rgba(0, 229, 255, 0.12);
+  border-color: rgba(0, 229, 255, 0.4);
+}
+
+.station-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.station-badge {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--radiant-gold);
+}
+
+.station-title {
+  font-size: 0.96rem;
+  font-weight: 700;
+  color: var(--text-parchment);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.station-desc {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.station-action-arrow {
+  font-size: 1rem;
+  color: var(--radiant-gold);
+  padding-left: 4px;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.tavern-station-card:hover .station-action-arrow {
+  transform: translateX(3px);
+}
+
+/* Tavern Menu Footer */
+.tavern-menu-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding-top: 6px;
+  border-top: 1px solid rgba(138, 109, 47, 0.25);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tavern-footer-hint {
+  font-size: 0.75rem;
+  color: #d1c4e9;
+}
+
+.tavern-version-tag {
+  font-family: monospace;
+  font-size: 0.72rem;
+  color: var(--border-brass);
+}
+
+/* Responsive Fallback: Below 950px width or 680px height, switch from 16:9 scene to responsive card grid */
+@media (max-width: 950px), (max-height: 680px) {
+  .tavern-scene-stage {
+    aspect-ratio: auto;
+    max-height: none;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .tavern-scene-stage .tavern-title-block,
+  .tavern-scene-stage .tavern-station-card,
+  .tavern-scene-stage #tavern-bard-card {
+    position: static;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    pointer-events: auto;
+  }
+
+  .tavern-bard-spotlight:hover,
+  .tavern-bard-spotlight:focus-visible {
+    transform: translateY(-2px);
+  }
+
+  .tavern-scene-stage .tavern-title-block {
+    text-shadow: none;
+  }
+}
+
+/* ============================================================================
+   BARDIC ANNALS MODAL & SONG PERFORMANCE STATS STORE
+   ============================================================================ */
+
+/* Modals launched from the Tavern Main Menu must stack above .tavern-scene-overlay (z-index 1000) */
+#bard-annals-modal,
+#how-to-play-modal {
+  z-index: 1100;
+}
+
+.bard-annals-card {
+  max-width: 760px;
+  width: 95vw;
+}
+
+.annals-profile-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  background: rgba(26, 20, 44, 0.8);
+  border: 1px solid var(--border-brass);
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+.annals-rank-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.annals-rank-badge strong {
+  font-size: 1.15rem;
+  color: var(--text-parchment);
+  font-family: Georgia, serif;
+}
+
+.annals-stats-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.annals-stat-box {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.annals-stat-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.annals-stat-box strong {
+  font-size: 1.05rem;
+  color: var(--radiant-gold);
+}
+
+.annals-highlights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.annals-highlight-card {
+  background: rgba(22, 17, 36, 0.85);
+  border: 1px solid rgba(138, 109, 47, 0.35);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.annals-highlight-card.card-favorite {
+  border-color: rgba(255, 215, 0, 0.4);
+}
+
+.annals-highlight-card.card-best {
+  border-color: rgba(52, 211, 153, 0.4);
+}
+
+.annals-highlight-card.card-worst {
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+.highlight-icon {
+  font-size: 1.5rem;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.highlight-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.highlight-tag {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.highlight-title {
+  font-size: 0.92rem;
+  color: var(--text-parchment);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.highlight-meta {
+  font-size: 0.74rem;
+  color: var(--radiant-gold);
+}
+
+.annals-history-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.annals-section-heading {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--radiant-gold);
+  font-weight: 700;
+}
+
+.annals-history-list {
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 4px;
+}
+
+.annals-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(18, 14, 30, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  gap: 12px;
+}
+
+.annals-row-title {
+  font-weight: 600;
+  color: var(--text-parchment);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.annals-row-stats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.annals-row-accuracy {
+  color: var(--radiant-gold);
+  font-weight: 700;
+}
+
+.annals-empty-history {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.85rem;
+  background: rgba(18, 14, 30, 0.5);
+  border-radius: 6px;
+}
+
+/* ============================================================================
+   TRAINER'S GUILD ORIENTATION MODAL ("HOW TO PLAY")
+   ============================================================================ */
+
+.how-to-play-card {
+  max-width: 680px;
+  width: 95vw;
+}
+
+.how-to-play-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.guild-guide-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 14px;
+  background: rgba(24, 18, 40, 0.8);
+  border: 1px solid rgba(138, 109, 47, 0.35);
+  border-radius: 8px;
+}
+
+.guild-guide-icon {
+  font-size: 1.6rem;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: rgba(255, 215, 0, 0.1);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.guild-guide-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.guild-guide-text strong {
+  font-size: 0.95rem;
+  color: var(--radiant-gold);
+}
+
+.guild-guide-text p {
+  font-size: 0.82rem;
+  color: var(--text-parchment);
+  line-height: 1.45;
+}
+
+.guild-guide-text code {
+  background: rgba(0, 0, 0, 0.35);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: #ffd700;
+  font-family: monospace;
+}
+
 
