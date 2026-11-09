@@ -1208,8 +1208,9 @@ function saveBardProfile() {
     title: bardProfile.title,
     bestCareerChain: bardProfile.bestCareerChain,
     songsCompleted: bardProfile.songsCompleted,
-    lastSongTitle: currentSong?.title || bardProfile.lastSongTitle || null,
-    lastSongPath: currentSong?.filePath || bardProfile.lastSongPath || null,
+    // Last song is only updated by recordSongPerformance so boot auto-load never overwrites it (Issue #67)
+    lastSongTitle: bardProfile.lastSongTitle || null,
+    lastSongPath: bardProfile.lastSongPath || null,
     songHistory: songPlayHistory,
     updatedAt: new Date().toISOString()
   };
@@ -1393,7 +1394,7 @@ function updateLitrpgHUD() {
 /**
  * Open the Post-Song "Performance Check" Modal with D20 Grade & LitRPG Breakdown
  */
-function openPerformanceCheckModal() {
+function openPerformanceCheckModal({ recordPlay = false } = {}) {
   pausePlayback();
   closeAllConservatoryPopovers();
 
@@ -1468,7 +1469,8 @@ function openPerformanceCheckModal() {
   modalStatRolls.textContent = `${songSessionStats.cleanChordRolls} Rolls • ${songSessionStats.wrongOrMissedNotes} Off-Key`;
 
   // Record song play history stats store (Issue #52)
-  if (currentSong && totalAttempts > 0) {
+  // Only the natural end-of-song path records play history; the manual button does not (Issue #67)
+  if (recordPlay && currentSong && totalAttempts > 0) {
     recordSongPerformance(
       currentSong,
       accuracyPct,
@@ -2183,7 +2185,7 @@ function animationLoop(timestamp) {
         songSessionStats.hasShownEndModal = true;
         bardProfile.songsCompleted++;
         saveBardProfile();
-        openPerformanceCheckModal();
+        openPerformanceCheckModal({ recordPlay: true });
       }
     }
   }
@@ -3694,7 +3696,8 @@ function onMidiMessage(event) {
   if (!data || data.length < 2) return;
 
   // Ignore MIDI input while modal dialogs are open or if event originates on Channel 10 (drums/percussion) (Issue #58)
-  if (isAnyModalOpen()) return;
+  // Also ignore while the Tavern Main Menu is visible, matching the QWERTY gate (Issue #67)
+  if (isTavernMenuVisible || isAnyModalOpen()) return;
   const channel = data[0] & 0x0f;
   if (channel === 9) return;
 
@@ -4680,6 +4683,31 @@ window.addEventListener('beforeunload', () => {
 // ISSUE #52: THE TAVERN TITLE SCREEN, BARDIC ANNALS & ORIENTATION
 // ============================================================================
 
+/**
+ * Reload the last performed song (bardProfile.lastSongPath) onto the Spell Highway.
+ * Returns true if the song was restored, false if unavailable (Issue #67).
+ */
+function restoreLastSong() {
+  const lastPath = bardProfile.lastSongPath;
+  if (!lastPath) return false;
+  try {
+    if (lastPath === 'BUILTIN_DEMO') {
+      loadBuiltInDemoSpell();
+      return true;
+    }
+    if (!fs.existsSync(lastPath)) return false;
+    const buf = fs.readFileSync(lastPath);
+    parseMidiBuffer(
+      buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+      path.basename(lastPath),
+      lastPath
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function recordSongPerformance(song, accuracyPct, maxChain, xpEarned) {
   if (!song) return;
   const key = (song.filePath || song.title || 'Demo Spell').toLowerCase();
@@ -4730,17 +4758,23 @@ function computeTavernSongStats() {
   let countWithAcc = 0;
 
   for (const entry of historyEntries) {
-    if (!fav || entry.plays > fav.plays) {
+    // Favorite = most plays; ties broken by most recently played (Issue #67)
+    if (
+      !fav ||
+      entry.plays > fav.plays ||
+      (entry.plays === fav.plays && (entry.lastPlayed || '') > (fav.lastPlayed || ''))
+    ) {
       fav = entry;
     }
-    if (typeof entry.bestAccuracy === 'number') {
-      if (!best || entry.bestAccuracy > best.bestAccuracy) {
-        best = entry;
-      }
-      if (!worst || entry.bestAccuracy < worst.bestAccuracy) {
+    if (typeof entry.bestAccuracy === 'number' && (!best || entry.bestAccuracy > best.bestAccuracy)) {
+      best = entry;
+    }
+    // Worst song & career accuracy use current (last) accuracy, not best-ever (Issue #67)
+    if (typeof entry.lastAccuracy === 'number') {
+      if (!worst || entry.lastAccuracy < worst.lastAccuracy) {
         worst = entry;
       }
-      totalAcc += entry.bestAccuracy;
+      totalAcc += entry.lastAccuracy;
       countWithAcc++;
     }
   }
@@ -4770,8 +4804,8 @@ function updateTavernMenuStats() {
     menuXpBarFill.style.width = `${pct.toFixed(1)}%`;
   }
 
-  // Update The Hearth Stage button with the active/last song title
-  const activeTitle = currentSong?.title || bardProfile.lastSongTitle || 'Ballad of the Silver Flagon (Demo)';
+  // Update The Hearth Stage button with the last performed song (falls back to the loaded song) (Issue #67)
+  const activeTitle = bardProfile.lastSongTitle || currentSong?.title || 'Ballad of the Silver Flagon (Demo)';
   if (menuLastSongLabel) {
     menuLastSongLabel.textContent = `Play: "${activeTitle}"`;
   }
@@ -4843,7 +4877,7 @@ function openBardAnnalsModal() {
     annalsWorstSong.textContent = stats.worst ? stats.worst.title : 'None yet';
   }
   if (annalsWorstAccuracy) {
-    annalsWorstAccuracy.textContent = stats.worst ? `${stats.worst.bestAccuracy}% best trial` : '— accuracy';
+    annalsWorstAccuracy.textContent = stats.worst ? `${stats.worst.lastAccuracy}% latest trial` : '— accuracy';
   }
 
   // Render rehearsal ledger
@@ -4925,6 +4959,9 @@ if (tavernBardCard) {
 if (btnMenuContinue) {
   btnMenuContinue.addEventListener('click', () => {
     hideTavernMenu();
+    if (bardProfile.lastSongPath && currentSong?.filePath !== bardProfile.lastSongPath) {
+      restoreLastSong();
+    }
     resetPlaybackToStart();
   });
 }
@@ -4952,7 +4989,9 @@ if (btnMenuHowToPlay) {
 }
 
 if (btnMenuSettings) {
-  btnMenuSettings.addEventListener('click', () => {
+  btnMenuSettings.addEventListener('click', (e) => {
+    // Prevent the global document outside-click handler from instantly closing the popover (Issue #67)
+    e.stopPropagation();
     hideTavernMenu();
     if (settingsPopover) {
       settingsPopover.classList.remove('hidden');
@@ -5010,9 +5049,18 @@ loadBardProfile();
 initGrimoireAndWatcher();
 initAudioEngine();
 initWebMIDI();
-tryAutoLoadWorkspaceMidi();
+// Restore the last performed song first; fall back to workspace auto-load / demo (Issue #67)
+if (!restoreLastSong()) {
+  tryAutoLoadWorkspaceMidi();
+}
 showTavernMenu();
-if (!localStorage.getItem(FIRST_RUN_STORAGE_KEY)) {
+let hasSeenIntro = false;
+try {
+  hasSeenIntro = Boolean(localStorage.getItem(FIRST_RUN_STORAGE_KEY));
+} catch {
+  // Ignore storage read error
+}
+if (!hasSeenIntro) {
   openHowToPlayModal();
 }
 requestAnimationFrame(animationLoop);

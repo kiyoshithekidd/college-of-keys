@@ -2202,6 +2202,12 @@ html, body {
    BARDIC ANNALS MODAL & SONG PERFORMANCE STATS STORE
    ============================================================================ */
 
+/* Modals launched from the Tavern Main Menu must stack above .tavern-scene-overlay (z-index 1000) */
+#bard-annals-modal,
+#how-to-play-modal {
+  z-index: 1100;
+}
+
 .bard-annals-card {
   max-width: 760px;
   width: 95vw;
