@@ -9,6 +9,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Issue #71: Theatrical Title Splash Opener ("Press Any Key or Piano Note to Enter"):**
+  - Added full-screen atmospheric Title Splash overlay (`#tavern-title-splash`) with crest logo, serif title, subtitle, and pulsing golden entry prompt button.
+  - Interactive entry via mouse click, any QWERTY keypress, or physical MIDI `noteon` key strike.
+  - Triggers warm C-Major sampler arpeggio (`C3`–`C5`) and primes `Tone.context` / Web Audio immediately with a user gesture to eliminate first-note latency.
+  - Automatically bypasses splash when returning to the Tavern mid-session from the Spell Highway.
+
+### Changed
+- **Issue #71: Tavern Station Swap, Palette Overhaul & Visual Hierarchy:**
+  - Swapped **The Hearth Stage (Continue Practice)** to the upper stage archway framing the lute, reinforcing it as the Hero CTA.
+  - Moved **Trainer's Guild (How to Play)** down to the lower floor corner as an unobtrusive onboarding reference.
+  - Replaced generic synthwave purple gradients across all station cards, panels, and modals with **Aged Walnut & Smoked Oak** (`rgba(26, 19, 14, 0.94)` / `#221a14`), **Burnished Brass** (`#8a6d2f` / `#d4af37`), **Forest Velvet** (`rgba(22, 38, 28, 0.96)` for The Hearth Stage), and **Toasted Parchment** (`#baab93` / `#f4ebd9`).
+  - Established a 3-tier button hierarchy: Tier 1 Hero CTA (The Hearth Stage), Tier 2 Content Hubs (Grimoire & Quest Board), and Tier 3 Utilities (How to Play & Tuning Corner).
+  - Added subtle hover glow and `📜` icon hint to the Bard Character Spotlight card to indicate it opens the Bardic Annals.
+
+### Added
 - **Issue #52: The Tavern Title Screen & Main Menu Front Door (`#tavern-main-menu`):**
   - Added full-screen Tavern landing hub featuring the 16:9 painterly fantasy backdrop (`tavern-menu-scene.png`), title crest logo (`title-logo-crest-transparent.png`), and interactive stations for Continue Practice, The Grimoire, The Quest Board, Trainer's Guild Orientation, and Audio & Keys settings.
   - Added the Bard Character Spotlight card backed by `bard-profile-banner.png`, displaying live career XP, Level, and Title over the tavern hearth rug.

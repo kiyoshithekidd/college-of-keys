@@ -14,4 +14,5 @@ NEVER execute multiple phases at once. Stop at the end of each phase, provide te
 - [x] Phase 8: Python ML Extraction (yt-dlp + basic-pitch CLI)
 - [x] Phase 9: "The Quest Board" (In-App Sourcing)
 - [x] Phase 10: 2-Bar Conservatory UI/UX Overhaul (v1.1.0 — Issues #18–#22) (Completed & Verified)
-- [x] Phase 11: The Tavern Title Screen & Main Menu Front Door (Issues #52, #67, #68) (Consolidated on feature branch `feature/issue-52-tavern-main-menu`)
+- [x] Phase 11: The Tavern Title Screen & Main Menu Front Door (Issues #52, #67, #68) (Merged in PR #70)
+- [/] Phase 12: Tavern Title Splash, Palette Overhaul & Station UX (Issue #71) (Feature branch `feature/issue-71-title-splash-and-station-ux` — Ready for Verification)

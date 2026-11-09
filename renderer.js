@@ -216,6 +216,10 @@ const btnQuestCloseBottom = document.getElementById('btn-quest-close-bottom');
 
 // DOM Elements — Issue #52 (The Tavern Title Screen & Main Menu, Bardic Annals & Orientation)
 const tavernMainMenu = document.getElementById('tavern-main-menu');
+const tavernTitleSplash = document.getElementById('tavern-title-splash');
+const btnEnterTavern = document.getElementById('btn-enter-tavern');
+let hasEnteredTavernSession = false;
+
 const btnReturnTavern = document.getElementById('btn-return-tavern');
 const tavernBardCard = document.getElementById('tavern-bard-card');
 const menuBardLevel = document.getElementById('menu-bard-level');
@@ -3785,8 +3789,17 @@ function onMidiMessage(event) {
   if (!data || data.length < 2) return;
 
   // Ignore MIDI input while modal dialogs are open or if event originates on Channel 10 (drums/percussion) (Issue #58)
-  // Also ignore while the Tavern Main Menu is visible, matching the QWERTY gate (Issue #67)
-  if (isTavernMenuVisible || isAnyModalOpen()) return;
+  // Strike any piano key on the Title Splash to enter the Tavern (Issue #71)
+  if (isTavernMenuVisible || isAnyModalOpen()) {
+    if (isTavernMenuVisible && !hasEnteredTavernSession) {
+      const status = data[0] & 0xf0;
+      const data2 = data.length > 2 ? data[2] : 0;
+      if (status === 0x90 && data2 > 0) {
+        enterTavernFromSplash();
+      }
+    }
+    return;
+  }
   const channel = data[0] & 0x0f;
   if (channel === 9) return;
 
@@ -3921,8 +3934,12 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  // Block Spacebar playback and QWERTY piano keys while the Tavern Main Menu or any modal dialog is open (Issue #33, Issue #52)
+  // Block Spacebar playback and QWERTY piano keys while the Tavern Main Menu or any modal dialog is open (Issue #33, Issue #52, Issue #71)
   if (isTavernMenuVisible || isAnyModalOpen()) {
+    if (isTavernMenuVisible && !hasEnteredTavernSession) {
+      enterTavernFromSplash();
+      e.preventDefault();
+    }
     return;
   }
 
@@ -4914,6 +4931,47 @@ function updateTavernMenuStats() {
   }
 }
 
+function playTavernWelcomeChord() {
+  if (!grandPianoSampler || !isSamplerLoaded) return;
+  try {
+    const now = Tone.now();
+    const arpeggio = [
+      { note: 'C3', delay: 0 },
+      { note: 'G3', delay: 0.05 },
+      { note: 'C4', delay: 0.10 },
+      { note: 'E4', delay: 0.15 },
+      { note: 'G4', delay: 0.20 },
+      { note: 'C5', delay: 0.25 }
+    ];
+    arpeggio.forEach(({ note, delay }) => {
+      grandPianoSampler.triggerAttackRelease(note, 2.5, now + delay, 0.75);
+    });
+  } catch {
+    // Ignore audio initialization edge cases
+  }
+}
+
+function enterTavernFromSplash() {
+  if (hasEnteredTavernSession) return;
+  hasEnteredTavernSession = true;
+
+  if (window.Tone && Tone.context && Tone.context.state !== 'running') {
+    Tone.context.resume().catch(() => {});
+  }
+
+  playTavernWelcomeChord();
+
+  if (tavernTitleSplash) {
+    tavernTitleSplash.classList.add('dismissed');
+  }
+
+  setTimeout(() => {
+    if (btnMenuContinue) {
+      btnMenuContinue.focus();
+    }
+  }, 120);
+}
+
 function showTavernMenu() {
   pausePlayback();
   clearAllHeldInputNotes();
@@ -4932,12 +4990,20 @@ function showTavernMenu() {
   if (tavernMainMenu) {
     tavernMainMenu.classList.remove('hidden');
   }
+
+  // If already entered in this session, keep the title splash dismissed (Issue #71)
+  if (hasEnteredTavernSession && tavernTitleSplash) {
+    tavernTitleSplash.classList.add('dismissed');
+  }
+
   updateTavernMenuStats();
 
-  // Focus primary action button (Issue #68)
+  // Focus primary action button (Issue #68, #71)
   const continueBtn = document.getElementById('btn-menu-continue');
-  if (continueBtn) {
+  if (continueBtn && hasEnteredTavernSession) {
     continueBtn.focus();
+  } else if (btnEnterTavern && !hasEnteredTavernSession) {
+    btnEnterTavern.focus();
   }
 }
 
@@ -5219,6 +5285,20 @@ if (howToPlayModal) {
     if (e.target === howToPlayModal) {
       closeHowToPlayModal();
     }
+  });
+}
+
+// Event Listeners for Issue #71 (Title Splash Opener)
+if (btnEnterTavern) {
+  btnEnterTavern.addEventListener('click', (e) => {
+    e.stopPropagation();
+    enterTavernFromSplash();
+  });
+}
+
+if (tavernTitleSplash) {
+  tavernTitleSplash.addEventListener('click', () => {
+    enterTavernFromSplash();
   });
 }
 

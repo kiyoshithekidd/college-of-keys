@@ -1,7 +1,7 @@
 :root {
-  --bg-obsidian: #0b0914;
-  --bg-tavern-panel: #151125;
-  --bg-tavern-card: #1e1833;
+  --bg-obsidian: #0c0907;
+  --bg-tavern-panel: #18130e;
+  --bg-tavern-card: #221a14;
   --border-brass: #8a6d2f;
   --border-gold-bright: #d4af37;
   --radiant-gold: #ffd700;
@@ -9,7 +9,7 @@
   --eldritch-blue: #00e5ff;
   --eldritch-blue-glow: rgba(0, 229, 255, 0.5);
   --text-parchment: #f4ebd9;
-  --text-muted: #a397b8;
+  --text-muted: #baab93;
   --status-connected: #36d399;
   --status-waiting: #fbbd23;
   --status-error: #f87272;
@@ -332,7 +332,7 @@ html, body {
 .strike-status-pill {
   padding: 3px 12px;
   border-radius: 999px;
-  background: rgba(20, 16, 36, 0.88);
+  background: rgba(24, 18, 14, 0.92);
   border: 1px solid rgba(212, 175, 55, 0.55);
   font-family: 'Consolas', monospace;
   font-size: 0.75rem;
@@ -395,7 +395,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(30, 24, 51, 0.75);
+  background: rgba(30, 22, 16, 0.85);
   border: 1px solid rgba(138, 109, 47, 0.45);
   border-radius: 7px;
   padding: 3px 9px;
@@ -433,7 +433,7 @@ html, body {
   font-size: 0.68rem;
   font-weight: 600;
   white-space: nowrap;
-  background: rgba(18, 14, 33, 0.85);
+  background: rgba(22, 16, 12, 0.9);
   flex-shrink: 0;
 }
 
@@ -652,7 +652,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(21, 16, 38, 0.92);
+  background: rgba(24, 18, 14, 0.94);
   border: 1px solid rgba(212, 175, 55, 0.55);
   border-radius: 8px;
   padding: 3px 9px;
@@ -665,9 +665,9 @@ html, body {
 #litrpg-hud-card.bardic-inspiration-active {
   border-color: #ffd700;
   box-shadow:
-    0 0 18px rgba(255, 215, 0, 0.45),
-    0 0 30px rgba(192, 132, 252, 0.35),
-    inset 0 0 12px rgba(255, 215, 0, 0.14);
+    0 0 18px rgba(255, 215, 0, 0.55),
+    0 0 30px rgba(255, 170, 0, 0.4),
+    inset 0 0 12px rgba(255, 215, 0, 0.18);
 }
 
 .bard-identity {
@@ -851,19 +851,19 @@ html, body {
   gap: 6px;
   padding: 2px 10px;
   border-radius: 999px;
-  background: rgba(20, 15, 36, 0.62);
-  border: 1px solid rgba(163, 151, 184, 0.2);
+  background: rgba(24, 18, 14, 0.75);
+  border: 1px solid rgba(186, 171, 147, 0.2);
   font-size: 0.65rem;
   color: var(--text-muted);
   transition: all 0.2s ease;
 }
 
 .inspiration-banner.active {
-  background: linear-gradient(90deg, rgba(147, 51, 234, 0.48) 0%, rgba(255, 215, 0, 0.42) 100%);
+  background: linear-gradient(90deg, rgba(217, 119, 6, 0.65) 0%, rgba(255, 215, 0, 0.5) 100%);
   border-color: #ffd700;
-  color: #fff3b0;
+  color: #fff6cc;
   font-weight: 700;
-  box-shadow: 0 0 14px rgba(255, 215, 0, 0.45);
+  box-shadow: 0 0 14px rgba(255, 215, 0, 0.5);
 }
 
 .btn-mini-sim {
@@ -903,7 +903,7 @@ html, body {
 .performance-modal-card {
   width: 100%;
   max-width: 580px;
-  background: linear-gradient(180deg, #1e1736 0%, #110d20 100%);
+  background: linear-gradient(180deg, #241a14 0%, #130d09 100%);
   border: 2px solid var(--border-gold-bright);
   border-radius: 14px;
   padding: 22px 26px;
@@ -1860,7 +1860,7 @@ html, body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(ellipse at 50% 20%, #261c47 0%, #130e25 55%, #07050f 100%);
+  background: radial-gradient(ellipse at 50% 20%, #1a1410 0%, #0f0b08 60%, #060403 100%);
   overflow-y: auto;
   overflow-x: hidden;
   padding: 16px;
@@ -1924,6 +1924,118 @@ html, body {
 .tavern-lantern-left { left: 5%; }
 .tavern-lantern-right { right: 5%; }
 
+/* Issue #71: Theatrical Title Splash Opener ("Press Any Key to Enter") */
+.tavern-title-splash {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at 50% 45%, rgba(18, 14, 10, 0.6) 0%, rgba(8, 6, 4, 0.94) 100%);
+  backdrop-filter: blur(6px);
+  transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.5s;
+  cursor: pointer;
+}
+
+.tavern-title-splash.dismissed {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(1.04);
+  visibility: hidden;
+}
+
+.splash-center-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  user-select: none;
+  max-width: 680px;
+  padding: 20px;
+}
+
+.splash-crest-logo-img {
+  width: 145px;
+  height: 145px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 28px rgba(255, 215, 0, 0.75));
+  animation: crestBob 3.5s ease-in-out infinite alternate;
+}
+
+.splash-title-heading {
+  font-size: 3.4rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--radiant-gold);
+  text-shadow: 0 4px 18px rgba(0, 0, 0, 0.95), 0 0 35px rgba(212, 175, 55, 0.65);
+  font-family: Georgia, 'Times New Roman', serif;
+  line-height: 1.05;
+}
+
+.splash-title-tagline {
+  font-size: 1.02rem;
+  color: #eeddbb;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  font-weight: 600;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.95);
+}
+
+.btn-enter-tavern {
+  margin-top: 24px;
+  padding: 13px 30px;
+  background: linear-gradient(135deg, rgba(38, 28, 18, 0.94) 0%, rgba(20, 15, 10, 0.94) 100%);
+  border: 1.5px solid var(--radiant-gold);
+  border-radius: 999px;
+  color: var(--text-parchment);
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow: 0 0 24px rgba(255, 215, 0, 0.35), inset 0 0 14px rgba(255, 215, 0, 0.15);
+  animation: enterPulse 2.4s ease-in-out infinite alternate;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  outline: none;
+}
+
+.btn-enter-tavern:hover,
+.btn-enter-tavern:focus-visible {
+  background: linear-gradient(135deg, rgba(54, 40, 26, 0.98) 0%, rgba(30, 22, 14, 0.98) 100%);
+  border-color: #ffe066;
+  box-shadow: 0 0 36px rgba(255, 215, 0, 0.65), inset 0 0 20px rgba(255, 215, 0, 0.3);
+  transform: scale(1.04);
+}
+
+.enter-prompt-sparkle {
+  color: var(--radiant-gold);
+  font-size: 1.1rem;
+  filter: drop-shadow(0 0 6px rgba(255, 215, 0, 0.8));
+}
+
+.enter-prompt-text {
+  color: #fff6e0;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-size: 0.88rem;
+}
+
+@keyframes enterPulse {
+  0% {
+    box-shadow: 0 0 16px rgba(255, 215, 0, 0.25);
+    border-color: rgba(212, 175, 55, 0.6);
+  }
+  100% {
+    box-shadow: 0 0 32px rgba(255, 215, 0, 0.6);
+    border-color: #ffd700;
+  }
+}
+
 /* Issue #52 & #68: 16:9 Painterly Scene Viewport & Hotspots */
 .tavern-scene-viewport {
   position: relative;
@@ -1941,7 +2053,7 @@ html, body {
   width: 100%;
   aspect-ratio: 16 / 9;
   max-height: calc(100vh - 84px);
-  background: #0c0919 url('./assets/images/menu/tavern-menu-scene.png') center center / cover no-repeat;
+  background: #0f0b08 url('./assets/images/menu/tavern-menu-scene.png') center center / cover no-repeat;
   border-radius: 12px;
   border: 1px solid var(--border-gold-bright);
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.9), inset 0 0 50px rgba(0, 0, 0, 0.65);
@@ -1995,7 +2107,7 @@ html, body {
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
 }
 
-/* Bard Character Spotlight Card: Over the round green rug */
+/* Bard Character Spotlight Card: Over the round green rug (Aged Walnut + Banner) */
 .tavern-scene-stage #tavern-bard-card {
   position: absolute;
   left: 50%;
@@ -2008,7 +2120,7 @@ html, body {
 }
 
 .tavern-bard-spotlight {
-  background: linear-gradient(135deg, rgba(26, 20, 44, 0.82) 0%, rgba(14, 11, 25, 0.82) 100%),
+  background: linear-gradient(135deg, rgba(26, 19, 14, 0.92) 0%, rgba(16, 11, 8, 0.92) 100%),
               url('./assets/images/profile/bard-profile-banner.png') center center / cover no-repeat;
   border: 1px solid var(--border-gold-bright);
   border-radius: 10px;
@@ -2017,7 +2129,7 @@ html, body {
   flex-direction: column;
   gap: 8px;
   cursor: pointer;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(8px);
   transition: all 0.22s ease;
   outline: none;
@@ -2026,8 +2138,19 @@ html, body {
 .tavern-bard-spotlight:hover,
 .tavern-bard-spotlight:focus-visible {
   border-color: #ffd700;
-  box-shadow: 0 10px 32px rgba(255, 215, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  box-shadow: 0 10px 32px rgba(255, 215, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2);
   transform: translateX(-50%) translateY(-2px);
+}
+
+.menu-bard-sublabel::after {
+  content: ' 📜';
+  display: inline-block;
+  font-size: 0.72rem;
+  transition: transform 0.2s ease;
+}
+
+.tavern-bard-spotlight:hover .menu-bard-sublabel::after {
+  transform: scale(1.25) rotate(-6deg);
 }
 
 .bard-spotlight-header {
@@ -2075,7 +2198,7 @@ html, body {
 
 .menu-bard-sublabel {
   font-size: 0.7rem;
-  color: var(--text-muted);
+  color: #eeddbb;
 }
 
 .menu-career-xp-box {
@@ -2101,18 +2224,13 @@ html, body {
   z-index: 4;
 }
 
+/* Top Row: Core Gameplay & Content Discovery */
 .tavern-scene-stage .station-stage {
   left: 3%;
-  bottom: 5.5%;
+  top: 20%;
   width: 27%;
-  max-width: 320px;
-}
-
-.tavern-scene-stage .station-training {
-  left: 3%;
-  top: 22%;
-  width: 25%;
-  max-width: 300px;
+  max-width: 325px;
+  z-index: 5;
 }
 
 .tavern-scene-stage .station-quest {
@@ -2125,9 +2243,17 @@ html, body {
 
 .tavern-scene-stage .station-bookshelf {
   right: 3%;
-  top: 22%;
+  top: 20%;
   width: 26%;
   max-width: 310px;
+}
+
+/* Bottom Row: Onboarding, Character Annals & Utilities */
+.tavern-scene-stage .station-training {
+  left: 3%;
+  bottom: 5.5%;
+  width: 24%;
+  max-width: 290px;
 }
 
 .tavern-scene-stage .station-tuning {
@@ -2138,7 +2264,7 @@ html, body {
 }
 
 .tavern-station-card {
-  background: linear-gradient(135deg, rgba(26, 20, 44, 0.92) 0%, rgba(16, 12, 28, 0.92) 100%);
+  background: linear-gradient(135deg, rgba(26, 19, 14, 0.94) 0%, rgba(16, 11, 8, 0.94) 100%);
   border: 1px solid rgba(138, 109, 47, 0.55);
   border-radius: 9px;
   padding: 11px 14px;
@@ -2148,7 +2274,7 @@ html, body {
   cursor: pointer;
   text-align: left;
   transition: all 0.22s ease;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(8px);
   outline: none;
   color: var(--text-parchment);
@@ -2157,20 +2283,52 @@ html, body {
 .tavern-station-card:hover,
 .tavern-station-card:focus-visible {
   border-color: var(--radiant-gold);
-  background: linear-gradient(135deg, rgba(38, 30, 64, 0.96) 0%, rgba(24, 18, 42, 0.96) 100%);
-  box-shadow: 0 8px 24px rgba(255, 215, 0, 0.28);
+  background: linear-gradient(135deg, rgba(38, 28, 20, 0.96) 0%, rgba(22, 16, 11, 0.96) 100%);
+  box-shadow: 0 8px 24px rgba(255, 170, 0, 0.28);
 }
 
+/* Hero CTA: The Hearth Stage (Continue Practice) - Velvet Emerald undertone */
 .tavern-station-card.station-stage {
-  border-color: var(--radiant-gold);
-  background: linear-gradient(135deg, rgba(46, 35, 75, 0.95) 0%, rgba(24, 18, 44, 0.95) 100%);
-  box-shadow: 0 6px 20px rgba(255, 215, 0, 0.28);
+  border: 1.5px solid var(--radiant-gold);
+  background: linear-gradient(135deg, rgba(22, 38, 28, 0.96) 0%, rgba(13, 22, 16, 0.96) 100%);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.8), 0 0 16px rgba(255, 215, 0, 0.28);
 }
 
 .tavern-station-card.station-stage:hover,
 .tavern-station-card.station-stage:focus-visible {
-  background: linear-gradient(135deg, rgba(58, 44, 94, 0.98) 0%, rgba(30, 22, 54, 0.98) 100%);
-  box-shadow: 0 10px 28px rgba(255, 215, 0, 0.42);
+  border-color: #ffe066;
+  background: linear-gradient(135deg, rgba(30, 52, 38, 0.98) 0%, rgba(18, 30, 22, 0.98) 100%);
+  box-shadow: 0 12px 34px rgba(255, 215, 0, 0.45), 0 0 22px rgba(255, 215, 0, 0.35);
+  transform: translateY(-2px);
+}
+
+.tavern-station-card.station-stage .station-title {
+  color: #fff6cc;
+  font-size: 1.02rem;
+  letter-spacing: 0.02em;
+}
+
+.tavern-station-card.station-stage .station-action-arrow {
+  color: var(--radiant-gold);
+  font-size: 1.15rem;
+  filter: drop-shadow(0 0 6px rgba(255, 215, 0, 0.75));
+}
+
+/* Secondary Utilities: Trainer's Guild & Tuning Corner */
+.tavern-station-card.station-training,
+.tavern-station-card.station-tuning {
+  background: linear-gradient(135deg, rgba(20, 15, 11, 0.88) 0%, rgba(13, 9, 6, 0.88) 100%);
+  border: 1px solid rgba(138, 109, 47, 0.38);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+}
+
+.tavern-station-card.station-training:hover,
+.tavern-station-card.station-training:focus-visible,
+.tavern-station-card.station-tuning:hover,
+.tavern-station-card.station-tuning:focus-visible {
+  border-color: var(--border-gold-bright);
+  background: linear-gradient(135deg, rgba(30, 22, 16, 0.95) 0%, rgba(18, 13, 9, 0.95) 100%);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.75);
 }
 
 .station-icon {
@@ -2178,8 +2336,8 @@ html, body {
   width: 38px;
   height: 38px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2187,13 +2345,19 @@ html, body {
 }
 
 .station-stage .station-icon {
-  background: rgba(255, 215, 0, 0.15);
-  border-color: var(--border-gold-bright);
+  background: rgba(255, 215, 0, 0.18);
+  border-color: var(--radiant-gold);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
 }
 
 .station-bookshelf .station-icon {
-  background: rgba(0, 229, 255, 0.12);
+  background: rgba(0, 180, 216, 0.14);
   border-color: rgba(0, 229, 255, 0.4);
+}
+
+.station-quest .station-icon {
+  background: rgba(217, 119, 6, 0.18);
+  border-color: rgba(245, 158, 11, 0.45);
 }
 
 .station-details {
@@ -2223,7 +2387,7 @@ html, body {
 
 .station-desc {
   font-size: 0.72rem;
-  color: var(--text-muted);
+  color: #eeddbb;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2249,7 +2413,7 @@ html, body {
   width: 100%;
   padding-top: 6px;
   border-top: 1px solid rgba(138, 109, 47, 0.25);
-  color: var(--text-muted);
+  color: #eeddbb;
   font-size: 0.75rem;
   flex-wrap: wrap;
   gap: 8px;
@@ -2257,7 +2421,7 @@ html, body {
 
 .tavern-footer-hint {
   font-size: 0.75rem;
-  color: #d1c4e9;
+  color: #eeddbb;
 }
 
 .tavern-version-tag {
@@ -2300,6 +2464,7 @@ html, body {
   }
 }
 
+
 /* ============================================================================
    BARDIC ANNALS MODAL & SONG PERFORMANCE STATS STORE
    ============================================================================ */
@@ -2321,7 +2486,7 @@ html, body {
   justify-content: space-between;
   gap: 16px;
   padding: 14px 18px;
-  background: rgba(26, 20, 44, 0.8);
+  background: rgba(30, 22, 16, 0.9);
   border: 1px solid var(--border-brass);
   border-radius: 8px;
   flex-wrap: wrap;
@@ -2372,7 +2537,7 @@ html, body {
 }
 
 .annals-highlight-card {
-  background: rgba(22, 17, 36, 0.85);
+  background: rgba(26, 19, 14, 0.9);
   border: 1px solid rgba(138, 109, 47, 0.35);
   border-radius: 8px;
   padding: 12px;
@@ -2462,7 +2627,7 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  background: rgba(18, 14, 30, 0.75);
+  background: rgba(22, 16, 12, 0.88);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 6px;
   font-size: 0.82rem;
@@ -2497,7 +2662,7 @@ html, body {
   color: var(--text-muted);
   font-style: italic;
   font-size: 0.85rem;
-  background: rgba(18, 14, 30, 0.5);
+  background: rgba(22, 16, 12, 0.65);
   border-radius: 6px;
 }
 
@@ -2522,7 +2687,7 @@ html, body {
   align-items: flex-start;
   gap: 14px;
   padding: 12px 14px;
-  background: rgba(24, 18, 40, 0.8);
+  background: rgba(26, 19, 14, 0.9);
   border: 1px solid rgba(138, 109, 47, 0.35);
   border-radius: 8px;
 }
