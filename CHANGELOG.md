@@ -9,6 +9,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Issue #69: Flippable Grimoire Spellbook Sorted by Difficulty (`#grimoire-spellbook-modal`):**
+  - Retired the narrow left `<aside id="grimoire-sidebar">`, allowing the 61-key canvas and Spell Highway to maintain full stage width without horizontal squishing.
+  - Implemented full-screen pop-up spellbook module overlaying the 16:9 open book art (`assets/images/grimoire/grimoire-open-book.png`).
+  - Organized songs into 10 D&D difficulty spreads in order: Cantrip, 1st-Level through 9th-Level spells.
+  - Left Page: Displays tier ribbon badge, XP multiplier, tier description, real-time search field, and alphabetical list of spells with BPM and duration.
+  - Right Page: Displays comprehensive spell details (tier chip, origin source, tempo, duration, NPS, playable note count, paired backing audio status) and Bardic Annals history (rehearsal count, best mastery, latest trial accuracy, career XP, last played date).
+  - Primary CTA `▶ Inscribe on Highway (Load Spell)` loads the spell and closes the tome, returning to the stage ready to play.
+  - Empty tier state displays an arcane parchment illustration, "No Spells of this Level Yet", and a 1-click CTA button pointing directly to The Quest Board.
+  - Navigation: 3D perspective page flip animations, Previous/Next tier buttons, 10 bookmark tabs/pips, and keyboard shortcut support (`ArrowLeft`/`A`, `ArrowRight`/`D`, and `Escape`).
+  - Folder Watcher Integration: Newly ingested `.mid` files live-update the open spellbook and jump directly to the incoming spell's difficulty tier without reopening the book.
+  - Contextual Origin Return: Closing the Grimoire seamlessly returns the player to their triggering origin (Tavern Main Menu or Practice Highway).
+
 - **Issue #71: Theatrical Title Splash Opener ("Press Any Key or Piano Note to Enter"):**
   - Added full-screen atmospheric Title Splash overlay (`#tavern-title-splash`) with crest logo, serif title, subtitle, and pulsing golden entry prompt button.
   - Interactive entry via mouse click, any QWERTY keypress, or physical MIDI `noteon` key strike.

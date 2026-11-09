@@ -1090,227 +1090,646 @@ html, body {
   overflow: hidden;
 }
 
-#grimoire-sidebar {
-  width: 315px;
-  min-width: 315px;
-  height: 100%;
-  background: linear-gradient(180deg, #161129 0%, #0d0a1a 100%);
-  border-right: 2px solid var(--border-brass);
-  box-shadow: 6px 0 22px rgba(0, 0, 0, 0.65);
+/* ============================================================================
+   PHASE 6 & ISSUE #69: THE FLIPPABLE GRIMOIRE SPELLBOOK POP-UP MODULE
+   ============================================================================ */
+
+.grimoire-spellbook-overlay {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 50%, rgba(14, 10, 8, 0.86) 0%, rgba(6, 4, 3, 0.96) 100%);
+  backdrop-filter: blur(8px);
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: modalFadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.grimoire-spellbook-overlay.hidden {
+  display: none !important;
+}
+
+.spellbook-container {
+  position: relative;
+  width: 100%;
+  max-width: 1280px;
+  aspect-ratio: 16 / 9;
+  max-height: calc(100vh - 44px);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.95), 0 0 45px rgba(212, 175, 55, 0.25);
   display: flex;
   flex-direction: column;
-  z-index: 9;
-  transition: margin-left 0.22s ease;
+  overflow: hidden;
+  user-select: none;
 }
 
-#grimoire-sidebar.collapsed {
-  display: none;
+.spellbook-backdrop-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: 14px;
+  overflow: hidden;
 }
 
-.grimoire-header {
+.spellbook-bg-img {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  display: block;
+}
+
+/* Spellbook Header / Tool Controls */
+.spellbook-top-bar {
+  position: relative;
+  z-index: 15;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  border-bottom: 1px solid rgba(138, 109, 47, 0.55);
-  background: rgba(29, 23, 50, 0.75);
+  padding: 10px 24px 6px 24px;
+  background: linear-gradient(180deg, rgba(20, 14, 10, 0.94) 0%, rgba(20, 14, 10, 0) 100%);
 }
 
-.grimoire-title-block {
+.spellbook-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.spellbook-crest-ornament {
+  font-size: 1.4rem;
+  color: var(--radiant-gold);
+  filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.7));
+}
+
+.spellbook-main-title {
+  font-family: Georgia, serif;
+  font-size: 1.25rem;
+  color: var(--radiant-gold);
+  letter-spacing: 0.04em;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
+}
+
+.spellbook-subtitle {
+  font-size: 0.72rem;
+  color: #eeddbb;
+  letter-spacing: 0.05em;
+  display: block;
+}
+
+.spellbook-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-spellbook-tool {
+  font-size: 0.74rem;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+.spellbook-close-btn {
+  font-size: 1.4rem;
+  width: 32px;
+  height: 32px;
+  color: var(--radiant-gold);
+}
+
+/* 3D Flippable Stage & Pages */
+.spellbook-stage {
+  position: absolute;
+  top: 9%;
+  bottom: 11%;
+  left: 6%;
+  right: 6%;
+  z-index: 10;
+  perspective: 1600px;
+  display: flex;
+}
+
+.spellbook-spread {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: space-between;
+  transform-style: preserve-3d;
+  transition: transform 0.42s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease;
+}
+
+.spellbook-spread.flipping-forward {
+  transform: rotateY(-8deg) scale(0.98);
+  opacity: 0.75;
+}
+
+.spellbook-spread.flipping-backward {
+  transform: rotateY(8deg) scale(0.98);
+  opacity: 0.75;
+}
+
+.spellbook-page {
+  position: relative;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  color: #24180f;
+  overflow: hidden;
 }
 
-.grimoire-title {
-  font-family: Georgia, serif;
-  font-size: 1.05rem;
-  color: var(--radiant-gold);
-  letter-spacing: 0.03em;
-  text-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+.spellbook-page.page-left {
+  width: 45%;
+  padding: 12px 20px 8px 18px;
+  gap: 7px;
 }
 
-.watcher-pill {
-  display: inline-flex;
+.spellbook-page.page-right {
+  width: 45%;
+  padding: 12px 18px 8px 20px;
+  gap: 7px;
+  margin-left: auto;
+}
+
+/* Left Page: Tier Header */
+.page-tier-badge-wrap {
+  display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.tier-ribbon-badge {
+  background: linear-gradient(135deg, #8a6d2f 0%, #5c4316 100%);
+  color: #fff9ea;
+  padding: 2px 10px;
+  border-radius: 999px;
   font-size: 0.68rem;
-  color: #6ee7b7;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 215, 0, 0.4);
+}
+
+.tier-xp-multiplier {
+  color: #7a4e15;
+  font-weight: 700;
+  font-size: 0.74rem;
   font-family: 'Consolas', monospace;
 }
 
-.watcher-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #36d399;
-  box-shadow: 0 0 8px #36d399;
+.page-tier-title {
+  font-family: Georgia, serif;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #26160c;
+  line-height: 1.15;
 }
 
-.grimoire-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  border-bottom: 1px solid rgba(138, 109, 47, 0.35);
+.page-tier-desc {
+  font-size: 0.73rem;
+  color: #5a3e26;
+  font-style: italic;
+  line-height: 1.2;
 }
 
-.grimoire-btn-full {
+.page-search-row {
+  margin: 2px 0;
+}
+
+.spellbook-search-field {
   width: 100%;
-  justify-content: center;
-  text-align: center;
-}
-
-.grimoire-sub-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.grimoire-btn-half {
-  flex: 1;
-  font-size: 0.71rem;
-  padding: 5px 6px;
-  text-align: center;
-}
-
-.grimoire-filter-row {
-  display: flex;
-  gap: 6px;
-  padding: 8px 12px;
-  border-bottom: 1px solid rgba(138, 109, 47, 0.35);
-}
-
-.grimoire-search {
-  flex: 1;
-  min-width: 0;
-  background: #100c1e;
-  color: var(--text-parchment);
-  border: 1px solid var(--border-brass);
+  background: rgba(255, 255, 255, 0.7);
+  border: 1.5px solid rgba(138, 109, 47, 0.4);
   border-radius: 6px;
   padding: 4px 8px;
   font-size: 0.76rem;
+  color: #22140a;
   outline: none;
+  font-family: inherit;
+  transition: all 0.15s ease;
 }
 
-.grimoire-search:focus {
-  border-color: var(--radiant-gold);
+.spellbook-search-field:focus {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: #8a6d2f;
+  box-shadow: 0 0 8px rgba(138, 109, 47, 0.35);
 }
 
-.grimoire-level-filter {
-  max-width: 105px;
+/* Left Page: Scrollable Alphabetical Song List */
+.spellbook-song-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-right: 4px;
+}
+
+.spellbook-song-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.spellbook-song-list::-webkit-scrollbar-thumb {
+  background: rgba(138, 109, 47, 0.45);
+  border-radius: 999px;
+}
+
+.spellbook-song-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(60, 38, 16, 0.07);
+  border: 1px solid rgba(138, 109, 47, 0.22);
+  cursor: pointer;
+  transition: all 0.14s ease;
+  color: #26160c;
+  font-family: Georgia, serif;
+  gap: 8px;
+}
+
+.spellbook-song-item:hover {
+  background: rgba(138, 109, 47, 0.18);
+  border-color: #8a6d2f;
+  transform: translateX(2px);
+}
+
+.spellbook-song-item.selected {
+  background: rgba(184, 134, 11, 0.26);
+  border: 1.5px solid #8a6d2f;
+  box-shadow: 0 2px 8px rgba(138, 109, 47, 0.28);
+  font-weight: 700;
+}
+
+.spellbook-song-item-title {
+  flex: 1;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.song-active-indicator {
+  color: #b45309;
   font-size: 0.72rem;
 }
 
-.grimoire-spell-list {
+.spellbook-song-item-meta {
+  font-size: 0.67rem;
+  color: #6a4c30;
+  font-family: 'Consolas', monospace;
+  flex-shrink: 0;
+}
+
+/* Empty State */
+.spellbook-empty-state {
   flex: 1;
-  overflow-y: auto;
-  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 16px;
+  gap: 8px;
+}
+
+.spellbook-empty-state.hidden {
+  display: none !important;
+}
+
+.empty-rune-icon {
+  font-size: 2rem;
+  filter: sepia(0.8);
+}
+
+.empty-tier-heading {
+  font-family: Georgia, serif;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #2d1b0f;
+}
+
+.empty-tier-text {
+  font-size: 0.75rem;
+  color: #60452d;
+  font-style: italic;
+  max-width: 240px;
+  line-height: 1.3;
+}
+
+.btn-empty-quest {
+  margin-top: 4px;
+  padding: 6px 14px;
+  font-size: 0.74rem;
+  border-radius: 999px;
+}
+
+/* Page Footer Numbers */
+.page-footer {
+  margin-top: auto;
+  padding-top: 4px;
+  border-top: 1px solid rgba(138, 109, 47, 0.22);
+}
+
+.page-footer-left {
+  text-align: left;
+}
+
+.page-footer-right {
+  text-align: right;
+}
+
+.page-num-text {
+  font-size: 0.66rem;
+  color: #7a5a3a;
+  font-family: 'Consolas', monospace;
+  letter-spacing: 0.05em;
+}
+
+/* Right Page: Selected Song Details */
+.spellbook-detail-panel {
+  height: 100%;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.grimoire-spell-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.grimoire-spell-list::-webkit-scrollbar-thumb {
-  background: rgba(212, 175, 55, 0.4);
-  border-radius: 999px;
-}
-
-.grimoire-card {
-  background: rgba(26, 20, 46, 0.85);
-  border: 1px solid rgba(138, 109, 47, 0.55);
-  border-radius: 8px;
-  padding: 9px 11px;
-  cursor: pointer;
+.detail-top-block {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  transition: all 0.16s ease;
-  position: relative;
+  gap: 3px;
 }
 
-.grimoire-card:hover {
-  border-color: var(--radiant-gold);
-  background: rgba(38, 30, 66, 0.92);
-  box-shadow: 0 4px 14px rgba(255, 215, 0, 0.14);
-}
-
-.grimoire-card.active-spell {
-  border-color: var(--radiant-gold);
-  border-left: 4px solid var(--radiant-gold);
-  background: linear-gradient(90deg, rgba(255, 215, 0, 0.14) 0%, rgba(26, 20, 46, 0.92) 100%);
-  box-shadow: 0 0 14px rgba(255, 215, 0, 0.22);
-}
-
-.grimoire-card.newly-ingested {
-  border-color: #36d399;
-  box-shadow: 0 0 18px rgba(54, 211, 153, 0.45);
-}
-
-.grimoire-card-top {
+.detail-tier-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 8px;
 }
 
-.grimoire-card-title {
-  font-family: Georgia, serif;
-  font-size: 0.86rem;
+.detail-tier-chip {
+  font-size: 0.64rem;
   font-weight: 700;
-  color: var(--text-parchment);
-  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7b4f17;
+}
+
+.detail-song-source {
+  font-size: 0.65rem;
+  color: #6a4a2c;
+  font-family: 'Consolas', monospace;
+}
+
+.detail-song-title {
+  font-family: Georgia, serif;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #24150b;
+  line-height: 1.15;
   word-break: break-word;
 }
 
-.grimoire-card.active-spell .grimoire-card-title {
-  color: var(--radiant-gold);
-}
-
-.grimoire-delete-btn {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-muted);
-  border-radius: 4px;
-  padding: 1px 5px;
-  font-size: 0.72rem;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.grimoire-delete-btn:hover {
-  color: #f87272;
-  border-color: rgba(248, 114, 114, 0.45);
-  background: rgba(248, 114, 114, 0.12);
-}
-
-.grimoire-card-badges {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.grimoire-source-tag {
-  font-size: 0.63rem;
+.detail-song-file {
+  font-size: 0.68rem;
+  color: #705034;
   font-family: 'Consolas', monospace;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(0, 229, 255, 0.12);
-  border: 1px solid rgba(0, 229, 255, 0.4);
-  color: #67e8f9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.grimoire-card-meta {
+.detail-parchment-divider {
+  height: 1.5px;
+  background: linear-gradient(90deg, transparent 0%, rgba(138, 109, 47, 0.45) 50%, transparent 100%);
+  margin: 2px 0;
+}
+
+/* 4-Stat Musical Metrics Grid */
+.detail-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  background: rgba(60, 38, 16, 0.06);
+  border: 1px solid rgba(138, 109, 47, 0.22);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.metric-box {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: center;
+}
+
+.metric-label {
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  color: #755537;
+  font-weight: 700;
+}
+
+.metric-val {
+  font-size: 0.78rem;
+  color: #28170c;
+  font-family: 'Consolas', monospace;
+  font-weight: 700;
+}
+
+/* Bardic Annals Performance Box */
+.detail-history-box {
+  background: rgba(60, 38, 16, 0.08);
+  border: 1px solid rgba(138, 109, 47, 0.28);
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.history-box-heading {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7a5420;
+  text-align: center;
+  font-weight: 700;
+}
+
+.history-stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  text-align: center;
+}
+
+.history-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.history-label {
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  color: #755537;
+  font-weight: 600;
+}
+
+.history-val {
+  font-size: 0.82rem;
+  color: #8f5d16;
+  font-weight: 700;
+}
+
+.history-meta-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 0.69rem;
-  color: var(--text-muted);
+  font-size: 0.65rem;
+  color: #6c4e33;
+  padding-top: 3px;
+  border-top: 1px solid rgba(138, 109, 47, 0.18);
+}
+
+.history-audio-tag {
+  color: #0f766e;
+  font-weight: 700;
+}
+
+.history-audio-tag.hidden {
+  display: none !important;
+}
+
+/* Action CTA */
+.detail-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 6px;
+}
+
+.btn-spellbook-load {
+  flex: 1;
+  padding: 10px 16px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #24422e 0%, #162a1e 100%);
+  border: 1.5px solid #d4af37;
+  color: #fff6cc;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.btn-spellbook-load:hover {
+  background: linear-gradient(135deg, #325a3f 0%, #1d3626 100%);
+  border-color: #ffd700;
+  box-shadow: 0 6px 20px rgba(255, 215, 0, 0.35);
+  transform: translateY(-2px);
+}
+
+.btn-spellbook-delete {
+  background: transparent;
+  border: 1px solid rgba(138, 109, 47, 0.35);
+  color: #991b1b;
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-spellbook-delete:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+}
+
+.btn-spellbook-delete.hidden {
+  display: none !important;
+}
+
+/* Navigation Bar at Bottom */
+.spellbook-navigation-bar {
+  position: absolute;
+  bottom: 2.5%;
+  left: 0;
+  right: 0;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.btn-page-nav {
+  padding: 5px 14px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  border-radius: 999px;
+  background: rgba(26, 19, 14, 0.92);
+  border: 1px solid var(--border-brass);
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-page-nav:hover:not(:disabled) {
+  border-color: var(--radiant-gold);
+  background: rgba(44, 32, 22, 0.96);
+  transform: translateY(-1px);
+}
+
+.btn-page-nav:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.spellbook-tier-pips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(20, 14, 10, 0.88);
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(138, 109, 47, 0.45);
+}
+
+.tier-pip {
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 700;
   font-family: 'Consolas', monospace;
+  cursor: pointer;
+  color: #baab93;
+  transition: all 0.14s ease;
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+.tier-pip:hover {
+  color: #ffd700;
+  background: rgba(255, 215, 0, 0.12);
+}
+
+.tier-pip.active {
+  color: #1a1008;
+  background: var(--radiant-gold);
+  font-weight: 800;
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.55);
 }
 
 .grimoire-empty {

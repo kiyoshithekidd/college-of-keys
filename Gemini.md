@@ -410,7 +410,33 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - **Visual Hierarchy & Micro-Cues:**
     - Built 3 distinct visual button tiers: Tier 1 Hero CTA (The Hearth Stage with radiant gold border and prominent play glyph), Tier 2 Content Discovery (The Grimoire with Arcane Cyan accent and The Quest Board with Amber Wax Notice accent), Tier 3 Utilities (How to Play & Tuning Corner with subtle bronze borders).
     - Added subtle hover glow and `📜` scroll icon cue to the Bard Character Spotlight card to indicate it opens the Bardic Annals.
-- **Current status:** Changes implemented and verified on branch `feature/issue-71-title-splash-and-station-ux`. Ready for user verification.
+- **Current status:** Merged into `main` in PR #72 (`cf71cf4`) and hotfixed in PR #73 (`96c50b7`). Issue #71 closed.
+
+### 2026-11-09 — Session 18: Flippable Grimoire Spellbook Sorted by Difficulty (Issue #69)
+- **What we did:**
+  - Reviewed user feedback: *"The Grimoire should really be its own pop up menu/module"*, corresponding to backlog [Issue #69](https://github.com/kiyoshithekidd/college-of-keys/issues/69).
+  - Created isolated feature branch `feature/issue-69-grimoire-spellbook` from latest `main` (`96c50b7`).
+  - **Retired Sidebar for Full-Screen Tome:**
+    - Removed legacy `<aside id="grimoire-sidebar">`, permanently restoring the 61-key canvas and Spell Highway to 100% stage width.
+    - Added full-screen `#grimoire-spellbook-modal` with `.spellbook-backdrop-frame` displaying the front-on open book art (`assets/images/grimoire/grimoire-open-book.png` at 16:9 aspect ratio).
+  - **10-Tier Difficulty Sorter & Navigation:**
+    - Built `SPELLBOOK_TIERS` supporting all 10 D&D spell levels in order (Cantrip, 1st through 9th level) with accurate level titles, descriptions, roman numerals, and XP multipliers.
+    - Organized every cataloged spell onto the spread matching its auto-calculated difficulty tier.
+    - Added 3D perspective flip animations (`.flipping-forward`, `.flipping-backward`) and acoustic grace-note paper chime (`playSpellbookPageTurnSound()`) on turn.
+    - Added Previous / Next tier navigation buttons, 10 bookmark tabs/pips (`CAN`, `1ST`, ..., `9TH`), and keyboard shortcuts (`ArrowLeft`/`A`, `ArrowRight`/`D`, `Escape`).
+  - **Left Page Spread (Song Index & Search):**
+    - Displays active tier ribbon badge, XP multiplier, tier description, real-time search field, and alphabetical song list with title, BPM, and duration.
+    - Indicates currently loaded song with a golden star (`★`).
+    - Handled empty tier state with arcane parchment illustration, "No Spells of this Level Yet", and a 1-click CTA button pointing to The Quest Board.
+  - **Right Page Spread (Spell Details & Bardic History):**
+    - Displays selected song's musical metadata: tempo, duration, NPS, playable note count, and synced backing audio status badge.
+    - Integrates Bardic Annals rehearsal history for the selected song from `songPlayHistory` store: rehearsals played, best mastery accuracy, latest trial accuracy, career XP earned, and formatted last played date.
+    - Added primary action CTA `▶ Inscribe on Highway (Load Spell)` to load onto the highway and close the tome.
+    - Added delete button for user-imported spells in `./Imports`.
+  - **Live Folder Watcher & Seamless Return:**
+    - Folder watcher live-updates the open spellbook and immediately flips to the incoming spell's difficulty spread.
+    - Contextual origin return: closing the tome returns to the Tavern Main Menu if opened from the tavern bookshelf, or the Spell Highway if opened from the header toolbar.
+- **Current status:** Changes implemented and verified on branch `feature/issue-69-grimoire-spellbook`. Ready for user verification.
 
 
 
