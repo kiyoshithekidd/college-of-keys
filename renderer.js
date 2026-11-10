@@ -2756,16 +2756,16 @@ function initGrimoireAndWatcher() {
 // ============================================================================
 
 const SPELLBOOK_TIERS = [
-  { index: 0, levelName: 'Cantrip', title: 'Cantrip Spells', subtitle: 'Novice Cantrips', desc: 'Basic cantrip melodies & fundamentals (< 1.5 NPS)', xp: '1.0x XP', badgeClass: 'diff-cantrip', roman: 'I', pipLabel: 'CAN' },
-  { index: 1, levelName: '1st-Level Spell', title: '1st-Level Spells', subtitle: 'Apprentice Invocations', desc: 'Introductory harmonic arpeggios & single-hand leads', xp: '1.1x XP', badgeClass: 'diff-level1', roman: 'II', pipLabel: '1ST' },
-  { index: 2, levelName: '2nd-Level Spell', title: '2nd-Level Spells', subtitle: 'Journeyman Incantations', desc: 'Moderate tempo melodies & introductory chord rolls (1.5 - 3.0 NPS)', xp: '1.2x XP', badgeClass: 'diff-level2', roman: 'III', pipLabel: '2ND' },
-  { index: 3, levelName: '3rd-Level Spell', title: '3rd-Level Spells', subtitle: 'Adept Harmonies', desc: 'Sustained chord progressions & rhythmic syncopation', xp: '1.3x XP', badgeClass: 'diff-level3', roman: 'IV', pipLabel: '3RD' },
-  { index: 4, levelName: '4th-Level Spell', title: '4th-Level Spells', subtitle: 'Virtuoso Sonatas', desc: 'Two-hand coordination & moderate polyphony', xp: '1.4x XP', badgeClass: 'diff-level4', roman: 'V', pipLabel: '4TH' },
-  { index: 5, levelName: '5th-Level Spell', title: '5th-Level Spells', subtitle: 'Master Cantos', desc: 'High-tempo polyphony & rolling chord voicings (3.1 - 5.0 NPS)', xp: '1.5x XP', badgeClass: 'diff-level5', roman: 'VI', pipLabel: '5TH' },
-  { index: 6, levelName: '6th-Level Spell', title: '6th-Level Spells', subtitle: 'Grand Rhapsodies', desc: 'Complex hand-crossings & dense counterpoint', xp: '1.6x XP', badgeClass: 'diff-level6', roman: 'VII', pipLabel: '6TH' },
-  { index: 7, levelName: '7th-Level Spell', title: '7th-Level Spells', subtitle: 'Arcane Symphonies', desc: 'Virtuosic runs & demanding rhythmic shifts', xp: '1.7x XP', badgeClass: 'diff-level7', roman: 'VIII', pipLabel: '7TH' },
-  { index: 8, levelName: '8th-Level Spell', title: '8th-Level Spells', subtitle: 'Mythic Concertos', desc: 'Rapid octave leaps & blazing arpeggios', xp: '1.8x XP', badgeClass: 'diff-level8', roman: 'IX', pipLabel: '8TH' },
-  { index: 9, levelName: '9th-Level Spell', title: '9th-Level Spells', subtitle: 'Archmage Masterpieces', desc: 'Legendary complexity, lightning runs & grand chords (5.1+ NPS)', xp: '2.0x XP', badgeClass: 'diff-level9', roman: 'X', pipLabel: '9TH' }
+  { index: 0, levelName: 'Cantrip', title: 'Cantrip Spells', subtitle: 'Novice Cantrips', desc: 'Fundamentals & simple melodies (< 1.5 NPS)', xp: '1.0x XP', badgeClass: 'diff-cantrip', roman: 'I', pipLabel: 'CAN' },
+  { index: 1, levelName: '1st-Level Spell', title: '1st-Level Spells', subtitle: 'Apprentice Invocations', desc: 'Introductory arpeggios & leads', xp: '1.1x XP', badgeClass: 'diff-level1', roman: 'II', pipLabel: '1ST' },
+  { index: 2, levelName: '2nd-Level Spell', title: '2nd-Level Spells', subtitle: 'Journeyman Incantations', desc: 'Moderate melodies & chord rolls (1.5\u20133.0 NPS)', xp: '1.2x XP', badgeClass: 'diff-level2', roman: 'III', pipLabel: '2ND' },
+  { index: 3, levelName: '3rd-Level Spell', title: '3rd-Level Spells', subtitle: 'Adept Harmonies', desc: 'Sustained chords & syncopation', xp: '1.3x XP', badgeClass: 'diff-level3', roman: 'IV', pipLabel: '3RD' },
+  { index: 4, levelName: '4th-Level Spell', title: '4th-Level Spells', subtitle: 'Virtuoso Sonatas', desc: 'Two-hand coordination & polyphony', xp: '1.4x XP', badgeClass: 'diff-level4', roman: 'V', pipLabel: '4TH' },
+  { index: 5, levelName: '5th-Level Spell', title: '5th-Level Spells', subtitle: 'Master Cantos', desc: 'High-tempo polyphony & voicings (3.1\u20135.0 NPS)', xp: '1.5x XP', badgeClass: 'diff-level5', roman: 'VI', pipLabel: '5TH' },
+  { index: 6, levelName: '6th-Level Spell', title: '6th-Level Spells', subtitle: 'Grand Rhapsodies', desc: 'Complex crossings & counterpoint', xp: '1.6x XP', badgeClass: 'diff-level6', roman: 'VII', pipLabel: '6TH' },
+  { index: 7, levelName: '7th-Level Spell', title: '7th-Level Spells', subtitle: 'Arcane Symphonies', desc: 'Virtuosic runs & rhythmic shifts', xp: '1.7x XP', badgeClass: 'diff-level7', roman: 'VIII', pipLabel: '7TH' },
+  { index: 8, levelName: '8th-Level Spell', title: '8th-Level Spells', subtitle: 'Mythic Concertos', desc: 'Rapid octave leaps & arpeggios', xp: '1.8x XP', badgeClass: 'diff-level8', roman: 'IX', pipLabel: '8TH' },
+  { index: 9, levelName: '9th-Level Spell', title: '9th-Level Spells', subtitle: 'Archmage Masterpieces', desc: 'Legendary runs & grand chords (5.1+ NPS)', xp: '2.0x XP', badgeClass: 'diff-level9', roman: 'X', pipLabel: '9TH' }
 ];
 
 let currentSpellbookTierIndex = 0;
@@ -3016,6 +3016,7 @@ function renderSpellbookSpread() {
 
       const titleWrap = document.createElement('div');
       titleWrap.className = 'spellbook-song-item-title';
+      titleWrap.title = entry.title;
 
       if (isActiveHighway) {
         const star = document.createElement('span');
@@ -3031,7 +3032,8 @@ function renderSpellbookSpread() {
 
       const metaSpan = document.createElement('span');
       metaSpan.className = 'spellbook-song-item-meta';
-      metaSpan.textContent = `${entry.bpm} BPM \u2022 ${formatSeconds(entry.duration)}`;
+      metaSpan.title = `${entry.bpm} BPM \u2022 ${formatSeconds(entry.duration)}`;
+      metaSpan.textContent = `${entry.bpm} \u2022 ${formatSeconds(entry.duration)}`;
 
       item.appendChild(titleWrap);
       item.appendChild(metaSpan);
