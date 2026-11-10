@@ -1453,7 +1453,7 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll) {
     if (isCleanChordRoll) {
       spawnFloatingCanvasRune(anchorMidi, `⚡ +${xpAwarded} XP ROLL!`, '#6ee7b7');
     } else if (isInspired) {
-      spawnFloatingCanvasRune(anchorMidi, `🔥 +${xpAwarded} XP!`, '#f0abfc');
+      spawnFloatingCanvasRune(anchorMidi, `🔥 +${xpAwarded} XP!`, '#fbbf24');
     } else if (isFumbledPause) {
       spawnFloatingCanvasRune(anchorMidi, `+${xpAwarded} XP`, '#fca5a5');
     } else {
@@ -3571,7 +3571,7 @@ function computeKeyGeometry() {
     whiteLocked: makeVGrad(keyboardY, keyboardHeight, [[0, '#a7f3d0'], [0.4, '#34d399'], [1, '#059669']]),
     whiteGuideT1: makeVGrad(keyboardY, keyboardHeight, [[0, '#fff5b8'], [0.4, '#f5d76e'], [1, '#d9c589']]),
     whiteGuideT2: makeVGrad(keyboardY, keyboardHeight, [[0, '#b3f8ff'], [0.4, '#67e8f9'], [1, '#99d5e0']]),
-    blackIdle: makeVGrad(keyboardY, blackKeyHeight, [[0, '#2a2342'], [0.8, '#141022'], [1, '#090710']]),
+    blackIdle: makeVGrad(keyboardY, blackKeyHeight, [[0, '#332920'], [0.8, '#18130e'], [1, '#0c0907']]),
     blackPressed: makeVGrad(keyboardY, blackKeyHeight, [[0, '#ffd700'], [0.5, '#e5a900'], [1, '#9c6f00']]),
     blackLocked: makeVGrad(keyboardY, blackKeyHeight, [[0, '#34d399'], [1, '#065f46']]),
     blackGuideT1: makeVGrad(keyboardY, blackKeyHeight, [[0, '#ffd700'], [1, '#6e5200']]),
@@ -3611,7 +3611,7 @@ function drawFallingSpellHighway(strikeLineY, width) {
     ctx.lineTo(width, y);
     ctx.strokeStyle = isMeasureLine
       ? 'rgba(212, 175, 55, 0.22)'
-      : 'rgba(163, 151, 184, 0.07)';
+      : 'rgba(186, 171, 147, 0.07)';
     ctx.lineWidth = isMeasureLine ? 1.5 : 1;
     ctx.stroke();
   }
@@ -3659,7 +3659,7 @@ function drawFallingSpellHighway(strikeLineY, width) {
       ctx.fillStyle = note.lockedInWait ? '#10b981' : primaryHex;
       ctx.strokeStyle = note.lockedInWait
         ? '#ffffff'
-        : (isAtStrikeLine ? '#ffffff' : (note.wasFolded ? '#d8b4fe' : borderHex));
+        : (isAtStrikeLine ? '#ffffff' : (note.wasFolded ? '#fde68a' : borderHex));
       ctx.lineWidth = isAtStrikeLine ? 2.2 : 1.2;
       if (isAtStrikeLine || note.lockedInWait) {
         ctx.shadowColor = note.lockedInWait ? 'rgba(54, 211, 153, 0.85)' : glowRgba;
@@ -3682,7 +3682,7 @@ function drawFallingSpellHighway(strikeLineY, width) {
 
       if (rectH >= 22 && w >= 16) {
         ctx.shadowBlur = 0;
-        ctx.fillStyle = '#0d0917';
+        ctx.fillStyle = '#0c0907';
         ctx.font = 'bold 10px "Segoe UI", sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText(note.foldedName, x + w / 2, bottomY - 6);
@@ -3723,7 +3723,7 @@ const PARTICLE_PALETTES = {
   gold: ['#ffd700', '#fff3b0', '#ffae00', '#ffffff'],
   blue: ['#00e5ff', '#76ffff', '#38bdf8', '#e0f2fe'],
   roll: ['#34d399', '#a7f3d0', '#ffd700', '#ffffff'],
-  inspired: ['#e879f9', '#c084fc', '#ffd700', '#fff3b0', '#ffffff'],
+  inspired: ['#ffae00', '#f59e0b', '#ffd700', '#fff3b0', '#ffffff'],
   fumble: ['#fb923c', '#f87171', '#fde047']
 };
 
@@ -3994,7 +3994,7 @@ function renderCanvas() {
       ctx.lineTo(wk.x, strikeLineY);
       ctx.strokeStyle = semitone === 0
         ? 'rgba(212, 175, 55, 0.16)'
-        : 'rgba(163, 151, 184, 0.07)';
+        : 'rgba(186, 171, 147, 0.07)';
       ctx.lineWidth = semitone === 0 ? 1.5 : 1;
       ctx.stroke();
     }
@@ -4011,8 +4011,8 @@ function renderCanvas() {
   const lineH = isInspired ? 16 : (isWaiting ? 14 : 9);
   const strikeGrad = ctx.createLinearGradient(0, strikeLineY - lineH + 2, 0, strikeLineY + 4);
   if (isInspired) {
-    strikeGrad.addColorStop(0, 'rgba(192, 132, 252, 0)');
-    strikeGrad.addColorStop(0.45, 'rgba(192, 132, 252, 0.85)');
+    strikeGrad.addColorStop(0, 'rgba(255, 170, 0, 0)');
+    strikeGrad.addColorStop(0.45, 'rgba(255, 170, 0, 0.85)');
     strikeGrad.addColorStop(0.8, 'rgba(255, 215, 0, 0.95)');
     strikeGrad.addColorStop(1, '#ffffff');
   } else if (isWaiting) {
@@ -4059,7 +4059,7 @@ function renderCanvas() {
       ctx.fillRect(key.x + pad + 1, key.y + 1, key.width - (pad + 1) * 2, 4);
     }
 
-    ctx.strokeStyle = isPressed ? '#ffd700' : (guide ? '#ffd700' : (isInQwertyRange ? '#8a6d2f' : '#261f3d'));
+    ctx.strokeStyle = isPressed ? '#ffd700' : (guide ? '#ffd700' : (isInQwertyRange ? '#8a6d2f' : '#2e241b'));
     ctx.lineWidth = guide ? 1.8 : 1;
     ctx.strokeRect(key.x + pad, key.y, key.width - pad * 2, key.height - 2);
 
@@ -4071,7 +4071,7 @@ function renderCanvas() {
     }
 
     if (key.midi % 12 === 0 || guide || (showQwertyKeyLabels && key.midi === qwertyBaseMidi)) {
-      ctx.fillStyle = isPressed || guide ? '#1a1200' : (showQwertyKeyLabels && key.midi === qwertyBaseMidi ? '#b45309' : '#4a3d66');
+      ctx.fillStyle = isPressed || guide ? '#1a1200' : (showQwertyKeyLabels && key.midi === qwertyBaseMidi ? '#b45309' : '#5e4d3b');
       ctx.font = `bold ${Math.max(10, Math.min(13, Math.floor(key.width * 0.42)))}px "Segoe UI", sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillText(key.name, key.x + key.width / 2, key.y + key.height - 12);
@@ -4102,7 +4102,7 @@ function renderCanvas() {
 
     ctx.fillRect(key.x, key.y, key.width, key.height);
 
-    ctx.strokeStyle = isPressed || guide ? '#fff3b0' : (isInQwertyRange ? '#d4af37' : '#493c6e');
+    ctx.strokeStyle = isPressed || guide ? '#fff3b0' : (isInQwertyRange ? '#d4af37' : '#4a3b2c');
     ctx.lineWidth = guide ? 1.6 : 1;
     ctx.strokeRect(key.x + 0.5, key.y + 0.5, key.width - 1, key.height - 1);
 
@@ -4776,7 +4776,7 @@ btnBoostChain.addEventListener('click', () => {
         spawnFloatingCanvasRune(
           m,
           isInspired ? `🔥 BARDIC INSPIRATION! +${bonusXp} XP` : `✨ +25 SPELL CHAIN! +${bonusXp} XP`,
-          isInspired ? '#f0abfc' : '#ffd700'
+          isInspired ? '#fbbf24' : '#ffd700'
         );
       }
     }, idx * 35);
