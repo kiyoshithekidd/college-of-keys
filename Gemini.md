@@ -436,7 +436,11 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - **Live Folder Watcher & Seamless Return:**
     - Folder watcher live-updates the open spellbook and immediately flips to the incoming spell's difficulty spread.
     - Contextual origin return: closing the tome returns to the Tavern Main Menu if opened from the tavern bookshelf, or the Spell Highway if opened from the header toolbar.
-- **Current status:** Changes implemented and verified on branch `feature/issue-69-grimoire-spellbook`. Ready for user verification.
+  - **UI/UX Readability, Scale & Filigree Clearance Remediation:**
+    - Verified clean inner parchment coordinates against `assets/images/grimoire/grimoire-open-book.png` and tightened `.spellbook-stage` to `top: 24.2%; bottom: 27.2%; left: 28.8%; right: 29.2%`, clearing all 4 gold corner filigree brackets, outer decorative borders, book clasps, and corner stains.
+    - Locked `.spellbook-container` strictly to 16:9 (`width: min(1240px, calc((100vh - 44px) * 16 / 9), calc(100vw - 32px)); container-type: inline-size;`) and scaled all inside-book typography, badges, inputs, cards, and buttons proportionally via `clamp(..., cqw, ...)` so the tome scales harmoniously at every window resolution/DPI without overflowing.
+    - Replaced cramped 4-column metric and annals layouts with clean 2x2 grids, compacted song-row BPM metadata and single-line tier descriptions so fuller titles fit cleanly, upgraded typography to high-contrast iron-gall ink (`#1a0a00`) on illuminated vellum cards, and styled the close button in dark walnut and burnished brass.
+- **Current status:** Changes implemented and pushed to PR #75 on branch `feature/issue-69-grimoire-uiux-remediation`. Ready for user verification.
 
 
 
