@@ -451,7 +451,7 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - Updated `renderer.js`: swapped `cachedKeyGradients.blackIdle` (`#332920`–`#0c0907`), idle key strokes (`#2e241b`, `#4a3b2c`), white key C-note labels (`#5e4d3b`), lane guides (`rgba(186, 171, 147, 0.07)`), folded note highlight border (`#fde68a`), note text fill (`#0c0907`), inspired strike-line gradient (`rgba(255, 170, 0, ...)`), `PARTICLE_PALETTES.inspired`, and floating XP runes (`#fbbf24`), preserving Track 2 Eldritch Blue (`#00e5ff`).
   - Updated `main.js`: swapped `BrowserWindow` `backgroundColor` to `#0c0907`.
   - Verified zero remaining purple color tokens via automated script scan and `node --check` on `main.js` and `renderer.js`.
-- **Current status:** Implemented and verified locally on `fix/issue-81-remove-old-purple-colors`. Ready for user verification (`Fixes #81`).
+- **Current status:** Verified (`"testing successsful"`) and merged into `main` in PR #82 (`a52c43c`). Issue #81 closed.
 
 
 
