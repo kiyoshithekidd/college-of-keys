@@ -83,9 +83,15 @@ In addition to the libraries in the PRD (`Tone.js`, `@tonejs/midi`, `atosystem/m
 ### 4.4 LitRPG Gamification Math
 - **Auto-Difficulty (NPS = Total Active Notes / Song Duration in Seconds):**
   - `< 1.5 NPS`: **Cantrip** (`1.0x` XP)
-  - `1.5 – 3.0 NPS`: **2nd-Level Spell** (`1.2x` XP)
-  - `3.1 – 5.0 NPS`: **5th-Level Spell** (`1.5x` XP)
-  - `5.1+ NPS`: **9th-Level Spell** (`2.0x` XP)
+  - `1.5 to <2.0 NPS`: **1st-Level Spell** (`1.1x` XP)
+  - `2.0 to <2.6 NPS`: **2nd-Level Spell** (`1.2x` XP)
+  - `2.6 to <3.3 NPS`: **3rd-Level Spell** (`1.3x` XP)
+  - `3.3 to <4.0 NPS`: **4th-Level Spell** (`1.4x` XP)
+  - `4.0 to <4.8 NPS`: **5th-Level Spell** (`1.5x` XP)
+  - `4.8 to <5.8 NPS`: **6th-Level Spell** (`1.6x` XP)
+  - `5.8 to <6.9 NPS`: **7th-Level Spell** (`1.7x` XP)
+  - `6.9 to <8.0 NPS`: **8th-Level Spell** (`1.8x` XP)
+  - `8.0+ NPS`: **9th-Level Spell** (`2.0x` XP)
 - **XP & Combo Formula:**
   - Base Note Hit: `+10 XP` (or `+2 XP` "Fumbled Component" if paused `> 2.0s` in Wait Mode).
   - **Spell Chain:** `+1` per clean note, resets to `0` on wrong note.
@@ -461,7 +467,7 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - Refactored `calculateSpellDifficulty()` to resolve the matched tier directly from `SPELLBOOK_TIERS`, guaranteeing 1:1 alignment between assigned tier, XP multiplier, badge class, and spellbook spread description.
   - Added warm Tavern-harmonized `.diff-level1`, `.diff-level3`, `.diff-level4`, `.diff-level6`, `.diff-level7`, and `.diff-level8` badge classes in `styles.css`.
   - Verified all 13 NPS boundary test cases across all 10 tiers, syntax-checked `renderer.js`, and re-ran the purple-color scan after final edits.
-- **Current status:** Implemented and verified locally on `fix/issue-80-10-tier-difficulty-mapping`. Ready for user verification (`Fixes #80`).
+- **Current status:** Verified (`"testing successful"`) and merged into `main` in PR #83 (`1407ce2`). Issue #80 closed.
 
 
 
