@@ -45,7 +45,7 @@ html, body {
   justify-content: space-between;
   gap: 8px;
   padding: 5px 18px 5px 12px;
-  background: linear-gradient(180deg, #1d1732 0%, #120e21 100%);
+  background: linear-gradient(180deg, #221a14 0%, #140f0b 100%);
   border-bottom: 1px solid var(--border-brass);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
   z-index: 30;
@@ -71,7 +71,7 @@ html, body {
   height: 26px;
   border-radius: 6px;
   background: radial-gradient(circle at 30% 30%, #ffd700, #8a6d2f);
-  color: #120e21;
+  color: #0c0907;
   font-size: 14px;
   display: flex;
   align-items: center;
@@ -187,7 +187,7 @@ html, body {
 }
 
 .tavern-select {
-  background: #120e21;
+  background: #140f0b;
   color: var(--text-parchment);
   border: 1px solid var(--border-brass);
   border-radius: 5px;
@@ -248,7 +248,7 @@ html, body {
   justify-content: space-between;
   gap: 8px;
   padding: 4px 18px 4px 12px;
-  background: linear-gradient(180deg, #161129 0%, #0f0c1c 100%);
+  background: linear-gradient(180deg, #1a140f 0%, #100c08 100%);
   border-bottom: 2px solid var(--border-brass);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
   z-index: 25;
@@ -266,7 +266,7 @@ html, body {
 }
 
 .tavern-btn {
-  background: linear-gradient(180deg, #271f42 0%, #19132c 100%);
+  background: linear-gradient(180deg, #2b2119 0%, #1a130e 100%);
   color: var(--text-parchment);
   border: 1px solid var(--border-brass);
   border-radius: 6px;
@@ -463,7 +463,7 @@ html, body {
   top: calc(100% + 8px);
   right: 0;
   width: 340px;
-  background: linear-gradient(180deg, #1f1837 0%, #120d22 100%);
+  background: linear-gradient(180deg, #241b15 0%, #140f0b 100%);
   border: 1px solid var(--border-gold-bright);
   border-radius: 10px;
   padding: 12px 14px;
@@ -571,8 +571,8 @@ html, body {
 .stat-chip {
   padding: 3px 8px;
   border-radius: 6px;
-  background: #120e21;
-  border: 1px solid rgba(163, 151, 184, 0.25);
+  background: #140f0b;
+  border: 1px solid rgba(186, 171, 147, 0.25);
   font-size: 0.72rem;
   color: var(--text-muted);
   white-space: nowrap;
@@ -599,11 +599,11 @@ html, body {
 }
 
 .chip-folded {
-  border-color: rgba(192, 132, 252, 0.45);
+  border-color: rgba(245, 158, 11, 0.45);
 }
 
 .chip-folded strong {
-  color: #d8b4fe;
+  color: #fcd34d;
 }
 
 /* Main Stage & Canvas */
@@ -613,7 +613,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #0b0914 url('./assets/images/practice/practice-stage-backdrop.png') center bottom / cover no-repeat;
+  background: #0c0907 url('./assets/images/practice/practice-stage-backdrop.png') center bottom / cover no-repeat;
 }
 
 #stage-container.drag-over {
@@ -682,7 +682,7 @@ html, body {
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, #ffd700 0%, #b8860b 100%);
-  color: #120d1f;
+  color: #0c0907;
   font-weight: 800;
   font-size: 0.7rem;
   letter-spacing: 0.04em;
@@ -752,7 +752,7 @@ html, body {
 .xp-bar-track {
   width: 100%;
   height: 7px;
-  background: #0b0815;
+  background: #0c0907;
   border: 1px solid rgba(212, 175, 55, 0.45);
   border-radius: 999px;
   overflow: hidden;
@@ -786,14 +786,14 @@ html, body {
   gap: 8px;
   padding: 4px 14px;
   border-radius: 999px;
-  background: rgba(14, 11, 26, 0.72);
+  background: rgba(18, 13, 10, 0.78);
   border: 1px solid rgba(212, 175, 55, 0.42);
   backdrop-filter: blur(4px);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
 }
 
 .hud-divider {
-  color: rgba(163, 151, 184, 0.45);
+  color: rgba(186, 171, 147, 0.45);
   font-size: 0.75rem;
 }
 
@@ -891,7 +891,7 @@ html, body {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(7, 5, 14, 0.82);
+  background: rgba(8, 6, 4, 0.84);
   backdrop-filter: blur(7px);
   display: flex;
   align-items: center;
@@ -940,7 +940,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 16px;
-  background: rgba(11, 9, 20, 0.75);
+  background: rgba(16, 12, 9, 0.78);
   border: 1px solid var(--border-brass);
   border-radius: 10px;
   padding: 12px 16px;
@@ -953,7 +953,7 @@ html, body {
   border-radius: 12px;
   background: radial-gradient(circle at 30% 30%, #ffd700, #9a6f0a);
   border: 2px solid #fff3b0;
-  color: #120d1f;
+  color: #0c0907;
   font-family: Georgia, serif;
   font-size: 1.5rem;
   font-weight: 900;
@@ -1000,7 +1000,7 @@ html, body {
 }
 
 .modal-xp-card {
-  background: rgba(21, 17, 37, 0.9);
+  background: rgba(28, 21, 16, 0.92);
   border: 1px solid rgba(138, 109, 47, 0.55);
   border-radius: 9px;
   padding: 10px 14px;
@@ -1039,7 +1039,7 @@ html, body {
 }
 
 .modal-stat-box {
-  background: rgba(12, 9, 22, 0.78);
+  background: rgba(16, 12, 9, 0.82);
   border: 1px solid rgba(138, 109, 47, 0.45);
   border-radius: 8px;
   padding: 9px 10px;
@@ -1818,7 +1818,7 @@ html, body {
   font-size: 0.68rem;
   color: var(--text-muted);
   text-align: center;
-  background: rgba(14, 11, 26, 0.9);
+  background: rgba(18, 13, 10, 0.92);
 }
 
 .grimoire-footer code {
@@ -1861,13 +1861,13 @@ html, body {
   0%, 100% {
     box-shadow:
       0 0 22px rgba(255, 215, 0, 0.45),
-      0 0 38px rgba(192, 132, 252, 0.35),
+      0 0 38px rgba(255, 170, 0, 0.35),
       inset 0 0 14px rgba(255, 215, 0, 0.14);
   }
   50% {
     box-shadow:
       0 0 30px rgba(255, 215, 0, 0.75),
-      0 0 54px rgba(232, 121, 249, 0.55),
+      0 0 54px rgba(245, 158, 11, 0.55),
       inset 0 0 22px rgba(255, 215, 0, 0.25);
   }
 }
@@ -1900,7 +1900,7 @@ html, body {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  box-shadow: inset 0 0 65px rgba(5, 3, 12, 0.78);
+  box-shadow: inset 0 0 65px rgba(8, 6, 4, 0.78);
   z-index: 2;
 }
 
@@ -1918,30 +1918,30 @@ html, body {
    ============================================================================ */
 
 .btn-quest-board {
-  background: linear-gradient(180deg, #4f1d7a 0%, #2d104b 100%);
-  border-color: #c084fc;
-  color: #f3e8ff;
-  box-shadow: 0 0 14px rgba(192, 132, 252, 0.32);
+  background: linear-gradient(180deg, #4f2b11 0%, #2e1708 100%);
+  border-color: #f59e0b;
+  color: #fef3c7;
+  box-shadow: 0 0 14px rgba(245, 158, 11, 0.28);
 }
 
 .btn-quest-board:hover:not(:disabled) {
-  background: linear-gradient(180deg, #6b21a8 0%, #3b0764 100%);
-  border-color: #e879f9;
+  background: linear-gradient(180deg, #6b3b16 0%, #3d1e0a 100%);
+  border-color: #fbbf24;
   color: #ffffff;
-  box-shadow: 0 0 18px rgba(232, 121, 249, 0.52);
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.48);
 }
 
 .quest-board-card {
   width: min(740px, 95vw);
   max-height: 92vh;
   overflow-y: auto;
-  background: linear-gradient(180deg, #211a3a 0%, #120e24 100%);
+  background: linear-gradient(180deg, #241a14 0%, #130d09 100%);
   border: 2px solid var(--radiant-gold);
   border-radius: 14px;
   padding: 20px 24px;
   box-shadow:
     0 24px 60px rgba(0, 0, 0, 0.88),
-    0 0 36px rgba(192, 132, 252, 0.25),
+    0 0 36px rgba(212, 175, 55, 0.22),
     inset 0 0 22px rgba(255, 215, 0, 0.08);
   display: flex;
   flex-direction: column;
@@ -1962,7 +1962,7 @@ html, body {
 }
 
 .quest-section-box {
-  background: rgba(15, 11, 29, 0.85);
+  background: rgba(18, 13, 10, 0.88);
   border: 1px solid rgba(138, 109, 47, 0.65);
   border-radius: 10px;
   padding: 14px 16px;
@@ -2009,7 +2009,7 @@ html, body {
   padding: 3px 10px;
   border-radius: 999px;
   border: 1px solid rgba(138, 109, 47, 0.55);
-  background: rgba(29, 23, 50, 0.9);
+  background: rgba(34, 26, 20, 0.92);
   color: var(--text-parchment);
 }
 
@@ -2053,7 +2053,7 @@ html, body {
 }
 
 .quest-text-input {
-  background: #0d0a1a;
+  background: #0c0907;
   border: 1px solid var(--border-brass);
   border-radius: 6px;
   color: var(--text-parchment);
@@ -2081,7 +2081,7 @@ html, body {
 }
 
 .quest-progress-container {
-  background: rgba(9, 7, 18, 0.88);
+  background: rgba(14, 10, 8, 0.9);
   border: 1px solid rgba(138, 109, 47, 0.45);
   border-radius: 8px;
   padding: 10px 12px;
@@ -2105,7 +2105,7 @@ html, body {
 
 .quest-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #a855f7 0%, #00e5ff 55%, #ffd700 100%);
+  background: linear-gradient(90deg, #d97706 0%, #00e5ff 55%, #ffd700 100%);
   border-radius: 999px;
   box-shadow: 0 0 12px rgba(0, 229, 255, 0.55);
   transition: width 0.22s ease;
@@ -2118,7 +2118,7 @@ html, body {
   font-size: 0.71rem;
   line-height: 1.38;
   color: #a5f3fc;
-  background: rgba(4, 3, 10, 0.82);
+  background: rgba(8, 6, 4, 0.88);
   border: 1px solid rgba(138, 109, 47, 0.3);
   border-radius: 6px;
   padding: 7px 9px;
@@ -2133,7 +2133,7 @@ html, body {
 }
 
 .quest-archive-card {
-  background: linear-gradient(180deg, rgba(35, 27, 62, 0.92) 0%, rgba(19, 14, 36, 0.92) 100%);
+  background: linear-gradient(180deg, rgba(36, 27, 20, 0.94) 0%, rgba(20, 15, 11, 0.94) 100%);
   border: 1px solid var(--border-brass);
   border-radius: 9px;
   padding: 11px 12px;
@@ -2148,7 +2148,7 @@ html, body {
 
 .quest-archive-card:hover {
   border-color: var(--radiant-gold);
-  background: linear-gradient(180deg, rgba(50, 39, 88, 0.95) 0%, rgba(28, 21, 52, 0.95) 100%);
+  background: linear-gradient(180deg, rgba(52, 38, 27, 0.96) 0%, rgba(28, 20, 14, 0.96) 100%);
   box-shadow: 0 4px 16px rgba(255, 215, 0, 0.22);
   transform: translateY(-1px);
 }
@@ -2378,7 +2378,7 @@ html, body {
   pointer-events: none;
   overflow: hidden;
   z-index: 0;
-  background: #07050f url('./assets/images/menu/tavern-menu-scene.png') center center / cover no-repeat;
+  background: #0c0907 url('./assets/images/menu/tavern-menu-scene.png') center center / cover no-repeat;
   filter: blur(3px) brightness(0.55);
 }
 

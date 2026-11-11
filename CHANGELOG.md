@@ -47,6 +47,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Added responsive percentage-based hotspot positioning on 16:9 canvas with automated card-grid fallback below 950px width.
 
 ### Fixed
+- **Issue #81: Complete Removal of Remaining Legacy Purple Colors After #71 Palette Overhaul:**
+  - Replaced remaining purple gradients, fills, and shadows in `styles.css` across `#tavern-header`, `#spell-scroll-bar`, `.tavern-btn`, `.tavern-select`, `.conservatory-popover`, `.stat-chip`, `.chip-folded`, `.xp-bar-track`, `.center-combo-pill`, `.modal-backdrop`, `.d20-grade-banner`, `.modal-xp-card`, `.modal-stat-box`, `#stage-container`, `.btn-quest-board` (re-themed to warm Notice Board amber-wax `#4f2b11`–`#2e1708` / `#f59e0b`), `.quest-board-card`, `.quest-section-box`, `.quest-text-input`, `.quest-progress-fill`, `.quest-archive-card`, `@keyframes inspirationAuraPulse`, and `.tavern-scene-backdrop` with Obsidian / Smoked Walnut / Burnished Brass / Amber tokens.
+  - Replaced legacy purple colors in `renderer.js` canvas-drawn keyboard idle gradients/strokes/labels, non-measure lane guides, folded-note borders, strike-line Inspiration gradient, particle palettes, and inspired XP floating runes with warm ebony/brass/amber-gold equivalents.
+  - Updated `main.js` `BrowserWindow` `backgroundColor` from `#0b0914` to Obsidian `#0c0907`.
 - **Issue #67: Tavern Main Menu Modal Stacking, Settings Auto-Close & Continue Restore:**
   - Raised modal z-index to 1100 to layer over `.tavern-scene-overlay`.
   - Stopped Settings station click from bubbling to outside-click handler.

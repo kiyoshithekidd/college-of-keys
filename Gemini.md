@@ -442,6 +442,17 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
     - Replaced cramped 4-column metric and annals layouts with clean 2x2 grids, compacted song-row BPM metadata and single-line tier descriptions so fuller titles fit cleanly, upgraded typography to high-contrast iron-gall ink (`#1a0a00`) on illuminated vellum cards, and styled the close button in dark walnut and burnished brass.
 - **Current status:** Verified (`"testing successful"`) and merged into `main` in PR #74 (`4ae53a9`) and UI/UX remediation PR #75 (`ad6d4d7`). Issue #69 closed.
 
+### 2026-11-10 — Session 19: Complete Legacy Purple Color Cleanup (Bug #81)
+- **Root Cause:** The `#71` palette overhaul updated root palette variables and the Tavern Main Menu stations, but left hardcoded indigo/violet/magenta hex and RGBA values across the 2-bar practice chrome, Quest Board button/modal, Performance Check modal subcards, `main.js` window backdrop, and Canvas 2D keyboard/particle drawing routines.
+- **What we did:**
+  - Created isolated bugfix branch `fix/issue-81-remove-old-purple-colors` from `main`.
+  - Audited every color token across `styles.css`, `renderer.js`, `main.js`, and `index.html`.
+  - Updated `styles.css`: replaced all remaining dark indigo/purple backgrounds, gradients, borders, and glow keyframes across `#tavern-header`, `#spell-scroll-bar`, `.tavern-btn`, `.tavern-select`, `.conservatory-popover`, `.stat-chip`, `.chip-folded`, `.xp-bar-track`, `.center-combo-pill`, `.modal-backdrop`, `.d20-grade-banner`, `.modal-xp-card`, `.modal-stat-box`, `#stage-container`, `.btn-quest-board` (amber-wax Notice Board palette `#4f2b11`–`#2e1708` / `#f59e0b`), `.quest-board-card`, `.quest-section-box`, `.quest-text-input`, `.quest-progress-fill`, `.quest-archive-card`, `@keyframes inspirationAuraPulse`, and `.tavern-scene-backdrop`.
+  - Updated `renderer.js`: swapped `cachedKeyGradients.blackIdle` (`#332920`–`#0c0907`), idle key strokes (`#2e241b`, `#4a3b2c`), white key C-note labels (`#5e4d3b`), lane guides (`rgba(186, 171, 147, 0.07)`), folded note highlight border (`#fde68a`), note text fill (`#0c0907`), inspired strike-line gradient (`rgba(255, 170, 0, ...)`), `PARTICLE_PALETTES.inspired`, and floating XP runes (`#fbbf24`), preserving Track 2 Eldritch Blue (`#00e5ff`).
+  - Updated `main.js`: swapped `BrowserWindow` `backgroundColor` to `#0c0907`.
+  - Verified zero remaining purple color tokens via automated script scan and `node --check` on `main.js` and `renderer.js`.
+- **Current status:** Implemented and verified locally on `fix/issue-81-remove-old-purple-colors`. Ready for user verification (`Fixes #81`).
+
 
 
 

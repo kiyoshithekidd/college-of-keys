@@ -19,7 +19,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 640,
     title: 'College of Keys',
-    backgroundColor: '#0b0914',
+    backgroundColor: '#0c0907',
     autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: true,
