@@ -548,10 +548,28 @@ html, body {
   border-color: #36d399;
 }
 
+.diff-level1 {
+  background: rgba(20, 184, 166, 0.16);
+  color: #5eead4;
+  border-color: #14b8a6;
+}
+
 .diff-level2 {
   background: rgba(0, 229, 255, 0.16);
   color: #67e8f9;
   border-color: var(--eldritch-blue);
+}
+
+.diff-level3 {
+  background: rgba(56, 189, 248, 0.16);
+  color: #7dd3fc;
+  border-color: #38bdf8;
+}
+
+.diff-level4 {
+  background: rgba(212, 175, 55, 0.16);
+  color: #fde68a;
+  border-color: var(--border-gold-bright);
 }
 
 .diff-level5 {
@@ -559,6 +577,26 @@ html, body {
   color: var(--radiant-gold);
   border-color: var(--radiant-gold);
   box-shadow: 0 0 8px rgba(255, 215, 0, 0.25);
+}
+
+.diff-level6 {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fcd34d;
+  border-color: #f59e0b;
+}
+
+.diff-level7 {
+  background: rgba(249, 115, 22, 0.20);
+  color: #fdba74;
+  border-color: #f97316;
+  box-shadow: 0 0 8px rgba(249, 115, 22, 0.28);
+}
+
+.diff-level8 {
+  background: rgba(239, 68, 68, 0.20);
+  color: #fca5a5;
+  border-color: #ef4444;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.32);
 }
 
 .diff-level9 {

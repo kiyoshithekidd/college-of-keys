@@ -453,6 +453,16 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - Verified zero remaining purple color tokens via automated script scan and `node --check` on `main.js` and `renderer.js`.
 - **Current status:** Verified (`"testing successsful"`) and merged into `main` in PR #82 (`a52c43c`). Issue #81 closed.
 
+### 2026-11-11 — Session 20: Map Auto-Difficulty to All 10 Spell Levels (Bug #80)
+- **Root Cause:** `calculateSpellDifficulty()` in `renderer.js` only assigned 4 of the 10 tiers (`Cantrip`, `2nd-Level Spell`, `5th-Level Spell`, `9th-Level Spell`), making the remaining 6 spellbook spreads (`1st`, `3rd`, `4th`, `6th`, `7th`, `8th`) and their XP multipliers (`1.1x`, `1.3x`, `1.4x`, `1.6x`, `1.7x`, `1.8x`) unreachable, while `styles.css` lacked `.diff-level*` badge definitions for those 6 levels.
+- **What we did:**
+  - Created isolated bugfix branch `fix/issue-80-10-tier-difficulty-mapping` from `main`.
+  - Moved `SPELLBOOK_TIERS` above `calculateSpellDifficulty()` in `renderer.js` as a single shared source of truth and added `maxNpsExclusive` + `xpMultiplier` metadata across all 10 tiers (`< 1.5`, `1.5 to <2.0`, `2.0 to <2.6`, `2.6 to <3.3`, `3.3 to <4.0`, `4.0 to <4.8`, `4.8 to <5.8`, `5.8 to <6.9`, `6.9 to <8.0`, `8.0+ NPS`).
+  - Refactored `calculateSpellDifficulty()` to resolve the matched tier directly from `SPELLBOOK_TIERS`, guaranteeing 1:1 alignment between assigned tier, XP multiplier, badge class, and spellbook spread description.
+  - Added warm Tavern-harmonized `.diff-level1`, `.diff-level3`, `.diff-level4`, `.diff-level6`, `.diff-level7`, and `.diff-level8` badge classes in `styles.css`.
+  - Verified all 13 NPS boundary test cases across all 10 tiers, syntax-checked `renderer.js`, and re-ran the purple-color scan after final edits.
+- **Current status:** Implemented and verified locally on `fix/issue-80-10-tier-difficulty-mapping`. Ready for user verification (`Fixes #80`).
+
 
 
 
