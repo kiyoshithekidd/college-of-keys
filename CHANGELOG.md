@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Issue #66: Hearthfire Practice Streak Calendar:**
+  - Added a compact Hearthfire Streak Pill (`#btn-tavern-streak-pill`) docked inside `#tavern-bard-card` on the Tavern Main Menu, featuring a custom transparent Arcane Hearth Flame icon (`assets/images/icons/streak-flame-transparent.png`), live streak count, and today's hearth status.
+  - Added an expandable floating Month Calendar Popover (`#tavern-streak-popover`) with Sunday-start weekdays (`S M T W T F S`), previous/next month navigation (disabling future months), highlighted practiced days, today indicator, best streak readout, and `Escape` / outside-click / close-button dismissal.
+  - Added local-timezone-safe calendar keying (`getLocalDateKey`, `addLocalCalendarDays`) and `computePracticeStreak()` with yesterday at-risk grace and longest-streak calculation, persisted in `bardProfile.practiceDays`.
+  - Wired `recordPracticeDayActivity({ type: 'song', xpEarned })` into `recordSongPerformance()` so any interactive mode (`totalAttempts > 0`, excluding passive Listen Only previews) lights the hearth for the day, while keeping the helper extensible for future `#53` Daily Quests.
+
 - **Issue #77: Delete / Archive Songs from the Grimoire In-App:**
   - Added a visible delete/archive control (`.spellbook-card-delete-btn`) directly on every file-backed Grimoire song card in the spellbook list alongside the spell details archive button (`#btn-spellbook-delete-song`), while keeping the in-memory Built-In Demo Spell protected.
   - Added an in-app Tavern Dark Mode confirmation dialog (`#delete-spell-confirm-modal`) displaying the song title, an active-highway warning when applicable, and the exact list of files moving to `./Archive` (`Escape`, backdrop click, and stacked `Tab` focus-trap support).

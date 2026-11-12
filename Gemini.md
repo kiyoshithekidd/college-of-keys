@@ -1,6 +1,15 @@
 # College of Keys — Build Log, Plan & Decisions
 
 > **Critical Execution Rule:** Never execute multiple phases at once. At the end of every single phase, STOP, provide testing instructions for the current state, and wait for explicit user confirmation (`"Testing successful"`) before writing any code for the next phase.
+>
+> **Mandatory Pre-Build Engineering & UI/UX Gate (Senior Rhythm/Learning Game Standard):**
+> 1. **Plan First, Code Second:** Act as a senior developer specializing in rhythm games and music-learning games. Before writing any code for a work item, present the implementation plan and ask any clarifying questions.
+> 2. **UI/UX Subagent Pass:** Before building any work item, dispatch a separate subagent to perform a UI/UX review (checking layout, visual hierarchy, Tavern Dark Mode cohesion, persona fit, responsive behavior, accessibility, and whether new visual assets are needed).
+> 3. **Asset Prompts:** If the UI/UX pass identifies any needed visual assets, provide a ready-to-use Gemini image generation prompt for the user.
+> 4. **Decision Check Before Build:** Surface all unclear UX/product decisions from both the engineering plan and UI/UX review and wait for the user's go-ahead before coding.
+>
+> **Mandatory Post-Build Peer Review & QA Gate:**
+> 5. **Peer Review & QA Subagent Pass:** After building a work item and before passing it to the user for UAT (`"Testing successful"`), dispatch a separate Peer Review & QA subagent to audit the diff, edge cases, UI/UX alignment, and automated verification checks. Fix any findings before opening/finalizing the PR for UAT.
 
 ---
 
@@ -477,6 +486,15 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - Added `unloadCurrentSongToEmptyState()` to pause playback, close active backing audio handles cleanly before moving files, reset `currentSong`, timeline controls, and highway badges to a clean empty state, and clear stale `bardProfile.lastSongPath` / `lastSongTitle`.
   - Updated stacked modal `Tab` focus cycling and `Escape` dismissal priority so cancelling `#delete-spell-confirm-modal` leaves the Grimoire Spellbook open.
 - **Current status:** Verified (`"Testing Successful"`) and merged into `main` in PR #84. Issue #77 closed.
+
+### 2026-11-12 — Session 22: Hearthfire Practice Streak Calendar (Issue #66)
+- **What we did:**
+  - Codified the Mandatory Pre-Build Engineering & UI/UX Gate and Post-Build Peer Review & QA Gate in `GEMINI.md`.
+  - Created isolated feature branch `feature/issue-66-practice-streak-calendar` from `main` (`42479eb`).
+  - Completed UI/UX Design Reviewer subagent pass and resolved all 4 design decisions with the user (Option B1 pill + popover, any interactive mode counts, custom Arcane Hearth Flame icon, Sunday week start).
+  - Generated `assets/images/icons/streak-flame-transparent.png` (128x128 transparent PNG).
+  - Implemented `#btn-tavern-streak-pill`, `#tavern-streak-popover`, local-calendar streak math (`getLocalDateKey`, `addLocalCalendarDays`, `computePracticeStreak`, `recordPracticeDayActivity`), `bardProfile.practiceDays` persistence, and `renderPracticeStreakCalendar()` across `index.html`, `styles.css`, and `renderer.js`.
+- **Current status:** Built and verified with automated checks + Post-Build Peer Review & QA subagent pass; pending user UAT (`"Testing successful"`).
 
 
 

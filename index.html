@@ -119,7 +119,41 @@
                 <div id="menu-xp-bar-fill" class="xp-bar-fill" style="width: 0%;"></div>
               </div>
             </div>
+            <!-- Issue #66: Hearthfire Practice Streak Pill (toggles Month Calendar Popover) -->
+            <button id="btn-tavern-streak-pill" type="button" class="tavern-streak-pill" aria-expanded="false" aria-controls="tavern-streak-popover" title="View Hearthfire Practice Streak Calendar">
+              <img src="./assets/images/icons/streak-flame-transparent.png" alt="" class="streak-flame-img" />
+              <strong id="menu-streak-count" class="streak-pill-count">0-Day Streak</strong>
+              <span id="menu-streak-status" class="streak-pill-status">Light the hearth today</span>
+              <span class="streak-pill-cta">&#128197; Ledger</span>
+            </button>
           </div>
+
+          <!-- Issue #66: Expandable Hearthfire Month Calendar Popover -->
+          <section id="tavern-streak-popover" class="tavern-streak-popover hidden" role="dialog" aria-modal="false" aria-label="Hearthfire Practice Streak Calendar">
+            <div class="streak-popover-header">
+              <div class="streak-popover-title-wrap">
+                <img src="./assets/images/icons/streak-flame-transparent.png" alt="" class="streak-flame-img streak-flame-img-sm" />
+                <div>
+                  <strong class="streak-popover-title">Hearthfire Ledger</strong>
+                  <span id="streak-popover-count" class="streak-popover-subtitle">0-Day Streak</span>
+                </div>
+              </div>
+              <button id="btn-close-streak-popover" type="button" class="btn-icon streak-close-btn" title="Close Calendar (Escape)" aria-label="Close Practice Streak Calendar">&times;</button>
+            </div>
+            <div class="streak-month-nav">
+              <button id="btn-streak-prev-month" type="button" class="btn-icon streak-nav-btn" title="Previous Month" aria-label="Previous Month">&#9664;</button>
+              <span id="streak-month-label" class="streak-month-label" aria-live="polite">November 2026</span>
+              <button id="btn-streak-next-month" type="button" class="btn-icon streak-nav-btn" title="Next Month" aria-label="Next Month">&#9654;</button>
+            </div>
+            <div class="streak-weekdays" aria-hidden="true">
+              <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
+            </div>
+            <div id="streak-calendar-grid" class="streak-calendar-grid" role="grid" aria-label="Days practiced this month"></div>
+            <div class="streak-card-footer">
+              <span id="streak-today-status" class="streak-today-status">Complete 1 song today to light the hearth!</span>
+              <span id="streak-best-label" class="streak-best-label">Best: 0d</span>
+            </div>
+          </section>
         </div>
 
         <!-- Footer Tavern Ambiance / Quick Info -->
