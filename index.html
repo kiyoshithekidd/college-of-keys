@@ -62,12 +62,14 @@
           </button>
 
           <!-- Station 3: Notice Board: The Quest Board (Center Wall) -->
-          <button id="btn-menu-quest-board" class="tavern-station-card station-quest" title="Paste YouTube links or explore online MIDI archives">
-            <div class="station-icon">&#128302;</div>
+          <button id="btn-menu-quest-board" class="tavern-station-card station-quest" title="View Daily Bounties, YouTube ML transcriber &amp; MIDI archives">
+            <div class="station-icon">
+              <img src="./assets/images/icons/bounty-seal-transparent.png" alt="" class="station-bounty-img" />
+            </div>
             <div class="station-details">
               <span class="station-badge">Notice Board</span>
               <strong class="station-title">The Quest Board</strong>
-              <span class="station-desc">YouTube ML transcriber &amp; web archives</span>
+              <span id="menu-daily-bounty-summary" class="station-desc">0/3 Daily Bounties &bull; Transcriber</span>
             </div>
             <div class="station-action-arrow">&#8594;</div>
           </button>
@@ -482,6 +484,15 @@
           &#127881; <strong>LEVEL UP!</strong> You reached <span id="modal-new-level">Level 2</span> &mdash; <em id="modal-new-title">Tavern Busker</em>!
         </div>
 
+        <!-- Issue #53: Auto-Claimed Daily Bounties Banner (Shown when quests complete on this run) -->
+        <div id="modal-quests-banner" class="modal-quests-banner hidden">
+          <div class="modal-quests-header">
+            <span>&#9876;&#65039; <strong>DAILY BOUNTIES COMPLETED!</strong></span>
+            <span id="modal-quests-xp-pill" class="modal-quests-xp-pill">+0 Bonus XP</span>
+          </div>
+          <ul id="modal-quests-list" class="modal-quests-list"></ul>
+        </div>
+
         <!-- Bardic Level & XP Bar inside Modal -->
         <div class="modal-xp-card">
           <div class="modal-xp-header">
@@ -541,6 +552,23 @@
             <p class="modal-song-subtitle">Transcribe YouTube audio into playable 61-key MIDI spells or raid external MIDI archives</p>
           </div>
           <button id="btn-close-quest-board" class="btn-icon quest-close-btn" title="Close The Quest Board">&#10005;</button>
+        </div>
+
+        <!-- Issue #53: Section 0: Today's Tavern Bounties (Daily Quest System) -->
+        <div class="quest-section-box quest-bounties-section">
+          <div class="quest-section-header">
+            <span class="quest-section-title quest-bounties-heading">
+              <img src="./assets/images/icons/bounty-seal-transparent.png" alt="" class="bounty-header-icon" />
+              Today&rsquo;s Tavern Bounties (Auto-Claimed)
+            </span>
+            <div class="quest-bounties-controls">
+              <span id="daily-bounties-progress-pill" class="quest-stage-pill stage-idle">0 / 3 Complete</span>
+              <button id="btn-reroll-daily-bounty" type="button" class="tavern-btn btn-gold-outline btn-reroll-bounty" title="Swap one incomplete Daily Bounty (1 free reroll per day)">
+                &#127922; Reroll (1 left)
+              </button>
+            </div>
+          </div>
+          <div id="daily-bounties-list" class="daily-bounties-grid"></div>
         </div>
 
         <!-- Section 1: In-App YouTube / Audio-to-MIDI ML Pipeline -->

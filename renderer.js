@@ -293,6 +293,15 @@ const streakCalendarGrid = document.getElementById('streak-calendar-grid');
 const streakTodayStatus = document.getElementById('streak-today-status');
 const streakBestLabel = document.getElementById('streak-best-label');
 
+// Issue #53: Daily Quest System (Tavern Bounties & Performance Check Banner)
+const menuDailyBountySummary = document.getElementById('menu-daily-bounty-summary');
+const dailyBountiesList = document.getElementById('daily-bounties-list');
+const dailyBountiesProgressPill = document.getElementById('daily-bounties-progress-pill');
+const btnRerollDailyBounty = document.getElementById('btn-reroll-daily-bounty');
+const modalQuestsBanner = document.getElementById('modal-quests-banner');
+const modalQuestsXpPill = document.getElementById('modal-quests-xp-pill');
+const modalQuestsList = document.getElementById('modal-quests-list');
+
 const bardAnnalsModal = document.getElementById('bard-annals-modal');
 const btnCloseAnnals = document.getElementById('btn-close-annals');
 const btnAnnalsCloseBottom = document.getElementById('btn-annals-close-bottom');
@@ -367,7 +376,8 @@ const bardProfile = {
   title: 'Tavern Busker',
   bestCareerChain: 0,
   songsCompleted: 0,
-  practiceDays: {}
+  practiceDays: {},
+  dailyQuests: null
 };
 
 // Issue #66: Current month/year displayed in the Hearthfire Streak Calendar popover
@@ -1246,6 +1256,9 @@ function loadBardProfile() {
       }
       bardProfile.practiceDays = sanitizedDays;
     }
+    if (loaded.dailyQuests && typeof loaded.dailyQuests === 'object' && Array.isArray(loaded.dailyQuests.quests)) {
+      bardProfile.dailyQuests = loaded.dailyQuests;
+    }
   }
 
   // Load per-song play history stats store (Issue #52 & #68)
@@ -1355,6 +1368,7 @@ function saveBardProfile() {
     lastSongTitle: bardProfile.lastSongTitle || null,
     lastSongPath: bardProfile.lastSongPath || null,
     practiceDays: bardProfile.practiceDays || {},
+    dailyQuests: bardProfile.dailyQuests || null,
     updatedAt: new Date().toISOString()
   };
 
@@ -1598,6 +1612,44 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
   modalGradeTitle.textContent = gradeTitle;
   modalGradeFlavor.textContent = gradeFlavor;
 
+  // Record song play history & Daily Quests BEFORE rendering XP/Level-Up banner (Issue #52, #53, #67)
+  // Only the natural end-of-song path records play history; the manual button does not (Issue #67)
+  let questOutcome = { newlyCompletedQuests: [], totalBonusXp: 0 };
+  if (recordPlay && currentSong && totalAttempts > 0) {
+    questOutcome = recordSongPerformance(
+      currentSong,
+      accuracyPct,
+      songSessionStats.maxSpellChain,
+      songSessionStats.songXpEarned,
+      {
+        waitMode: Boolean(playbackState.waitMode),
+        cleanNotesHit: songSessionStats.cleanNotesHit,
+        cleanChordRolls: songSessionStats.cleanChordRolls
+      }
+    ) || questOutcome;
+  }
+
+  if (modalQuestsBanner && modalQuestsList && modalQuestsXpPill) {
+    const completedList = questOutcome.newlyCompletedQuests || [];
+    modalQuestsBanner.classList.toggle('hidden', completedList.length === 0);
+    while (modalQuestsList.firstChild) {
+      modalQuestsList.removeChild(modalQuestsList.firstChild);
+    }
+    if (completedList.length > 0) {
+      modalQuestsXpPill.textContent = `+${questOutcome.totalBonusXp.toLocaleString()} Bonus XP`;
+      for (const q of completedList) {
+        const li = document.createElement('li');
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = `✓ ${q.title} — ${q.desc}`;
+        const xpStrong = document.createElement('strong');
+        xpStrong.textContent = `+${q.xpReward} XP`;
+        li.appendChild(nameSpan);
+        li.appendChild(xpStrong);
+        modalQuestsList.appendChild(li);
+      }
+    }
+  }
+
   const leveledUp = bardProfile.level > songSessionStats.startingLevel;
   modalLevelupBanner.classList.toggle('hidden', !leveledUp);
   if (leveledUp) {
@@ -1621,17 +1673,6 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
   modalStatClean.textContent = String(songSessionStats.cleanNotesHit);
   modalStatFumbled.textContent = String(songSessionStats.fumbledNotesHit);
   modalStatRolls.textContent = `${songSessionStats.cleanChordRolls} Rolls • ${songSessionStats.wrongOrMissedNotes} Off-Key`;
-
-  // Record song play history stats store (Issue #52)
-  // Only the natural end-of-song path records play history; the manual button does not (Issue #67)
-  if (recordPlay && currentSong && totalAttempts > 0) {
-    recordSongPerformance(
-      currentSong,
-      accuracyPct,
-      songSessionStats.maxSpellChain,
-      songSessionStats.songXpEarned
-    );
-  }
 
   performanceCheckModal.classList.remove('hidden');
 }
@@ -5308,6 +5349,7 @@ let lastQuestTranscribedMidiPath = null;
 function openQuestBoardModal() {
   pausePlayback();
   closeAllConservatoryPopovers();
+  renderDailyBountiesBoard();
   if (questBoardModal) {
     questBoardModal.classList.remove('hidden');
   }
@@ -5705,8 +5747,8 @@ function restoreLastSong() {
 let previousMenuFocusElement = null;
 let previousModalFocusElement = null;
 
-function recordSongPerformance(song, accuracyPct, maxChain, xpEarned) {
-  if (!song) return;
+function recordSongPerformance(song, accuracyPct, maxChain, xpEarned, meta = {}) {
+  if (!song) return { newlyCompletedQuests: [], totalBonusXp: 0 };
   const key = song.songId || (song.filePath || song.title || 'Demo Spell').toLowerCase();
   const title = song.title || 'Untitled Scroll';
   const existing = songPlayHistory[key] || {
@@ -5737,10 +5779,20 @@ function recordSongPerformance(song, accuracyPct, maxChain, xpEarned) {
   bardProfile.lastSongTitle = title;
   bardProfile.lastSongPath = song.filePath;
   recordPracticeDayActivity({ type: 'song', xpEarned });
+  const questOutcome = updateDailyQuestsOnSongComplete({
+    waitMode: Boolean(meta.waitMode),
+    accuracyPct,
+    maxChain,
+    cleanNotesHit: Number(meta.cleanNotesHit) || 0,
+    cleanChordRolls: Number(meta.cleanChordRolls) || 0,
+    xpEarned
+  });
 
   saveBardProfile();
   saveSongStats();
   updateTavernMenuStats();
+  if (typeof updateLitrpgHUD === 'function') updateLitrpgHUD();
+  return questOutcome;
 }
 
 function computeTavernSongStats() {
@@ -5822,6 +5874,7 @@ function updateTavernMenuStats() {
   }
 
   renderPracticeStreakCalendar();
+  renderDailyBountyStationSummary();
 }
 
 function playTavernWelcomeChord() {
@@ -6514,6 +6567,290 @@ if (tavernMainMenu) {
     ) {
       closeStreakPopover();
     }
+  });
+}
+
+// ============================================================================
+// ISSUE #53: DAILY QUEST SYSTEM (TAVERN BOUNTIES)
+// ============================================================================
+
+const DAILY_BOUNTY_SLOTS = [
+  // Slot 0: Song Completion / Mode
+  [
+    { id: 'play_any_1', title: 'Tavern Encore', desc: 'Complete 1 song in any interactive mode', metric: 'songs', target: 1, xpReward: 100 },
+    { id: 'play_arcade_1', title: 'Arcade Troubadour', desc: 'Finish 1 song in Arcade Mode', metric: 'arcade_songs', target: 1, xpReward: 125 },
+    { id: 'play_wait_1', title: 'Methodical Maestro', desc: 'Finish 1 song in Wait Mode', metric: 'wait_songs', target: 1, xpReward: 125 }
+  ],
+  // Slot 1: Precision / Combo
+  [
+    { id: 'chain_20', title: 'Unbroken Cadence', desc: 'Reach a 20+ Spell Chain in a song', metric: 'max_chain', target: 20, xpReward: 120 },
+    { id: 'accuracy_80', title: 'Silver-Tongued Bard', desc: 'Finish a song with 80%+ accuracy', metric: 'accuracy_80', target: 1, xpReward: 130 },
+    { id: 'chord_rolls_3', title: 'Smooth Voicings', desc: 'Land 3+ clean 100ms Chord Rolls', metric: 'chord_rolls', target: 3, xpReward: 120 }
+  ],
+  // Slot 2: Volume / Endurance
+  [
+    { id: 'clean_notes_60', title: 'Nimble Fingers', desc: 'Hit 60 clean notes across today\'s runs', metric: 'clean_notes', target: 60, xpReward: 140 },
+    { id: 'play_any_2', title: 'Double Bill', desc: 'Complete 2 songs in interactive modes today', metric: 'songs', target: 2, xpReward: 160 },
+    { id: 'xp_earn_200', title: 'Apprentice\'s Tithe', desc: 'Earn 200+ Song XP across today\'s runs', metric: 'xp_earned', target: 200, xpReward: 150 }
+  ]
+];
+
+function hashDateKeyForBounty(dateKey) {
+  let h = 0;
+  for (let i = 0; i < dateKey.length; i++) {
+    h = ((h * 31) + dateKey.charCodeAt(i)) >>> 0;
+  }
+  return h;
+}
+
+/**
+ * Ensures bardProfile.dailyQuests holds 3 valid quests for the current local calendar day.
+ * @param {Date} [referenceDate]
+ */
+function ensureDailyQuestsForToday(referenceDate = new Date()) {
+  const todayKey = getLocalDateKey(referenceDate);
+  const existing = bardProfile.dailyQuests;
+  if (
+    existing &&
+    existing.dateKey === todayKey &&
+    Array.isArray(existing.quests) &&
+    existing.quests.length === 3
+  ) {
+    return existing;
+  }
+
+  const seed = hashDateKeyForBounty(todayKey);
+  const quests = DAILY_BOUNTY_SLOTS.map((slotPool, slotIdx) => {
+    const template = slotPool[(seed + slotIdx) % slotPool.length];
+    return {
+      slot: slotIdx,
+      id: template.id,
+      title: template.title,
+      desc: template.desc,
+      metric: template.metric,
+      target: template.target,
+      xpReward: template.xpReward,
+      progress: 0,
+      completed: false,
+      claimed: false
+    };
+  });
+
+  bardProfile.dailyQuests = {
+    dateKey: todayKey,
+    rerollsRemaining: 1,
+    quests
+  };
+  return bardProfile.dailyQuests;
+}
+
+/**
+ * Updates today's Daily Bounties after an interactive song completion and auto-claims XP.
+ */
+function updateDailyQuestsOnSongComplete({
+  waitMode = false,
+  accuracyPct = 0,
+  maxChain = 0,
+  cleanNotesHit = 0,
+  cleanChordRolls = 0,
+  xpEarned = 0,
+  date = new Date()
+} = {}) {
+  const daily = ensureDailyQuestsForToday(date);
+  const newlyCompletedQuests = [];
+  let totalBonusXp = 0;
+
+  for (const q of daily.quests) {
+    if (q.completed) continue;
+
+    switch (q.metric) {
+      case 'songs':
+        q.progress = Math.min(q.target, (Number(q.progress) || 0) + 1);
+        break;
+      case 'arcade_songs':
+        if (!waitMode) q.progress = Math.min(q.target, (Number(q.progress) || 0) + 1);
+        break;
+      case 'wait_songs':
+        if (waitMode) q.progress = Math.min(q.target, (Number(q.progress) || 0) + 1);
+        break;
+      case 'max_chain':
+        q.progress = Math.min(q.target, Math.max(Number(q.progress) || 0, maxChain));
+        break;
+      case 'accuracy_80':
+        if (accuracyPct >= 80) q.progress = 1;
+        break;
+      case 'chord_rolls':
+        q.progress = Math.min(q.target, (Number(q.progress) || 0) + cleanChordRolls);
+        break;
+      case 'clean_notes':
+        q.progress = Math.min(q.target, (Number(q.progress) || 0) + cleanNotesHit);
+        break;
+      case 'xp_earned':
+        q.progress = Math.min(q.target, (Number(q.progress) || 0) + xpEarned);
+        break;
+      default:
+        break;
+    }
+
+    if (q.progress >= q.target) {
+      q.completed = true;
+      if (!q.claimed) {
+        q.claimed = true;
+        totalBonusXp += q.xpReward;
+        newlyCompletedQuests.push({ ...q });
+      }
+    }
+  }
+
+  if (totalBonusXp > 0) {
+    bardProfile.totalXp += totalBonusXp;
+    recomputeBardLevelFromTotalXp();
+    recordPracticeDayActivity({ type: 'quest', xpEarned: totalBonusXp, date });
+  }
+
+  return { newlyCompletedQuests, totalBonusXp };
+}
+
+/**
+ * Swaps one incomplete Daily Bounty using the 1/day free reroll.
+ * @param {Date} [referenceDate]
+ * @returns {boolean}
+ */
+function rerollDailyBounty(referenceDate = new Date()) {
+  const daily = ensureDailyQuestsForToday(referenceDate);
+  if ((Number(daily.rerollsRemaining) || 0) <= 0) return false;
+
+  const targetIdx = daily.quests.findIndex((q) => !q.completed);
+  if (targetIdx === -1) return false;
+
+  const current = daily.quests[targetIdx];
+  const slotIdx = typeof current.slot === 'number' ? current.slot : targetIdx;
+  const pool = DAILY_BOUNTY_SLOTS[slotIdx] || DAILY_BOUNTY_SLOTS[0];
+  const candidates = pool.filter((t) => t.id !== current.id);
+  if (candidates.length === 0) return false;
+
+  const next = candidates[0];
+  daily.quests[targetIdx] = {
+    slot: slotIdx,
+    id: next.id,
+    title: next.title,
+    desc: next.desc,
+    metric: next.metric,
+    target: next.target,
+    xpReward: next.xpReward,
+    progress: 0,
+    completed: false,
+    claimed: false
+  };
+  daily.rerollsRemaining = Math.max(0, (Number(daily.rerollsRemaining) || 0) - 1);
+
+  saveBardProfile();
+  renderDailyBountiesBoard(referenceDate);
+  renderDailyBountyStationSummary(referenceDate);
+  return true;
+}
+
+function renderDailyBountyStationSummary(referenceDate = new Date()) {
+  const daily = ensureDailyQuestsForToday(referenceDate);
+  const doneCount = daily.quests.filter((q) => q.completed).length;
+  const totalCount = daily.quests.length;
+  const remainingXp = daily.quests
+    .filter((q) => !q.completed)
+    .reduce((sum, q) => sum + (Number(q.xpReward) || 0), 0);
+
+  if (menuDailyBountySummary) {
+    if (doneCount === totalCount) {
+      menuDailyBountySummary.textContent = `${doneCount}/${totalCount} Bounties Complete! • Transcriber`;
+    } else {
+      menuDailyBountySummary.textContent = `${doneCount}/${totalCount} Bounties • +${remainingXp} XP left`;
+    }
+  }
+  if (btnMenuQuestBoard) {
+    btnMenuQuestBoard.classList.toggle('bounties-all-done', doneCount === totalCount);
+  }
+}
+
+function renderDailyBountiesBoard(referenceDate = new Date()) {
+  const daily = ensureDailyQuestsForToday(referenceDate);
+  const doneCount = daily.quests.filter((q) => q.completed).length;
+  const totalCount = daily.quests.length;
+
+  if (dailyBountiesProgressPill) {
+    dailyBountiesProgressPill.textContent = `${doneCount} / ${totalCount} Complete`;
+    dailyBountiesProgressPill.className = `quest-stage-pill ${doneCount === totalCount ? 'stage-done' : 'stage-idle'}`;
+  }
+
+  if (btnRerollDailyBounty) {
+    const left = Math.max(0, Number(daily.rerollsRemaining) || 0);
+    const hasIncomplete = doneCount < totalCount;
+    btnRerollDailyBounty.disabled = left <= 0 || !hasIncomplete;
+    btnRerollDailyBounty.textContent = left > 0
+      ? `🎲 Reroll (${left} left)`
+      : '🎲 Reroll Used';
+  }
+
+  if (!dailyBountiesList) return;
+  while (dailyBountiesList.firstChild) {
+    dailyBountiesList.removeChild(dailyBountiesList.firstChild);
+  }
+
+  for (const q of daily.quests) {
+    const card = document.createElement('div');
+    card.className = `daily-bounty-card${q.completed ? ' completed' : ''}`;
+
+    const top = document.createElement('div');
+    top.className = 'bounty-card-top';
+
+    const titleEl = document.createElement('strong');
+    titleEl.className = 'bounty-title';
+    titleEl.textContent = q.title;
+
+    const xpEl = document.createElement('span');
+    xpEl.className = 'bounty-xp-badge';
+    xpEl.textContent = q.completed ? `✓ +${q.xpReward} XP` : `+${q.xpReward} XP`;
+
+    top.appendChild(titleEl);
+    top.appendChild(xpEl);
+
+    const descEl = document.createElement('div');
+    descEl.className = 'bounty-desc';
+    descEl.textContent = q.desc;
+
+    const progWrap = document.createElement('div');
+    progWrap.className = 'bounty-progress-row';
+
+    const meta = document.createElement('div');
+    meta.className = 'bounty-progress-meta';
+    const pct = q.target > 0 ? Math.min(100, Math.round(((Number(q.progress) || 0) / q.target) * 100)) : 0;
+
+    const countSpan = document.createElement('span');
+    countSpan.textContent = `${Math.min(q.target, Number(q.progress) || 0)} / ${q.target}`;
+    const stateSpan = document.createElement('span');
+    stateSpan.textContent = q.completed ? 'Claimed' : `${pct}%`;
+
+    meta.appendChild(countSpan);
+    meta.appendChild(stateSpan);
+
+    const track = document.createElement('div');
+    track.className = 'bounty-progress-track';
+    const fill = document.createElement('div');
+    fill.className = 'bounty-progress-fill';
+    fill.style.width = `${q.completed ? 100 : pct}%`;
+    track.appendChild(fill);
+
+    progWrap.appendChild(meta);
+    progWrap.appendChild(track);
+
+    card.appendChild(top);
+    card.appendChild(descEl);
+    card.appendChild(progWrap);
+    dailyBountiesList.appendChild(card);
+  }
+}
+
+if (btnRerollDailyBounty) {
+  btnRerollDailyBounty.addEventListener('click', () => {
+    rerollDailyBounty();
   });
 }
 
