@@ -3003,7 +3003,8 @@ html, body {
 
   .tavern-scene-stage .tavern-title-block,
   .tavern-scene-stage .tavern-station-card,
-  .tavern-scene-stage #tavern-bard-card {
+  .tavern-scene-stage #tavern-bard-card,
+  .tavern-scene-stage #tavern-streak-calendar-card {
     position: static;
     transform: none !important;
     width: 100% !important;
@@ -3394,6 +3395,297 @@ html, body {
   opacity: 0.6;
   cursor: wait;
 }
+
+/* ============================================================================
+   ISSUE #66: PRACTICE STREAK CALENDAR (OPTION B1: HEARTHFIRE PILL + POPOVER)
+   ============================================================================ */
+
+.tavern-streak-pill {
+  margin-top: 2px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 7px;
+  background: rgba(12, 9, 7, 0.58);
+  border: 1px solid rgba(138, 109, 47, 0.52);
+  color: #f4ebd9;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.tavern-streak-pill:hover,
+.tavern-streak-pill[aria-expanded="true"] {
+  background: rgba(34, 26, 20, 0.88);
+  border-color: #d4af37;
+  box-shadow: 0 0 12px rgba(212, 175, 55, 0.24);
+}
+
+.tavern-streak-pill.active-streak {
+  background: linear-gradient(135deg, rgba(217, 119, 6, 0.22) 0%, rgba(18, 13, 9, 0.85) 100%);
+  border-color: rgba(245, 158, 11, 0.78);
+}
+
+.streak-flame-img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: grayscale(0.75) opacity(0.75);
+  transition: filter 0.2s ease, transform 0.2s ease;
+}
+
+.tavern-streak-pill.active-streak .streak-flame-img,
+.tavern-streak-popover.active-streak .streak-flame-img {
+  filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.65));
+}
+
+.streak-flame-img-sm {
+  width: 20px;
+  height: 20px;
+}
+
+.streak-pill-count {
+  font-family: Georgia, serif;
+  font-size: 0.78rem;
+  color: #f4ebd9;
+  white-space: nowrap;
+}
+
+.tavern-streak-pill.active-streak .streak-pill-count {
+  color: #ffd700;
+}
+
+.streak-pill-status {
+  font-size: 0.7rem;
+  color: #baab93;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tavern-streak-pill.practiced-today .streak-pill-status {
+  color: #6ee7b7;
+  font-weight: 600;
+}
+
+.streak-pill-cta {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #d4af37;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(138, 109, 47, 0.22);
+  border: 1px solid rgba(138, 109, 47, 0.45);
+  white-space: nowrap;
+}
+
+.tavern-scene-stage .tavern-streak-popover {
+  position: absolute;
+  left: 50%;
+  bottom: 24.5%;
+  transform: translateX(-50%);
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  z-index: 25;
+  background: linear-gradient(145deg, rgba(24, 19, 14, 0.97) 0%, rgba(12, 9, 7, 0.98) 100%);
+  border: 1px solid rgba(212, 175, 55, 0.68);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.88), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(10px);
+  color: #f4ebd9;
+}
+
+.tavern-streak-popover.hidden {
+  display: none;
+}
+
+.streak-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.streak-popover-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.streak-popover-title {
+  display: block;
+  font-family: Georgia, serif;
+  font-size: 0.86rem;
+  color: #ffd700;
+  line-height: 1.15;
+}
+
+.streak-popover-subtitle {
+  display: block;
+  font-size: 0.72rem;
+  color: #baab93;
+}
+
+.streak-close-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid rgba(138, 109, 47, 0.45);
+  background: rgba(12, 9, 7, 0.6);
+  color: #baab93;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.streak-close-btn:hover {
+  color: #ffd700;
+  border-color: #d4af37;
+  background: rgba(212, 175, 55, 0.14);
+}
+
+.streak-month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.streak-month-label {
+  font-family: Georgia, serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #f4ebd9;
+  text-align: center;
+}
+
+.streak-nav-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  border: 1px solid rgba(138, 109, 47, 0.48);
+  background: rgba(12, 9, 7, 0.6);
+  color: #d4af37;
+  font-size: 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.streak-nav-btn:hover:not(:disabled) {
+  background: rgba(212, 175, 55, 0.18);
+  border-color: #ffd700;
+}
+
+.streak-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.streak-weekdays,
+.streak-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.streak-weekdays span {
+  text-align: center;
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: #baab93;
+  letter-spacing: 0.04em;
+}
+
+.streak-day-cell {
+  height: 24px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-family: 'Consolas', monospace;
+  color: #baab93;
+  background: rgba(12, 9, 7, 0.56);
+  border: 1px solid rgba(138, 109, 47, 0.2);
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
+.streak-day-cell.empty {
+  background: transparent;
+  border-color: transparent;
+}
+
+.streak-day-cell.future {
+  opacity: 0.38;
+}
+
+.streak-day-cell.today {
+  border-color: #d4af37;
+  color: #f4ebd9;
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px rgba(212, 175, 55, 0.38);
+}
+
+.streak-day-cell.practiced {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.38) 0%, rgba(180, 83, 9, 0.48) 100%);
+  border-color: #f59e0b;
+  color: #fff6cc;
+  font-weight: 800;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.34);
+}
+
+.streak-day-cell.practiced.today {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.4) 0%, rgba(217, 119, 6, 0.46) 100%);
+  border-color: #ffd700;
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.48);
+}
+
+.streak-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: #baab93;
+  padding-top: 6px;
+  border-top: 1px solid rgba(138, 109, 47, 0.24);
+}
+
+.streak-today-status.done {
+  color: #6ee7b7;
+  font-weight: 600;
+}
+
+.streak-best-label {
+  font-family: 'Consolas', monospace;
+  color: #d4af37;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+@media (max-width: 950px), (max-height: 680px) {
+  .tavern-scene-stage .tavern-streak-popover {
+    position: fixed;
+    left: 50%;
+    bottom: 16px;
+    transform: translateX(-50%);
+    z-index: 1050;
+  }
+}
+
 
 
 

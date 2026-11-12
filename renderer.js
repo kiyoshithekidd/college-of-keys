@@ -279,6 +279,20 @@ const btnMenuQuestBoard = document.getElementById('btn-menu-quest-board');
 const btnMenuHowToPlay = document.getElementById('btn-menu-how-to-play');
 const btnMenuSettings = document.getElementById('btn-menu-settings');
 
+// Issue #66: Hearthfire Practice Streak Pill & Month Calendar Popover
+const btnTavernStreakPill = document.getElementById('btn-tavern-streak-pill');
+const tavernStreakPopover = document.getElementById('tavern-streak-popover');
+const btnCloseStreakPopover = document.getElementById('btn-close-streak-popover');
+const menuStreakCount = document.getElementById('menu-streak-count');
+const menuStreakStatus = document.getElementById('menu-streak-status');
+const streakPopoverCount = document.getElementById('streak-popover-count');
+const btnStreakPrevMonth = document.getElementById('btn-streak-prev-month');
+const streakMonthLabel = document.getElementById('streak-month-label');
+const btnStreakNextMonth = document.getElementById('btn-streak-next-month');
+const streakCalendarGrid = document.getElementById('streak-calendar-grid');
+const streakTodayStatus = document.getElementById('streak-today-status');
+const streakBestLabel = document.getElementById('streak-best-label');
+
 const bardAnnalsModal = document.getElementById('bard-annals-modal');
 const btnCloseAnnals = document.getElementById('btn-close-annals');
 const btnAnnalsCloseBottom = document.getElementById('btn-annals-close-bottom');
@@ -352,8 +366,13 @@ const bardProfile = {
   xpForNextLevel: LEVEL_1_XP_THRESHOLD,
   title: 'Tavern Busker',
   bestCareerChain: 0,
-  songsCompleted: 0
+  songsCompleted: 0,
+  practiceDays: {}
 };
+
+// Issue #66: Current month/year displayed in the Hearthfire Streak Calendar popover
+let streakViewYear = new Date().getFullYear();
+let streakViewMonth = new Date().getMonth();
 
 const songSessionStats = {
   songXpEarned: 0,
@@ -1218,6 +1237,15 @@ function loadBardProfile() {
     bardProfile.songsCompleted = Math.max(0, Number(loaded.songsCompleted) || 0);
     bardProfile.lastSongTitle = loaded.lastSongTitle || null;
     bardProfile.lastSongPath = loaded.lastSongPath || null;
+    if (loaded.practiceDays && typeof loaded.practiceDays === 'object' && !Array.isArray(loaded.practiceDays)) {
+      const sanitizedDays = {};
+      for (const [dateKey, entry] of Object.entries(loaded.practiceDays)) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateKey) && entry) {
+          sanitizedDays[dateKey] = entry;
+        }
+      }
+      bardProfile.practiceDays = sanitizedDays;
+    }
   }
 
   // Load per-song play history stats store (Issue #52 & #68)
@@ -1326,6 +1354,7 @@ function saveBardProfile() {
     // Last song is only updated by recordSongPerformance so boot auto-load never overwrites it (Issue #67)
     lastSongTitle: bardProfile.lastSongTitle || null,
     lastSongPath: bardProfile.lastSongPath || null,
+    practiceDays: bardProfile.practiceDays || {},
     updatedAt: new Date().toISOString()
   };
 
@@ -4657,6 +4686,11 @@ window.addEventListener('keydown', (e) => {
   // Close open popovers and modals on Escape (Issue #33)
   if (e.key === 'Escape') {
     closeAllConservatoryPopovers();
+    if (tavernStreakPopover && !tavernStreakPopover.classList.contains('hidden')) {
+      e.preventDefault();
+      closeStreakPopover({ returnFocus: true });
+      return;
+    }
     if (deleteSpellConfirmModal && !deleteSpellConfirmModal.classList.contains('hidden')) {
       e.preventDefault();
       closeDeleteSpellConfirmModal();
@@ -5702,6 +5736,7 @@ function recordSongPerformance(song, accuracyPct, maxChain, xpEarned) {
   songPlayHistory[key] = existing;
   bardProfile.lastSongTitle = title;
   bardProfile.lastSongPath = song.filePath;
+  recordPracticeDayActivity({ type: 'song', xpEarned });
 
   saveBardProfile();
   saveSongStats();
@@ -5785,6 +5820,8 @@ function updateTavernMenuStats() {
   if (menuGrimoireSummary) {
     menuGrimoireSummary.textContent = `${totalSpells} spell scroll${totalSpells === 1 ? '' : 's'} cataloged`;
   }
+
+  renderPracticeStreakCalendar();
 }
 
 function playTavernWelcomeChord() {
@@ -5887,6 +5924,7 @@ function showTavernMenu() {
 }
 
 function hideTavernMenu() {
+  closeStreakPopover();
   isTavernMenuVisible = false;
   if (tavernMainMenu) {
     tavernMainMenu.classList.add('hidden');
@@ -6177,6 +6215,305 @@ if (btnEnterTavern) {
 if (tavernTitleSplash) {
   tavernTitleSplash.addEventListener('click', () => {
     enterTavernFromSplash();
+  });
+}
+
+// ============================================================================
+// ISSUE #66: HEARTHFIRE PRACTICE STREAK CALENDAR & STREAK MATH
+// ============================================================================
+
+const STREAK_MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+/**
+ * Formats a Date into a local calendar YYYY-MM-DD key without UTC drift.
+ * @param {Date} [dateObj]
+ * @returns {string}
+ */
+function getLocalDateKey(dateObj = new Date()) {
+  const y = dateObj.getFullYear();
+  const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const d = String(dateObj.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Steps a local calendar date by deltaDays using local noon to avoid DST jumps.
+ * @param {Date} dateObj
+ * @param {number} deltaDays
+ * @returns {Date}
+ */
+function addLocalCalendarDays(dateObj, deltaDays) {
+  return new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate() + deltaDays, 12, 0, 0);
+}
+
+/**
+ * Returns true when a stored practiceDays entry counts as an active practice day.
+ * @param {unknown} entry
+ * @returns {boolean}
+ */
+function isPracticeDayActive(entry) {
+  if (!entry) return false;
+  if (entry === true) return true;
+  if (typeof entry !== 'object') return false;
+  return Boolean(
+    entry.practiced === true ||
+    Number(entry.songsCompleted) > 0 ||
+    Number(entry.questsCompleted) > 0 ||
+    Number(entry.xpEarned) > 0
+  );
+}
+
+/**
+ * Computes current streak (with yesterday at-risk grace), longest streak, and today's status.
+ * @param {Record<string, unknown>} practiceDays
+ * @param {Date} [referenceDate]
+ * @returns {{ currentStreak: number, longestStreak: number, practicedToday: boolean, totalDays: number }}
+ */
+function computePracticeStreak(practiceDays = {}, referenceDate = new Date()) {
+  const map = practiceDays && typeof practiceDays === 'object' ? practiceDays : {};
+  const todayNoon = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate(), 12, 0, 0);
+  const todayKey = getLocalDateKey(todayNoon);
+  const practicedToday = isPracticeDayActive(map[todayKey]);
+
+  let currentStreak = 0;
+  let cursor = practicedToday ? todayNoon : addLocalCalendarDays(todayNoon, -1);
+  while (isPracticeDayActive(map[getLocalDateKey(cursor)])) {
+    currentStreak++;
+    cursor = addLocalCalendarDays(cursor, -1);
+  }
+
+  const activeKeys = Object.keys(map)
+    .filter((k) => /^\d{4}-\d{2}-\d{2}$/.test(k) && isPracticeDayActive(map[k]))
+    .sort();
+
+  let longestStreak = 0;
+  let run = 0;
+  let prevDate = null;
+  for (const key of activeKeys) {
+    const [y, m, d] = key.split('-').map(Number);
+    const curDate = new Date(y, m - 1, d, 12, 0, 0);
+    if (prevDate && getLocalDateKey(addLocalCalendarDays(prevDate, 1)) === key) {
+      run++;
+    } else {
+      run = 1;
+    }
+    if (run > longestStreak) longestStreak = run;
+    prevDate = curDate;
+  }
+
+  return {
+    currentStreak,
+    longestStreak,
+    practicedToday,
+    totalDays: activeKeys.length
+  };
+}
+
+/**
+ * Records interactive practice activity for a local calendar day (songs or future Issue #53 quests).
+ * @param {{ type?: 'song' | 'quest', xpEarned?: number, date?: Date }} [options]
+ */
+function recordPracticeDayActivity({ type = 'song', xpEarned = 0, date = new Date() } = {}) {
+  if (!bardProfile.practiceDays || typeof bardProfile.practiceDays !== 'object') {
+    bardProfile.practiceDays = {};
+  }
+  const key = getLocalDateKey(date);
+  const prev = bardProfile.practiceDays[key] && typeof bardProfile.practiceDays[key] === 'object'
+    ? bardProfile.practiceDays[key]
+    : {};
+  const songs = Math.max(0, Number(prev.songsCompleted) || 0) + (type === 'song' ? 1 : 0);
+  const quests = Math.max(0, Number(prev.questsCompleted) || 0) + (type === 'quest' ? 1 : 0);
+  const xp = Math.max(0, Number(prev.xpEarned) || 0) + Math.max(0, Number(xpEarned) || 0);
+
+  bardProfile.practiceDays[key] = {
+    practiced: true,
+    songsCompleted: songs,
+    questsCompleted: quests,
+    xpEarned: xp,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+/**
+ * Renders the Hearthfire streak pill and the Sunday-start month calendar grid.
+ * @param {Date} [referenceDate]
+ */
+function renderPracticeStreakCalendar(referenceDate = new Date()) {
+  const stats = computePracticeStreak(bardProfile.practiceDays, referenceDate);
+  const streakLabel = `${stats.currentStreak}-Day Streak`;
+
+  if (menuStreakCount) menuStreakCount.textContent = streakLabel;
+  if (streakPopoverCount) streakPopoverCount.textContent = streakLabel;
+
+  if (btnTavernStreakPill) {
+    btnTavernStreakPill.classList.toggle('active-streak', stats.currentStreak > 0);
+    btnTavernStreakPill.classList.toggle('practiced-today', stats.practicedToday);
+  }
+  if (tavernStreakPopover) {
+    tavernStreakPopover.classList.toggle('active-streak', stats.currentStreak > 0);
+  }
+
+  if (menuStreakStatus) {
+    if (stats.practicedToday) {
+      menuStreakStatus.textContent = 'Hearth lit today';
+    } else if (stats.currentStreak > 0) {
+      menuStreakStatus.textContent = 'Play today to keep streak!';
+    } else {
+      menuStreakStatus.textContent = 'Light the hearth today';
+    }
+  }
+
+  if (streakTodayStatus) {
+    streakTodayStatus.classList.toggle('done', stats.practicedToday);
+    if (stats.practicedToday) {
+      streakTodayStatus.textContent = 'Hearth lit today!';
+    } else if (stats.currentStreak > 0) {
+      streakTodayStatus.textContent = 'Play 1 song today to keep your flame!';
+    } else {
+      streakTodayStatus.textContent = 'Complete 1 song today to light the hearth!';
+    }
+  }
+
+  if (streakBestLabel) {
+    streakBestLabel.textContent = `Best: ${stats.longestStreak}d`;
+  }
+
+  const curYear = referenceDate.getFullYear();
+  const curMonth = referenceDate.getMonth();
+  if (streakMonthLabel) {
+    streakMonthLabel.textContent = `${STREAK_MONTH_NAMES[streakViewMonth]} ${streakViewYear}`;
+  }
+  if (btnStreakNextMonth) {
+    const isCurrentOrFuture = streakViewYear > curYear || (streakViewYear === curYear && streakViewMonth >= curMonth);
+    btnStreakNextMonth.disabled = isCurrentOrFuture;
+  }
+
+  if (!streakCalendarGrid) return;
+  while (streakCalendarGrid.firstChild) {
+    streakCalendarGrid.removeChild(streakCalendarGrid.firstChild);
+  }
+
+  const firstDayOfWeek = new Date(streakViewYear, streakViewMonth, 1).getDay(); // 0 = Sunday
+  const daysInMonth = new Date(streakViewYear, streakViewMonth + 1, 0).getDate();
+  const todayKey = getLocalDateKey(referenceDate);
+  const map = bardProfile.practiceDays || {};
+
+  for (let i = 0; i < firstDayOfWeek; i++) {
+    const emptyCell = document.createElement('div');
+    emptyCell.className = 'streak-day-cell empty';
+    emptyCell.setAttribute('aria-hidden', 'true');
+    streakCalendarGrid.appendChild(emptyCell);
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const cellDate = new Date(streakViewYear, streakViewMonth, day, 12, 0, 0);
+    const cellKey = getLocalDateKey(cellDate);
+    const practiced = isPracticeDayActive(map[cellKey]);
+    const isToday = cellKey === todayKey;
+    const isFuture = cellKey > todayKey;
+
+    const cell = document.createElement('div');
+    cell.className = 'streak-day-cell';
+    cell.setAttribute('role', 'gridcell');
+    if (practiced) cell.classList.add('practiced');
+    if (isToday) cell.classList.add('today');
+    if (isFuture) cell.classList.add('future');
+    cell.textContent = String(day);
+    cell.setAttribute('aria-label', `${STREAK_MONTH_NAMES[streakViewMonth]} ${day}, ${streakViewYear}: ${practiced ? 'Practiced' : isFuture ? 'Upcoming' : 'Not practiced'}`);
+    streakCalendarGrid.appendChild(cell);
+  }
+}
+
+function openStreakPopover() {
+  if (!tavernStreakPopover) return;
+  const now = new Date();
+  streakViewYear = now.getFullYear();
+  streakViewMonth = now.getMonth();
+  renderPracticeStreakCalendar(now);
+  tavernStreakPopover.classList.remove('hidden');
+  if (btnTavernStreakPill) btnTavernStreakPill.setAttribute('aria-expanded', 'true');
+}
+
+function closeStreakPopover({ returnFocus = false } = {}) {
+  if (!tavernStreakPopover || tavernStreakPopover.classList.contains('hidden')) return;
+  tavernStreakPopover.classList.add('hidden');
+  if (btnTavernStreakPill) {
+    btnTavernStreakPill.setAttribute('aria-expanded', 'false');
+    if (returnFocus) btnTavernStreakPill.focus();
+  }
+}
+
+function toggleStreakPopover() {
+  if (!tavernStreakPopover) return;
+  if (tavernStreakPopover.classList.contains('hidden')) {
+    openStreakPopover();
+  } else {
+    closeStreakPopover();
+  }
+}
+
+if (btnTavernStreakPill) {
+  btnTavernStreakPill.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleStreakPopover();
+  });
+  btnTavernStreakPill.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.stopPropagation();
+    }
+  });
+}
+
+if (btnCloseStreakPopover) {
+  btnCloseStreakPopover.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeStreakPopover({ returnFocus: true });
+  });
+}
+
+if (btnStreakPrevMonth) {
+  btnStreakPrevMonth.addEventListener('click', (e) => {
+    e.stopPropagation();
+    streakViewMonth--;
+    if (streakViewMonth < 0) {
+      streakViewMonth = 11;
+      streakViewYear--;
+    }
+    renderPracticeStreakCalendar();
+  });
+}
+
+if (btnStreakNextMonth) {
+  btnStreakNextMonth.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth();
+    if (streakViewYear > curYear || (streakViewYear === curYear && streakViewMonth >= curMonth)) {
+      return;
+    }
+    streakViewMonth++;
+    if (streakViewMonth > 11) {
+      streakViewMonth = 0;
+      streakViewYear++;
+    }
+    renderPracticeStreakCalendar(now);
+  });
+}
+
+if (tavernMainMenu) {
+  tavernMainMenu.addEventListener('click', (e) => {
+    if (
+      tavernStreakPopover &&
+      !tavernStreakPopover.classList.contains('hidden') &&
+      !tavernStreakPopover.contains(e.target) &&
+      !(btnTavernStreakPill && btnTavernStreakPill.contains(e.target))
+    ) {
+      closeStreakPopover();
+    }
   });
 }
 

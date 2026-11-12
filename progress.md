@@ -18,6 +18,7 @@ NEVER execute multiple phases at once. Stop at the end of each phase, provide te
 - [x] Phase 12: Tavern Title Splash, Palette Overhaul & Station UX (Issue #71) (Completed & Merged in PR #72 & PR #73)
 - [x] Phase 13: Flippable Grimoire Spellbook Sorted by Difficulty (Issue #69) (Completed & Merged in PR #74 & PR #75)
 - [x] Phase 14: Delete / Archive Songs from the Grimoire In-App (Issue #77) (Completed & Merged in PR #84)
+- [x] Phase 15: Practice Streak Calendar (Issue #66) (Completed & Merged in PR #85)
 
 ---
 
