@@ -16,7 +16,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { pathToFileURL } = require('url');
-const { shell, ipcRenderer } = require('electron');
+const { shell } = require('electron');
 
 const MIN_MIDI = 36; // C2
 const MAX_MIDI = 96; // C7
@@ -46,6 +46,7 @@ const FIRST_RUN_STORAGE_KEY = 'collegeOfKeys_hasSeenIntro_v1';
 // Phase 6 Constants: The Grimoire & Watched Directories
 const IMPORTS_DIR = path.join(__dirname, 'Imports');
 const MIDI_TEST_DIR = path.join(__dirname, 'Midi Test Files');
+const ARCHIVE_DIR = path.join(__dirname, 'Archive');
 const GRIMOIRE_STORAGE_KEY = 'collegeOfKeys_grimoire_v1';
 const GRIMOIRE_INDEX_FILE = path.join(__dirname, 'grimoire_library.json');
 
@@ -3033,8 +3034,8 @@ function renderSpellbookSpread() {
         cardDeleteBtn.type = 'button';
         cardDeleteBtn.className = 'spellbook-card-delete-btn';
         cardDeleteBtn.textContent = '\uD83D\uDDD1';
-        cardDeleteBtn.title = `Move "${entry.title}" to Recycle Bin`;
-        cardDeleteBtn.setAttribute('aria-label', `Move ${entry.title} to Recycle Bin`);
+        cardDeleteBtn.title = `Remove "${entry.title}" and move to ./Archive`;
+        cardDeleteBtn.setAttribute('aria-label', `Archive ${entry.title}`);
         cardDeleteBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           openDeleteSpellConfirmModal(entry);
@@ -3173,8 +3174,8 @@ function renderSpellbookDetails(entry) {
   if (btnSpellbookDeleteSong) {
     if (isGrimoireEntryDeletable(entry)) {
       btnSpellbookDeleteSong.classList.remove('hidden');
-      btnSpellbookDeleteSong.title = `Move "${entry.title}" and paired files to Recycle Bin`;
-      btnSpellbookDeleteSong.setAttribute('aria-label', `Move ${entry.title} to Recycle Bin`);
+      btnSpellbookDeleteSong.title = `Remove "${entry.title}" and move files to ./Archive`;
+      btnSpellbookDeleteSong.setAttribute('aria-label', `Archive ${entry.title}`);
     } else {
       btnSpellbookDeleteSong.classList.add('hidden');
     }
@@ -3480,7 +3481,7 @@ function openDeleteSpellConfirmModal(entry) {
   if (btnDeleteConfirmCancel) btnDeleteConfirmCancel.disabled = false;
   if (btnDeleteConfirmAccept) {
     btnDeleteConfirmAccept.disabled = false;
-    btnDeleteConfirmAccept.textContent = '\uD83D\uDDD1 Move to Recycle Bin';
+    btnDeleteConfirmAccept.innerHTML = '&#128230; Move to Archive';
   }
 
   deleteSpellConfirmModal.classList.remove('hidden');
@@ -3503,25 +3504,71 @@ function closeDeleteSpellConfirmModal() {
   previousDeleteModalFocus = null;
 }
 
-/**
- * Remove a spell from The Grimoire and move its source files to the OS Recycle Bin (Issue #77)
- */
-async function removeGrimoireEntry(entry) {
-  if (!isGrimoireEntryDeletable(entry)) return { removed: false, failed: [] };
+function ensureArchiveDirectory() {
+  try {
+    if (!fs.existsSync(ARCHIVE_DIR)) {
+      fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
+    }
+  } catch {
+    // Ignore mkdir error
+  }
+}
 
-  const filesToTrash = collectGrimoireEntryFiles(entry);
-  const wasActiveOnHighway = isGrimoireEntryLoadedOnHighway(entry, filesToTrash);
+/**
+ * Move a file into the local ./Archive directory.
+ * If a file with the same name already exists in ./Archive, appends a timestamp to prevent overwriting.
+ */
+function moveFileToArchive(sourcePath) {
+  if (!sourcePath || typeof sourcePath !== 'string' || sourcePath === 'BUILTIN_DEMO') return null;
+  const resolved = path.resolve(sourcePath);
+  if (!fs.existsSync(resolved)) return null;
+
+  ensureArchiveDirectory();
+
+  const fileName = path.basename(resolved);
+  let destPath = path.join(ARCHIVE_DIR, fileName);
+
+  // If a file with this name already exists in ./Archive, append a timestamp so we never overwrite
+  if (fs.existsSync(destPath)) {
+    const ext = path.extname(fileName);
+    const base = path.basename(fileName, ext);
+    destPath = path.join(ARCHIVE_DIR, `${base}_archived_${Date.now()}${ext}`);
+  }
+
+  try {
+    fs.renameSync(resolved, destPath);
+  } catch {
+    // If rename fails (e.g. across drives or transient lock), copy then remove source
+    fs.copyFileSync(resolved, destPath);
+    try {
+      fs.unlinkSync(resolved);
+    } catch {
+      // Ignore source unlink error if locked
+    }
+  }
+
+  return destPath;
+}
+
+/**
+ * Remove a spell from The Grimoire and move its source files to ./Archive (Issue #77)
+ */
+function removeGrimoireEntry(entry) {
+  if (!isGrimoireEntryDeletable(entry)) return { removed: false, archived: [], failed: [] };
+
+  const filesToArchive = collectGrimoireEntryFiles(entry);
+  const wasActiveOnHighway = isGrimoireEntryLoadedOnHighway(entry, filesToArchive);
   const matchedLastSong = Boolean(
     isSameFilePath(bardProfile.lastSongPath, entry.filePath) ||
-    filesToTrash.some((f) => isSameFilePath(bardProfile.lastSongPath, f))
+    filesToArchive.some((f) => isSameFilePath(bardProfile.lastSongPath, f))
   );
 
-  // Release open media file handles BEFORE moving files to the Recycle Bin (prevents EBUSY on Windows)
+  // Release open media file handles BEFORE moving files (prevents Windows file lock errors)
   if (wasActiveOnHighway) {
     unloadCurrentSongToEmptyState();
   } else if (
     currentSong?.backingAudioPath &&
-    filesToTrash.some((f) => isSameFilePath(currentSong.backingAudioPath, f))
+    filesToArchive.some((f) => isSameFilePath(currentSong.backingAudioPath, f))
   ) {
     if (currentSong.backingAudioEl) {
       try {
@@ -3536,15 +3583,24 @@ async function removeGrimoireEntry(entry) {
     currentSong.backingAudioPath = null;
   }
 
-  let trashResult = { trashed: [], missing: [], failed: [] };
-  if (filesToTrash.length > 0) {
-    trashResult = await ipcRenderer.invoke('grimoire:trash-files', filesToTrash);
+  const archived = [];
+  const failed = [];
+
+  for (const file of filesToArchive) {
+    try {
+      const dest = moveFileToArchive(file);
+      if (dest) {
+        archived.push({ from: file, to: dest });
+      }
+    } catch (err) {
+      failed.push({ file, error: err?.message || String(err) });
+    }
   }
 
-  // Only keep entry removed if primary MIDI is no longer on disk (never leave ghost/stale state)
-  const midiStillExists = Boolean(entry.filePath && fs.existsSync(entry.filePath));
-  if (midiStillExists) {
-    const errReason = trashResult.failed?.[0]?.error || 'File could not be moved to the Recycle Bin.';
+  // Only keep entry removed if primary MIDI file has left its original location
+  const midiStillInOrigin = Boolean(entry.filePath && fs.existsSync(entry.filePath));
+  if (midiStillInOrigin) {
+    const errReason = failed[0]?.error || 'File could not be moved to the ./Archive folder.';
     throw new Error(errReason);
   }
 
@@ -3563,12 +3619,12 @@ async function removeGrimoireEntry(entry) {
 
   return {
     removed: true,
-    trashedCount: trashResult.trashed?.length || 0,
-    failed: trashResult.failed || []
+    archivedCount: archived.length,
+    failed
   };
 }
 
-async function confirmPendingSpellDeletion() {
+function confirmPendingSpellDeletion() {
   if (!pendingDeleteEntry || isDeleteInProgress) return;
   const targetEntry = pendingDeleteEntry;
 
@@ -3576,19 +3632,19 @@ async function confirmPendingSpellDeletion() {
   if (btnDeleteConfirmCancel) btnDeleteConfirmCancel.disabled = true;
   if (btnDeleteConfirmAccept) {
     btnDeleteConfirmAccept.disabled = true;
-    btnDeleteConfirmAccept.textContent = 'Moving to Recycle Bin...';
+    btnDeleteConfirmAccept.textContent = 'Moving to Archive...';
   }
 
   try {
-    const result = await removeGrimoireEntry(targetEntry);
+    const result = removeGrimoireEntry(targetEntry);
     isDeleteInProgress = false;
     closeDeleteSpellConfirmModal();
 
     if (result.removed) {
       if (result.failed && result.failed.length > 0) {
-        showGrimoireToast(`\uD83D\uDDD1 Removed "${targetEntry.title}" (some paired files could not be moved).`);
+        showGrimoireToast(`\uD83D\uDCE6 Archived "${targetEntry.title}" (some paired files could not be moved).`);
       } else {
-        showGrimoireToast(`\uD83D\uDDD1 Moved "${targetEntry.title}" to the Recycle Bin.`);
+        showGrimoireToast(`\uD83D\uDCE6 Moved "${targetEntry.title}" to ./Archive.`);
       }
     }
   } catch (err) {
@@ -3596,9 +3652,9 @@ async function confirmPendingSpellDeletion() {
     if (btnDeleteConfirmCancel) btnDeleteConfirmCancel.disabled = false;
     if (btnDeleteConfirmAccept) {
       btnDeleteConfirmAccept.disabled = false;
-      btnDeleteConfirmAccept.textContent = '\uD83D\uDDD1 Move to Recycle Bin';
+      btnDeleteConfirmAccept.innerHTML = '&#128230; Move to Archive';
     }
-    alert(`Could not move "${targetEntry.title}" to the Recycle Bin: ${err.message}`);
+    alert(`Could not move "${targetEntry.title}" to ./Archive: ${err.message}`);
   }
 }
 

@@ -885,7 +885,7 @@
                   <button id="btn-spellbook-load-song" class="tavern-btn tavern-btn-cast btn-spellbook-load" title="Load this spell onto the 61-key Spell Highway and take the stage!">
                     &#9654; Inscribe on Highway (Load Spell)
                   </button>
-                  <button id="btn-spellbook-delete-song" class="btn-icon btn-spellbook-delete hidden" title="Move spell scroll and paired files to Recycle Bin" aria-label="Move selected spell to Recycle Bin">
+                  <button id="btn-spellbook-delete-song" class="btn-icon btn-spellbook-delete hidden" title="Remove spell scroll and move files to ./Archive" aria-label="Archive selected spell">
                     &#128465;
                   </button>
                 </div>
@@ -918,15 +918,15 @@
     </div>
   </div>
 
-  <!-- Issue #77: In-App Delete Spell Confirmation Modal -->
+  <!-- Issue #77: In-App Archive / Remove Spell Confirmation Modal -->
   <div id="delete-spell-confirm-modal" class="modal-backdrop confirm-delete-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="delete-confirm-heading" aria-describedby="delete-confirm-lead">
     <div class="modal-card confirm-delete-card">
       <div class="modal-header">
         <div class="modal-header-left">
-          <div class="arcane-crest" aria-hidden="true">&#128465;</div>
+          <div class="arcane-crest" aria-hidden="true">&#128230;</div>
           <div>
             <h2 id="delete-confirm-heading" class="modal-title">Remove Spell from Grimoire?</h2>
-            <span id="delete-confirm-subtext" class="modal-subtitle">Source files move to the OS Recycle Bin and can be restored.</span>
+            <span id="delete-confirm-subtext" class="modal-subtitle">Source files will be moved to ./Archive and can be restored at any time.</span>
           </div>
         </div>
         <button id="btn-close-delete-confirm" type="button" class="modal-close-btn" title="Cancel (Escape)" aria-label="Cancel removal">&times;</button>
@@ -934,7 +934,7 @@
 
       <div class="confirm-delete-body">
         <p id="delete-confirm-lead" class="confirm-delete-lead">
-          Move <strong id="delete-confirm-song-title">this spell</strong> to the Recycle Bin and remove its entry from The Grimoire?
+          Move <strong id="delete-confirm-song-title">this spell</strong> to the local <code>./Archive</code> folder and remove its entry from The Grimoire?
         </p>
 
         <div id="delete-confirm-active-warning" class="confirm-active-warning hidden">
@@ -942,14 +942,14 @@
         </div>
 
         <div class="confirm-file-list-wrap">
-          <span class="confirm-file-list-label">Files to be moved to the Recycle Bin:</span>
+          <span class="confirm-file-list-label">Files to be moved to ./Archive:</span>
           <ul id="delete-confirm-file-list" class="confirm-file-list"></ul>
         </div>
       </div>
 
       <div class="modal-actions confirm-delete-actions">
         <button id="btn-delete-confirm-cancel" type="button" class="tavern-btn">Cancel</button>
-        <button id="btn-delete-confirm-accept" type="button" class="tavern-btn btn-danger-confirm">&#128465; Move to Recycle Bin</button>
+        <button id="btn-delete-confirm-accept" type="button" class="tavern-btn btn-danger-confirm">&#128230; Move to Archive</button>
       </div>
     </div>
   </div>
