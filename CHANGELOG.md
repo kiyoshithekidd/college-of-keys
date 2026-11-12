@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Issue #53: Daily Quest System (Tavern Bounties):**
+  - Added 3 rotating daily bounties per local calendar day (`DAILY_BOUNTY_SLOTS`: Song/Mode, Precision/Combo, and Volume/Endurance) persisted in `bardProfile.dailyQuests` with zero UTC drift.
+  - Integrated a live Daily Bounty status summary onto the Tavern Notice Board (`#menu-daily-bounty-summary` on `station-quest`) with a custom transparent Wax-Sealed Bounty Scroll icon (`assets/images/icons/bounty-seal-transparent.png`), plus a **Today's Tavern Bounties** section at the top of `#quest-board-modal` with progress bars and 1 free daily reroll (`#btn-reroll-daily-bounty`).
+  - Wired `updateDailyQuestsOnSongComplete()` into `recordSongPerformance()` so interactive runs automatically progress bounties, auto-claim bonus Bardic XP (including level-ups), light the Hearthfire Streak via `recordPracticeDayActivity({ type: 'quest', xpEarned })`, and display completed bounties in `#modal-quests-banner` inside the Performance Check modal.
+
 - **Issue #66: Hearthfire Practice Streak Calendar:**
   - Added a compact Hearthfire Streak Pill (`#btn-tavern-streak-pill`) docked inside `#tavern-bard-card` on the Tavern Main Menu, featuring a custom transparent Arcane Hearth Flame icon (`assets/images/icons/streak-flame-transparent.png`), live streak count, and today's hearth status.
   - Added an expandable floating Month Calendar Popover (`#tavern-streak-popover`) with Sunday-start weekdays (`S M T W T F S`), previous/next month navigation (disabling future months), highlighted practiced days, today indicator, best streak readout, and `Escape` / outside-click / close-button dismissal.
