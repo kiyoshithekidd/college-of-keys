@@ -494,7 +494,7 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - Completed UI/UX Design Reviewer subagent pass and resolved all 4 design decisions with the user (Option B1 pill + popover, any interactive mode counts, custom Arcane Hearth Flame icon, Sunday week start).
   - Generated `assets/images/icons/streak-flame-transparent.png` (128x128 transparent PNG).
   - Implemented `#btn-tavern-streak-pill`, `#tavern-streak-popover`, local-calendar streak math (`getLocalDateKey`, `addLocalCalendarDays`, `computePracticeStreak`, `recordPracticeDayActivity`), `bardProfile.practiceDays` persistence, and `renderPracticeStreakCalendar()` across `index.html`, `styles.css`, and `renderer.js`.
-- **Current status:** Built and verified with automated checks + Post-Build Peer Review & QA subagent pass; pending user UAT (`"Testing successful"`).
+- **Current status:** Verified (`"testing successful"`) and merged into `main` in PR #85. Issue #66 closed.
 
 
 
