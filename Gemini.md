@@ -476,7 +476,7 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - Added visible card-level archive controls (`.spellbook-card-delete-btn`) on every file-backed Grimoire card in `renderSpellbookSpread()`, expanded `#btn-spellbook-delete-song` in spell details to support all file-backed entries (`Imports/` & `Test Library`) while keeping `BUILTIN_DEMO` protected, and replaced native `confirm()` with an in-app Tavern Dark Mode dialog (`#delete-spell-confirm-modal`, `z-index: 1400`) showing the song name, active-highway warning, and exact files moving to `./Archive`.
   - Added `unloadCurrentSongToEmptyState()` to pause playback, close active backing audio handles cleanly before moving files, reset `currentSong`, timeline controls, and highway badges to a clean empty state, and clear stale `bardProfile.lastSongPath` / `lastSongTitle`.
   - Updated stacked modal `Tab` focus cycling and `Escape` dismissal priority so cancelling `#delete-spell-confirm-modal` leaves the Grimoire Spellbook open.
-- **Current status:** Implemented on `feature/issue-77-delete-songs-in-app` — awaiting `"Testing successful"` confirmation before merging PR.
+- **Current status:** Verified (`"Testing Successful"`) and merged into `main` in PR #84. Issue #77 closed.
 
 
 
