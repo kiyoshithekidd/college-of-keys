@@ -46,6 +46,7 @@ const FIRST_RUN_STORAGE_KEY = 'collegeOfKeys_hasSeenIntro_v1';
 // Phase 6 Constants: The Grimoire & Watched Directories
 const IMPORTS_DIR = path.join(__dirname, 'Imports');
 const MIDI_TEST_DIR = path.join(__dirname, 'Midi Test Files');
+const ARCHIVE_DIR = path.join(__dirname, 'Archive');
 const GRIMOIRE_STORAGE_KEY = 'collegeOfKeys_grimoire_v1';
 const GRIMOIRE_INDEX_FILE = path.join(__dirname, 'grimoire_library.json');
 
@@ -225,6 +226,15 @@ const btnSpellbookDeleteSong = document.getElementById('btn-spellbook-delete-son
 const btnSpellbookPrevPage = document.getElementById('btn-spellbook-prev-page');
 const btnSpellbookNextPage = document.getElementById('btn-spellbook-next-page');
 const spellbookTierPips = document.getElementById('spellbook-tier-pips');
+
+// Issue #77: In-App Delete Spell Confirmation Modal Elements
+const deleteSpellConfirmModal = document.getElementById('delete-spell-confirm-modal');
+const deleteConfirmSongTitle = document.getElementById('delete-confirm-song-title');
+const deleteConfirmActiveWarning = document.getElementById('delete-confirm-active-warning');
+const deleteConfirmFileList = document.getElementById('delete-confirm-file-list');
+const btnCloseDeleteConfirm = document.getElementById('btn-close-delete-confirm');
+const btnDeleteConfirmCancel = document.getElementById('btn-delete-confirm-cancel');
+const btnDeleteConfirmAccept = document.getElementById('btn-delete-confirm-accept');
 
 // DOM Elements — Phase 9 ("The Quest Board" In-App YouTube-to-MIDI Sourcing & Quick Links)
 const btnOpenQuestBoard = document.getElementById('btn-open-quest-board');
@@ -1975,14 +1985,18 @@ function resetPlaybackToStart() {
       // Ignore seek errors before audio metadata is ready
     }
   }
-  setStrikeStatusBadge(
-    'ready',
-    playbackState.accompanimentMode === 'auto-both'
-      ? 'Listen Only Mode (Auto-Playing Both Hands)'
-      : (playbackState.waitMode
-          ? 'Wait Mode Ready (100ms Chord Grace Active)'
-          : 'Arcade Mode Ready (Continuous Playback)')
-  );
+  if (!currentSong) {
+    setStrikeStatusBadge('idle', 'Highway Clear — Open Grimoire to Choose a Spell');
+  } else {
+    setStrikeStatusBadge(
+      'ready',
+      playbackState.accompanimentMode === 'auto-both'
+        ? 'Listen Only Mode (Auto-Playing Both Hands)'
+        : (playbackState.waitMode
+            ? 'Wait Mode Ready (100ms Chord Grace Active)'
+            : 'Arcade Mode Ready (Continuous Playback)')
+    );
+  }
   updateTimelineUI();
 }
 
@@ -3015,6 +3029,20 @@ function renderSpellbookSpread() {
       item.appendChild(titleWrap);
       item.appendChild(metaSpan);
 
+      if (isGrimoireEntryDeletable(entry)) {
+        const cardDeleteBtn = document.createElement('button');
+        cardDeleteBtn.type = 'button';
+        cardDeleteBtn.className = 'spellbook-card-delete-btn';
+        cardDeleteBtn.textContent = '\uD83D\uDDD1';
+        cardDeleteBtn.title = `Remove "${entry.title}" and move to ./Archive`;
+        cardDeleteBtn.setAttribute('aria-label', `Archive ${entry.title}`);
+        cardDeleteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openDeleteSpellConfirmModal(entry);
+        });
+        item.appendChild(cardDeleteBtn);
+      }
+
       item.addEventListener('click', () => {
         entry.newlyIngested = false;
         selectedSpellbookEntryId = entry.id;
@@ -3142,10 +3170,12 @@ function renderSpellbookDetails(entry) {
     btnSpellbookLoadSong.disabled = false;
   }
 
-  // Delete button only available for user-imported files in Imports/
+  // Delete button available for all file-backed Grimoire entries (Imports/ & Test Library)
   if (btnSpellbookDeleteSong) {
-    if (entry.filePath !== 'BUILTIN_DEMO' && entry.sourceTag === 'Imports/') {
+    if (isGrimoireEntryDeletable(entry)) {
       btnSpellbookDeleteSong.classList.remove('hidden');
+      btnSpellbookDeleteSong.title = `Remove "${entry.title}" and move files to ./Archive`;
+      btnSpellbookDeleteSong.setAttribute('aria-label', `Archive ${entry.title}`);
     } else {
       btnSpellbookDeleteSong.classList.add('hidden');
     }
@@ -3171,13 +3201,8 @@ function deleteSelectedSpellbookSong() {
     return getSpellbookTierIndexForLevel(e.spellLevel) === currentSpellbookTierIndex;
   });
   const entry = allInTier.find((e) => e.id === selectedSpellbookEntryId);
-  if (!entry) return;
-
-  if (confirm(`Remove spell scroll "${entry.title}" from ./Imports and The Grimoire?`)) {
-    removeGrimoireEntry(entry);
-    selectedSpellbookEntryId = null;
-    renderSpellbookSpread();
-  }
+  if (!entry || !isGrimoireEntryDeletable(entry)) return;
+  openDeleteSpellConfirmModal(entry);
 }
 
 /**
@@ -3258,39 +3283,379 @@ function saveActiveSpellToGrimoire() {
   }
 }
 
+let pendingDeleteEntry = null;
+let isDeleteInProgress = false;
+let previousDeleteModalFocus = null;
+
+function isSameFilePath(pathA, pathB) {
+  if (!pathA || !pathB || pathA === 'BUILTIN_DEMO' || pathB === 'BUILTIN_DEMO') return false;
+  try {
+    const resolvedA = path.resolve(String(pathA));
+    const resolvedB = path.resolve(String(pathB));
+    return process.platform === 'win32'
+      ? resolvedA.toLowerCase() === resolvedB.toLowerCase()
+      : resolvedA === resolvedB;
+  } catch {
+    return false;
+  }
+}
+
+function isGrimoireEntryDeletable(entry) {
+  return Boolean(entry && entry.filePath && entry.filePath !== 'BUILTIN_DEMO');
+}
+
 /**
- * Remove a spell from ./Imports and The Grimoire
+ * Collect all source files associated with a Grimoire entry (MIDI, paired audio,
+ * sheet music, and any future #76 bundle parts) so they trash together safely.
+ */
+function collectGrimoireEntryFiles(entry) {
+  const candidates = [];
+  const seen = new Set();
+
+  const pushCandidate = (filePath) => {
+    if (!filePath || typeof filePath !== 'string' || filePath === 'BUILTIN_DEMO') return;
+    try {
+      const resolved = path.resolve(filePath);
+      const dedupeKey = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+      if (seen.has(dedupeKey)) return;
+      if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+        seen.add(dedupeKey);
+        candidates.push(resolved);
+      }
+    } catch {
+      // Ignore invalid or inaccessible paths
+    }
+  };
+
+  if (entry) {
+    pushCandidate(entry.filePath);
+    pushCandidate(entry.backingAudioPath);
+    pushCandidate(entry.sheetMusicPath);
+    pushCandidate(entry.musicXmlPath);
+
+    if (Array.isArray(entry.bundleFiles)) {
+      entry.bundleFiles.forEach(pushCandidate);
+    }
+    if (Array.isArray(entry.stems)) {
+      entry.stems.forEach(pushCandidate);
+    } else if (entry.stems && typeof entry.stems === 'object') {
+      Object.values(entry.stems).forEach(pushCandidate);
+    }
+
+    // Sibling paired files sharing the same basename in the entry's directory
+    if (entry.filePath && entry.filePath !== 'BUILTIN_DEMO') {
+      try {
+        const dir = path.dirname(entry.filePath);
+        const base = path.basename(entry.filePath).replace(/\.(mid|midi)$/i, '');
+        const pairedExts = ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.musicxml', '.mxl', '.xml', '.pdf'];
+        for (const ext of pairedExts) {
+          pushCandidate(path.join(dir, `${base}${ext}`));
+        }
+      } catch {
+        // Ignore sibling resolution error
+      }
+    }
+  }
+
+  return candidates;
+}
+
+function isGrimoireEntryLoadedOnHighway(entry, associatedFiles = []) {
+  if (!currentSong || !entry) return false;
+  if (isSameFilePath(currentSong.filePath, entry.filePath)) return true;
+  if (
+    currentSong.backingAudioPath &&
+    associatedFiles.some((f) => isSameFilePath(currentSong.backingAudioPath, f))
+  ) {
+    return true;
+  }
+  if (
+    (!currentSong.filePath || !entry.filePath) &&
+    currentSong.fileName &&
+    entry.fileName &&
+    currentSong.fileName.toLowerCase() === entry.fileName.toLowerCase()
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Unload the currently active song from the Spell Highway back to a clean empty state (Issue #77)
+ */
+function unloadCurrentSongToEmptyState() {
+  pausePlayback();
+  clearAllHeldInputNotes();
+
+  if (currentSong?.backingAudioEl) {
+    try {
+      currentSong.backingAudioEl.pause();
+      currentSong.backingAudioEl.removeAttribute('src');
+      currentSong.backingAudioEl.load();
+    } catch {
+      // Ignore audio cleanup errors
+    }
+  }
+
+  currentSong = null;
+  playbackState.isPlaying = false;
+  playbackState.currentTime = 0;
+  playbackState.lastFrameTimestamp = null;
+  playbackState.isWaitingForStrike = false;
+  playbackState.waitStartedAtMs = null;
+  playbackState.activeStrikeGroup = null;
+  playbackState.isScrubbing = false;
+
+  resetSongSessionStats();
+
+  if (spellNameDisplay) {
+    spellNameDisplay.textContent = 'None \u2014 Load a .mid or Demo Spell';
+  }
+  if (spellDifficultyBadge) {
+    spellDifficultyBadge.className = 'difficulty-badge diff-cantrip';
+    spellDifficultyBadge.textContent = 'No Spell Loaded';
+  }
+  if (statNps) statNps.textContent = '0.00';
+  if (statBpm) statBpm.textContent = '120 BPM';
+  if (statDuration) statDuration.textContent = '0:00';
+  if (statT1Notes) statT1Notes.textContent = '0';
+  if (statT2Notes) statT2Notes.textContent = '0';
+  if (statBandTracks) statBandTracks.textContent = '0';
+  if (statFoldedNotes) statFoldedNotes.textContent = '0';
+
+  if (playableTrackSelect) {
+    playableTrackSelect.innerHTML = '<option value="auto-piano">No Spell Loaded</option>';
+    playableTrackSelect.disabled = true;
+  }
+  if (btnPlayPause) {
+    btnPlayPause.disabled = true;
+    btnPlayPause.textContent = '\u25B6 Cast Spell';
+    btnPlayPause.classList.remove('playing');
+  }
+  if (btnRestart) btnRestart.disabled = true;
+  if (songProgressSlider) {
+    songProgressSlider.value = '0';
+    songProgressSlider.disabled = true;
+  }
+  if (songTimeReadout) songTimeReadout.textContent = '0:00 / 0:00';
+
+  setStrikeStatusBadge('idle', 'Highway Clear \u2014 Open Grimoire to Choose a Spell');
+  updateLitrpgHUD();
+}
+
+function openDeleteSpellConfirmModal(entry) {
+  if (!isGrimoireEntryDeletable(entry) || !deleteSpellConfirmModal) return;
+
+  pendingDeleteEntry = entry;
+  previousDeleteModalFocus = document.activeElement;
+  const files = collectGrimoireEntryFiles(entry);
+  const isActive = isGrimoireEntryLoadedOnHighway(entry, files);
+
+  if (deleteConfirmSongTitle) {
+    deleteConfirmSongTitle.textContent = `"${entry.title}"`;
+  }
+  if (deleteConfirmActiveWarning) {
+    if (isActive) {
+      deleteConfirmActiveWarning.classList.remove('hidden');
+    } else {
+      deleteConfirmActiveWarning.classList.add('hidden');
+    }
+  }
+  if (deleteConfirmFileList) {
+    deleteConfirmFileList.innerHTML = '';
+    if (files.length === 0) {
+      const li = document.createElement('li');
+      li.textContent = entry.fileName || entry.title || 'Grimoire index entry';
+      deleteConfirmFileList.appendChild(li);
+    } else {
+      for (const filePath of files) {
+        const li = document.createElement('li');
+        const folderLabel = path.basename(path.dirname(filePath));
+        li.textContent = `${folderLabel}/${path.basename(filePath)}`;
+        li.title = filePath;
+        deleteConfirmFileList.appendChild(li);
+      }
+    }
+  }
+
+  if (btnDeleteConfirmCancel) btnDeleteConfirmCancel.disabled = false;
+  if (btnDeleteConfirmAccept) {
+    btnDeleteConfirmAccept.disabled = false;
+    btnDeleteConfirmAccept.innerHTML = '&#128230; Move to Archive';
+  }
+
+  deleteSpellConfirmModal.classList.remove('hidden');
+  if (btnDeleteConfirmCancel) {
+    btnDeleteConfirmCancel.focus();
+  }
+}
+
+function closeDeleteSpellConfirmModal() {
+  if (isDeleteInProgress) return;
+  pendingDeleteEntry = null;
+  if (deleteSpellConfirmModal) {
+    deleteSpellConfirmModal.classList.add('hidden');
+  }
+  if (previousDeleteModalFocus && typeof previousDeleteModalFocus.focus === 'function' && document.body.contains(previousDeleteModalFocus)) {
+    previousDeleteModalFocus.focus();
+  } else if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden') && btnCloseSpellbook) {
+    btnCloseSpellbook.focus();
+  }
+  previousDeleteModalFocus = null;
+}
+
+function ensureArchiveDirectory() {
+  try {
+    if (!fs.existsSync(ARCHIVE_DIR)) {
+      fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
+    }
+  } catch {
+    // Ignore mkdir error
+  }
+}
+
+/**
+ * Move a file into the local ./Archive directory.
+ * If a file with the same name already exists in ./Archive, appends a timestamp to prevent overwriting.
+ */
+function moveFileToArchive(sourcePath) {
+  if (!sourcePath || typeof sourcePath !== 'string' || sourcePath === 'BUILTIN_DEMO') return null;
+  const resolved = path.resolve(sourcePath);
+  if (!fs.existsSync(resolved)) return null;
+
+  ensureArchiveDirectory();
+
+  const fileName = path.basename(resolved);
+  let destPath = path.join(ARCHIVE_DIR, fileName);
+
+  // If a file with this name already exists in ./Archive, append a timestamp so we never overwrite
+  if (fs.existsSync(destPath)) {
+    const ext = path.extname(fileName);
+    const base = path.basename(fileName, ext);
+    destPath = path.join(ARCHIVE_DIR, `${base}_archived_${Date.now()}${ext}`);
+  }
+
+  try {
+    fs.renameSync(resolved, destPath);
+  } catch {
+    // If rename fails (e.g. across drives or transient lock), copy then remove source
+    fs.copyFileSync(resolved, destPath);
+    try {
+      fs.unlinkSync(resolved);
+    } catch {
+      // Ignore source unlink error if locked
+    }
+  }
+
+  return destPath;
+}
+
+/**
+ * Remove a spell from The Grimoire and move its source files to ./Archive (Issue #77)
  */
 function removeGrimoireEntry(entry) {
-  try {
-    if (entry.filePath && entry.filePath !== 'BUILTIN_DEMO' && fs.existsSync(entry.filePath)) {
-      fs.unlinkSync(entry.filePath);
-    }
-  } catch {
-    // Ignore file unlink error
-  }
-  try {
-    if (entry.backingAudioPath && fs.existsSync(entry.backingAudioPath)) {
-      if (currentSong?.backingAudioPath === entry.backingAudioPath && currentSong.backingAudioEl) {
+  if (!isGrimoireEntryDeletable(entry)) return { removed: false, archived: [], failed: [] };
+
+  const filesToArchive = collectGrimoireEntryFiles(entry);
+  const wasActiveOnHighway = isGrimoireEntryLoadedOnHighway(entry, filesToArchive);
+  const matchedLastSong = Boolean(
+    isSameFilePath(bardProfile.lastSongPath, entry.filePath) ||
+    filesToArchive.some((f) => isSameFilePath(bardProfile.lastSongPath, f))
+  );
+
+  // Release open media file handles BEFORE moving files (prevents Windows file lock errors)
+  if (wasActiveOnHighway) {
+    unloadCurrentSongToEmptyState();
+  } else if (
+    currentSong?.backingAudioPath &&
+    filesToArchive.some((f) => isSameFilePath(currentSong.backingAudioPath, f))
+  ) {
+    if (currentSong.backingAudioEl) {
+      try {
         currentSong.backingAudioEl.pause();
-        currentSong.backingAudioEl.src = '';
-        currentSong.backingAudioEl = null;
-        currentSong.backingAudioPath = null;
+        currentSong.backingAudioEl.removeAttribute('src');
+        currentSong.backingAudioEl.load();
+      } catch {
+        // Ignore cleanup errors
       }
-      fs.unlinkSync(entry.backingAudioPath);
+      currentSong.backingAudioEl = null;
     }
-  } catch {
-    // Ignore backing audio unlink error
-  }
-  if (currentSong?.filePath === entry.filePath && currentSong.backingAudioEl) {
-    currentSong.backingAudioEl.pause();
-    currentSong.backingAudioEl.src = '';
-    currentSong.backingAudioEl = null;
     currentSong.backingAudioPath = null;
   }
+
+  const archived = [];
+  const failed = [];
+
+  for (const file of filesToArchive) {
+    try {
+      const dest = moveFileToArchive(file);
+      if (dest) {
+        archived.push({ from: file, to: dest });
+      }
+    } catch (err) {
+      failed.push({ file, error: err?.message || String(err) });
+    }
+  }
+
+  // Only keep entry removed if primary MIDI file has left its original location
+  const midiStillInOrigin = Boolean(entry.filePath && fs.existsSync(entry.filePath));
+  if (midiStillInOrigin) {
+    const errReason = failed[0]?.error || 'File could not be moved to the ./Archive folder.';
+    throw new Error(errReason);
+  }
+
+  if (matchedLastSong) {
+    bardProfile.lastSongPath = null;
+    bardProfile.lastSongTitle = null;
+    saveBardProfile();
+  }
+
   grimoireSpells.delete(entry.id);
+  if (selectedSpellbookEntryId === entry.id) {
+    selectedSpellbookEntryId = null;
+  }
   persistGrimoireIndex();
   renderGrimoireSidebar();
+
+  return {
+    removed: true,
+    archivedCount: archived.length,
+    failed
+  };
+}
+
+function confirmPendingSpellDeletion() {
+  if (!pendingDeleteEntry || isDeleteInProgress) return;
+  const targetEntry = pendingDeleteEntry;
+
+  isDeleteInProgress = true;
+  if (btnDeleteConfirmCancel) btnDeleteConfirmCancel.disabled = true;
+  if (btnDeleteConfirmAccept) {
+    btnDeleteConfirmAccept.disabled = true;
+    btnDeleteConfirmAccept.textContent = 'Moving to Archive...';
+  }
+
+  try {
+    const result = removeGrimoireEntry(targetEntry);
+    isDeleteInProgress = false;
+    closeDeleteSpellConfirmModal();
+
+    if (result.removed) {
+      if (result.failed && result.failed.length > 0) {
+        showGrimoireToast(`\uD83D\uDCE6 Archived "${targetEntry.title}" (some paired files could not be moved).`);
+      } else {
+        showGrimoireToast(`\uD83D\uDCE6 Moved "${targetEntry.title}" to ./Archive.`);
+      }
+    }
+  } catch (err) {
+    isDeleteInProgress = false;
+    if (btnDeleteConfirmCancel) btnDeleteConfirmCancel.disabled = false;
+    if (btnDeleteConfirmAccept) {
+      btnDeleteConfirmAccept.disabled = false;
+      btnDeleteConfirmAccept.innerHTML = '&#128230; Move to Archive';
+    }
+    alert(`Could not move "${targetEntry.title}" to ./Archive: ${err.message}`);
+  }
 }
 
 /**
@@ -4284,13 +4649,19 @@ function isAnyModalOpen() {
   const annalsOpen = bardAnnalsModal && !bardAnnalsModal.classList.contains('hidden');
   const howToOpen = howToPlayModal && !howToPlayModal.classList.contains('hidden');
   const spellbookOpen = grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden');
-  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen);
+  const deleteConfirmOpen = deleteSpellConfirmModal && !deleteSpellConfirmModal.classList.contains('hidden');
+  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen || deleteConfirmOpen);
 }
 
 window.addEventListener('keydown', (e) => {
   // Close open popovers and modals on Escape (Issue #33)
   if (e.key === 'Escape') {
     closeAllConservatoryPopovers();
+    if (deleteSpellConfirmModal && !deleteSpellConfirmModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeDeleteSpellConfirmModal();
+      return;
+    }
     if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
       e.preventDefault();
       closeGrimoireSpellbook();
@@ -4319,7 +4690,8 @@ window.addEventListener('keydown', (e) => {
   }
 
   // Keyboard navigation for open Grimoire Spellbook (ArrowLeft/A, ArrowRight/D) (Issue #69)
-  if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+  const deleteConfirmVisible = deleteSpellConfirmModal && !deleteSpellConfirmModal.classList.contains('hidden');
+  if (!deleteConfirmVisible && grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
     if (e.target !== spellbookSearchInput) {
       if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
         e.preventDefault();
@@ -4860,6 +5232,32 @@ if (btnSpellbookDeleteSong) {
   });
 }
 
+if (btnCloseDeleteConfirm) {
+  btnCloseDeleteConfirm.addEventListener('click', () => {
+    closeDeleteSpellConfirmModal();
+  });
+}
+
+if (btnDeleteConfirmCancel) {
+  btnDeleteConfirmCancel.addEventListener('click', () => {
+    closeDeleteSpellConfirmModal();
+  });
+}
+
+if (btnDeleteConfirmAccept) {
+  btnDeleteConfirmAccept.addEventListener('click', () => {
+    confirmPendingSpellDeletion();
+  });
+}
+
+if (deleteSpellConfirmModal) {
+  deleteSpellConfirmModal.addEventListener('click', (e) => {
+    if (e.target === deleteSpellConfirmModal) {
+      closeDeleteSpellConfirmModal();
+    }
+  });
+}
+
 if (spellbookSearchInput) {
   spellbookSearchInput.addEventListener('input', () => {
     renderSpellbookSpread();
@@ -5374,10 +5772,12 @@ function updateTavernMenuStats() {
     menuXpBarFill.style.width = `${pct.toFixed(1)}%`;
   }
 
-  // Update The Hearth Stage button with the last performed song (falls back to the loaded song) (Issue #67)
-  const activeTitle = bardProfile.lastSongTitle || currentSong?.title || 'Ballad of the Silver Flagon (Demo)';
+  // Update The Hearth Stage button with the last performed song (falls back to the loaded song) (Issue #67, #77)
+  const activeTitle = bardProfile.lastSongTitle || currentSong?.title;
   if (menuLastSongLabel) {
-    menuLastSongLabel.textContent = `Play: "${activeTitle}"`;
+    menuLastSongLabel.textContent = activeTitle
+      ? `Play: "${activeTitle}"`
+      : 'Take the Stage (Empty Highway)';
   }
 
   // Update The Bookshelf summary with total spells in Grimoire
@@ -5636,10 +6036,11 @@ function closeHowToPlayModal() {
   }
 }
 
-// Modal Focus Trap Helper (Issue #68)
+// Modal Focus Trap Helper (Issue #68, #77 stacked modal support)
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Tab') return;
-  const activeModal = document.querySelector('.modal-backdrop:not(.hidden)');
+  const activeModals = Array.from(document.querySelectorAll('.modal-backdrop:not(.hidden)'));
+  const activeModal = activeModals[activeModals.length - 1];
   if (!activeModal) return;
 
   const focusables = Array.from(activeModal.querySelectorAll('button:not([disabled]), [tabindex]:not([tabindex="-1"]), input:not([disabled]), select:not([disabled])'));

@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Issue #77: Delete / Archive Songs from the Grimoire In-App:**
+  - Added a visible delete/archive control (`.spellbook-card-delete-btn`) directly on every file-backed Grimoire song card in the spellbook list alongside the spell details archive button (`#btn-spellbook-delete-song`), while keeping the in-memory Built-In Demo Spell protected.
+  - Added an in-app Tavern Dark Mode confirmation dialog (`#delete-spell-confirm-modal`) displaying the song title, an active-highway warning when applicable, and the exact list of files moving to `./Archive` (`Escape`, backdrop click, and stacked `Tab` focus-trap support).
+  - Implemented `moveFileToArchive()` in `renderer.js` to move MIDI files, paired backing audio, sibling sheet music, and future `#76` bundle parts directly into a local `./Archive` directory (with automatic timestamped deduplication on collision), so songs are safely preserved locally without entering the OS Recycle Bin or requiring main-process IPC round-trips.
+  - Implemented `unloadCurrentSongToEmptyState()` in `renderer.js` to release active backing audio handles, stop playback, reset transport controls/progress/difficulty UI, clear matching `lastSongPath`/`lastSongTitle`, and prevent stuck highway states or folder-watcher re-ingestion when archiving the active song.
+
 - **Issue #69: Flippable Grimoire Spellbook Sorted by Difficulty (`#grimoire-spellbook-modal`):**
   - Retired the narrow left `<aside id="grimoire-sidebar">`, allowing the 61-key canvas and Spell Highway to maintain full stage width without horizontal squishing.
   - Implemented full-screen pop-up spellbook module overlaying the 16:9 open book art (`assets/images/grimoire/grimoire-open-book.png`).
