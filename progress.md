@@ -17,3 +17,4 @@ NEVER execute multiple phases at once. Stop at the end of each phase, provide te
 - [x] Phase 11: The Tavern Title Screen & Main Menu Front Door (Issues #52, #67, #68) (Merged in PR #70)
 - [x] Phase 12: Tavern Title Splash, Palette Overhaul & Station UX (Issue #71) (Completed & Merged in PR #72 & PR #73)
 - [x] Phase 13: Flippable Grimoire Spellbook Sorted by Difficulty (Issue #69) (Completed & Merged in PR #74 & PR #75)
+- [ ] Phase 14: Delete Songs from the Grimoire In-App (Issue #77) (Implemented on feature branch — awaiting Testing Gate)

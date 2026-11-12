@@ -1465,6 +1465,35 @@ html, body {
   flex-shrink: 0;
 }
 
+.spellbook-card-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(153, 27, 27, 0.08);
+  border: 1px solid rgba(153, 27, 27, 0.28);
+  color: #7f1d1d;
+  border-radius: 4px;
+  width: clamp(18px, 1.45cqw, 22px);
+  height: clamp(18px, 1.45cqw, 22px);
+  padding: 0;
+  font-size: clamp(9px, 0.72cqw, 11px);
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.78;
+  transition: all 0.14s ease;
+}
+
+.spellbook-card-delete-btn:hover,
+.spellbook-card-delete-btn:focus-visible {
+  opacity: 1;
+  background: rgba(220, 38, 38, 0.18);
+  border-color: #b91c1c;
+  color: #991b1b;
+  transform: scale(1.06);
+  outline: none;
+}
+
 /* Empty State */
 .spellbook-empty-state {
   flex: 1;
@@ -3257,5 +3286,114 @@ html, body {
   color: #ffd700;
   font-family: monospace;
 }
+
+/* ============================================================================
+   ISSUE #77: IN-APP GRIMOIRE DELETE CONFIRMATION MODAL
+   ============================================================================ */
+
+.confirm-delete-overlay {
+  z-index: 1400;
+}
+
+.confirm-delete-card {
+  width: 100%;
+  max-width: 500px;
+  background: linear-gradient(180deg, #241a14 0%, #130d09 100%);
+  border: 2px solid #8a6d2f;
+  border-radius: 14px;
+  padding: 20px 24px;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.9), 0 0 28px rgba(212, 175, 55, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.confirm-delete-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.confirm-delete-lead {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #f4ebd9;
+}
+
+.confirm-delete-lead strong {
+  color: #ffd700;
+}
+
+.confirm-active-warning {
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: rgba(217, 119, 6, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  color: #fde68a;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.confirm-file-list-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(12, 9, 7, 0.72);
+  border: 1px solid rgba(138, 109, 47, 0.35);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.confirm-file-list-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #baab93;
+  font-weight: 700;
+}
+
+.confirm-file-list {
+  margin: 0;
+  padding-left: 18px;
+  max-height: 120px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.confirm-file-list li {
+  font-family: 'Consolas', monospace;
+  font-size: 0.78rem;
+  color: #f4ebd9;
+  word-break: break-all;
+}
+
+.confirm-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.btn-danger-confirm {
+  background: linear-gradient(135deg, #7f1d1d 0%, #5c1313 100%);
+  border: 1.5px solid #ef4444;
+  color: #fee2e2;
+  font-weight: 700;
+}
+
+.btn-danger-confirm:hover:not(:disabled) {
+  background: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%);
+  border-color: #fca5a5;
+  box-shadow: 0 0 14px rgba(239, 68, 68, 0.35);
+}
+
+.btn-danger-confirm:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 
 
