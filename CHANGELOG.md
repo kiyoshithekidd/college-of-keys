@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Issue #30: Loop Practice Mode (Rehearsal):**
+  - Added inline Rehearsal Loop controls (`[A]`, `[B]`, `🔁 Loop`, and `▾` options popover) to `#spell-scroll-bar` with keyboard shortcuts (`[` Set A, `]` Set B, `\` Toggle Loop) that never collide with QWERTY piano keys.
+  - Added visual A–B loop range fill and bracket markers (`#loop-range-fill`, `#loop-marker-a`, `#loop-marker-b`) on the timeline scrubber, plus golden `LOOP A` / `LOOP B` boundary lines on `#spell-canvas`.
+  - Implemented seamless A–B loop wrapping with a `0.8s` pre-roll (`REHEARSAL_PREROLL_SEC`) in both Wait Mode and Arcade Mode, syncing MIDI triggers and `backingAudioEl` without triggering the end-of-song Performance Check modal.
+  - Added optional **Auto-Ramp Tempo** inside `#rehearsal-popover` that steps up through `#playback-speed-select` presets (`0.5x → 0.75x → 1.0x → 1.25x`) after each 0-miss clean pass.
+
 - **Issue #79: Grimoire Favorites (Attuned Spells):**
   - Added a clickable Star/Attune button (`.spellbook-card-star-btn`) to every Grimoire song card and a matching Star/Attune button (`#btn-spellbook-favorite-song`) to the Spell Details action bar.
   - Added an **Attuned** filter toggle (`#btn-spellbook-favorites-filter`) with live attuned count badge (`#spellbook-fav-count`) next to the Spellbook search input, showing all starred songs across all difficulty tiers in one view and remembering the filter state across modal opens and restarts.
