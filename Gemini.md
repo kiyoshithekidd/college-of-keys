@@ -504,7 +504,81 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - Implemented `DAILY_BOUNTY_SLOTS`, `ensureDailyQuestsForToday()`, `updateDailyQuestsOnSongComplete()`, `rerollDailyBounty()`, `renderDailyBountiesBoard()`, `renderDailyBountyStationSummary()`, and `#modal-quests-banner` across `index.html`, `styles.css`, and `renderer.js`.
 - **Current status:** Verified (`"testing successful"`) and merged into `main` in PR #86. Issue #53 closed.
 
+### 2026-11-12 — Session 24: Grimoire Favorites: Star Songs and a Favorites Filter (Issue #79)
+- **What we did:**
+  - Created isolated feature branch `feature/issue-79-grimoire-favorites` from `main`.
+  - Added `GRIMOIRE_FAVORITES_STORAGE_KEY` (`collegeOfKeys_grimoire_favorites_v1`), `grimoireFavorites` Set, `loadGrimoireFavorites()`, `saveGrimoireFavorites()`, and `toggleGrimoireFavorite()` in `renderer.js`, and included `isFavorite` in `extractGrimoireEntryFromBuffer()` and `persistGrimoireIndex()` (`grimoire_library.json` + `localStorage`).
+  - Added `.spellbook-card-star-btn` on every Grimoire song card, `#btn-spellbook-favorite-song` in the right-page Spell Details action row, and `#btn-spellbook-favorites-filter` with `#spellbook-fav-count` next to `#spellbook-search-input` in `index.html`, `styles.css`, and `renderer.js`.
+  - Updated `renderSpellbookSpread()`, `navigateToSpellbookTier()`, `loadSelectedSpellbookSong()`, and `deleteSelectedSpellbookSong()` so the Favorites filter displays starred songs across all difficulty tiers and supports searching, loading, and archiving seamlessly.
+- **Current status:** Verified (`"Testing successful"`). Renamed filter/view to **Attuned** (`☆ Attuned`, `Attuned Spells`) and persisted filter state across opens/restarts.
 
+### 2026-11-12 — Session 25: Loop Practice Mode (Rehearsal) (Issue #30)
+- **What we did:**
+  - Completed Pre-Build Engineering Plan, UI/UX Design Reviewer subagent pass, and 4-point Decision Check before coding.
+  - Created isolated feature branch `feature/issue-30-loop-practice-mode` from `main`.
+  - Implemented `rehearsalLoopState`, timeline range/bracket overlays, inline `[A]` / `[B]` / `[🔁 Loop]` controls, `#rehearsal-popover` (Clear A–B, Auto-Ramp Tempo, Target Speed, Pass Status), `0.8s` pre-roll loop wrapping in `animationLoop`, `[` / `]` / `\` keyboard shortcuts, and `LOOP A` / `LOOP B` canvas boundary lines.
+  - Completed Post-Build Peer Review & QA Audit subagent pass and fixed outside-click popover dismissal, immediate Set-B wrap edge case, and `.btn-rehearsal-caret.active` styling.
+- **Current status:** Verified (`"Testing successful"`) and merged into `main` in PR #88. Issue #30 closed.
 
+### 2026-11-12 — Session 26: Post-Song Breakdown — What Tripped Me Up (Issue #62)
+- **What we did:**
+  - Completed Pre-Build Engineering Plan, UI/UX Design Reviewer subagent pass, and 3-point Decision Check before coding (pad short bars to `>= 2.0s`, jump & pause, player-controlled hands only).
+  - Created isolated feature branch `feature/issue-62-post-song-breakdown` from `main`.
+  - Added `#modal-breakdown-section` in `index.html`, responsive modal scrolling + breakdown styles in `styles.css`, and `measureStats` tracking, `buildPostSongBreakdown()`, `renderPostSongBreakdown()`, and `practiceWeakRegion()` in `renderer.js`.
+  - Completed Post-Build Peer Review & QA Audit subagent pass (`No blocking issues found`) and verified syntax with `node --check`.
+- **Current status:** Verified (`"Testing successful"`) and merged into `main` in PR #89. Issue #62 closed.
 
+### 2026-11-12 — Session 27: Practice Tempo Control — Slow the Song Down (Issue #63)
+- **What we did:**
+  - Completed Pre-Build Engineering Plan, UI/UX Design Reviewer subagent pass, and 4-point Decision Check before coding (granular steps for both dropdown & Auto-Ramp, clickable `[−]`/`[+]` buttons + `-`/`=` shortcuts, per-song `preferredTempo` persistence, full XP at any tempo).
+  - Created isolated feature branch `feature/issue-63-practice-tempo-control` from `main`.
+  - Updated `index.html`, `styles.css`, and `renderer.js` with `#tempo-control-group`, `#btn-tempo-down`, `#btn-tempo-up`, granular `REHEARSAL_SPEED_PRESETS`, `setPracticeTempo()`, `stepPracticeTempo()`, `preservesPitch = true` on `backingAudioEl`, and per-song `preferredTempo` restore on song load.
+  - Completed Post-Build Peer Review & QA Audit subagent pass and fixed `saveSongPlayHistory()` -> `saveSongStats()` in `setPracticeTempo()`.
+- **Current status:** Verified (`"Testing successful"`) and merged into `main` in PR #90. Issue #63 closed.
 
+### 2026-11-12 — Session 28: d20 Performance Check at Song End (Issue #25)
+- **What we did:**
+  - Completed Pre-Build Engineering Plan, UI/UX Design Reviewer subagent pass, and 4-point Decision Check before coding (`three` + `cannon-es` 3D physics roll, full-card translucent tray overlay, one roll per song, click/Space fast-settle).
+  - Created isolated feature branch `feature/issue-25-d20-performance-check` from `main` and installed `three` + `cannon-es`.
+  - Created `d20-roller.js` (numbered 5×4 gold icosahedron atlas, opposite faces summing to 21, `CANNON.ConvexPolyhedron` physics, top-face `worldN.y` detection, bounce clatter callbacks, and full WebGL/RAF disposal).
+  - Updated `index.html`, `styles.css`, and `renderer.js` with `#d20-tray-overlay`, `#modal-d20-math`, Tone.js bounce/Nat-20/Nat-1 audio, D&D 5E modifier/DC XP tiers, one-roll-per-song persistence, and `prefers-reduced-motion` support.
+  - Completed Post-Build Peer Review & QA Audit subagent pass and fixed a stray `/**` comment and `d20DisposeTimer` cleanup race in `renderer.js`.
+- **Current status:** Verified (`"Testing successful"`) and merged into `main` in PR #91. Issue #25 closed.
+
+### 2026-11-12 — Session 29: Bardic Inspiration Meter (Issue #24)
+- **What we did:**
+  - Completed Pre-Build Engineering Plan, UI/UX Design Reviewer subagent pass, and 4-point Decision Check before coding (dual-spend: manual 10s 2x XP surge + auto Combo Shield, 25 clean notes per charge, clickable HUD pill + `Enter`, golden canvas Star Power aura).
+  - Created isolated feature branch `feature/issue-24-bardic-inspiration-meter` from `main`.
+  - Upgraded `#hud-inspiration-banner` in `index.html` and `styles.css` into a compact pill-gauge with `#hud-inspiration-fill` and `.ready`/`.active` states.
+  - Implemented `inspirationCharge`, `inspirationBurstRemainingSec`, `isBardicInspirationActive()`, `activateBardicInspirationBurst()`, Auto Combo Shield in `recordSpellChainBreak()`, smooth drain in `animationLoop`, golden canvas border aura in `renderCanvas`, and `Enter` / click activation in `renderer.js`.
+  - Completed Post-Build Peer Review & QA Audit subagent pass (`No blocking issues found`) and verified syntax with `node --check`.
+- **Current status:** Verified (`"Testing successful"`) and merged into `main` in PR #92. Issue #24 closed.
+
+### 2026-11-12 — Session 30: MusicXML Import to MIDI (Issue #40)
+- **What we did:**
+  - Completed Pre-Build Engineering Plan, UI/UX Design Reviewer subagent pass, and 5-point Decision Check before coding (pure-JS converter with `@tonejs/midi` + `zlib.inflateRawSync`, auto-pick Piano + route extra parts to Backing Band, linear repeat/ending unrolling + baked tempo map, in-memory conversion without duplicate `.mid` files in `./Imports`, silent `<harmony>`/`<lyric>` metadata + warn/skip ornaments/grace notes).
+  - Created isolated feature branch `feature/issue-40-musicxml-import` from `main`.
+  - Created `musicxml-converter.js` and verified it with a Node spike & unit assertion suite covering Grand Staff `.musicxml`, compressed `.mxl` ZIP extraction, `<score-timewise>`, score-level repeat/ending unrolling, ties, tempo changes, and `NOT_MUSICXML` rejection.
+  - Updated `index.html`, `styles.css`, and `renderer.js` with `loadSongFromBuffer()`, `#global-drop-overlay`, `.toast-warning`/`.toast-error`, `#btn-spellbook-import-file`, Key Signature badges (`#stat-key-sig-chip`, `#spellbook-detail-keysig`), `./Imports` watcher support, and explicit Staff 1/2 preservation.
+  - Completed Post-Build Peer Review & QA Audit subagent pass and resolved all High/Medium findings (`saveActiveSpellToGrimoire()` `.mid` extension fix, modal/menu `z-index` layering for `#grimoire-toast` and `#global-drop-overlay`, `loadSongFromBuffer()` toast preservation, score-level repeat synchronization across parts, `.mxl` ZIP EOCD/size-cap hardening, and `hideGlobalDropOverlay()` on `window.blur`).
+- **Current status:** Verified (`"Testing successful"`) and merged into `main` in PR #93. Issue #40 closed.
+
+### 2026-11-12 — Session 31: Grimoire Song Bundle, Backing Audio Sync & Smart MIDI Hygiene (Issue #76)
+- **What we did:**
+  - Completed Pre-Build Engineering Plan and UI/UX Design Reviewer subagent gate before coding on isolated feature branch `feature/issue-76-song-bundle`.
+  - Audited real YouTube-transcribed and GM multi-track MIDIs across `Imports/` and `Midi Test Files/`, uncovering utility helper tracks (`Chords`), sparse late-song piano fills in GM band tracks, micro-jittered chord onsets, transient ghost notes, `>4`-note GM octave slabs, and runaway pedal sustains.
+  - Created `midi-hygiene.js` (`isUtilityTrack`, `isLeadMelodyTrack`, `isPianoCandidateTrackSmart`, `selectAutoPianoTracks`, `cleanPlayableHandNotes`) and integrated toggleable Smart MIDI Hygiene (`#toggle-midi-cleanup`, `#stat-cleaned-chip`) into `renderer.js`.
+  - Created `song-bundle.js` (`grimoire_bundles.json` + portable `<Base>.bundle.json` sidecars), updated `python_ml/transcribe_quest.py` with `--audio-only`, and refactored `#quest-board-modal` into a 2-tab workflow (**Clean Song Bundle** + **AI Audio-to-MIDI Transcribe**) with collapsible Today's Tavern Bounties and Spellbook bundle editing/viewing.
+  - Added Bar 2 contextual **Backing Audio Sync Calibrator** (`#btn-audio-sync`, `#audio-sync-popover`, `#btn-settings-open-sync`) with Start Offset (`-50ms`/`-10ms`/`+10ms`/`+50ms`), async-guarded **Audition 0:00** + **Mark Beat 1**, Web Audio RMS **Auto-Align**, and Drift Match (`95.0%`–`105.0%`).
+  - Completed Post-Build Peer Review & QA Audit subagent pass and resolved High/Medium/Low findings: protected shared `.bundle.json` sidecars during deletion (`collectGrimoireEntryFiles()`), isolated `BUILTIN_DEMO` and duplicate-`songId` paths (`song-bundle.js` & `persistCurrentSongCalibration()`), eliminated 60 FPS startup seek/play stutter (`syncBackingAudioElement()`), guarded async audition/auto-align teardown races, added explicit `audioUnlinked`/`sheetUnlinked` suppression and `updatedAt` sidecar priority, pre-validated notes before YouTube downloads, preserved calibration & prevented cross-song asset collisions via `assetStem` in `runSaveSongBundle()`, delegated `isPianoCandidateTrack()` cleanly, added virtualenv-first Python resolution + Windows `taskkill /t /f`, skipped empty 0-note tracks across `selectAutoPianoTracks()`, and completed WAI-ARIA tab keyboard nav, visible focus trapping, `aria-label`s, and popover focus restoration.
+  - Verified with `node --check` on all JS modules, `python3 -m py_compile python_ml/transcribe_quest.py`, `verify_issue76.js` (all 9 automated check groups passed including real MIDI/WAV fixtures and QA regressions), and `transcribe_quest.py --self-test --audio-only`.
+- **Current status:** Verified (`"Testing successful"`). Merging into `main` via PR and closing Issue #76.
+
+### 2026-11-13 — Session 32: Scrolling Grand-Staff Sheet Music Split View (Issue #39)
+- **What we did:**
+  - Reviewed Issue #61 and marked it `[BLOCKED / SKIPPED]` in `progress.md` and on GitHub (`kiyoshithekidd/college-of-keys#61`), then proceeded to Issue #39.
+  - Completed Pre-Build Engineering Plan, UI/UX Design Reviewer subagent pass, and Decision Check before coding on isolated feature branch `feature/issue-39-sheet-music-split-view` (confirming `'highway'` boot default and generating `./assets/images/notation/parchment-scroll-tile.png`).
+  - Installed `vexflow` (`^5.0.0`) and `@vexflow-fonts/bravura` (`^1.0.2`), added `@font-face` Bravura in `styles.css`, and created `notation-engine.js` (Grand-Staff VexFlow 5 engraving, 30-tile LRU cache, sticky clef/key gutter, monotonic `tickToScoreX()`, Krumhansl + MIDI minor key estimation, modulation cancellation naturals, 16th/triplet solver, cross-bar `StaveTie`, `assessNotationQuality()`, Wait-locked/overdue/`8va`/Loop `A–B` overlays).
+  - Updated `musicxml-converter.js`, `index.html`, `styles.css`, and `renderer.js` with Bar 2 `#view-mode-segmented` (`Highway | Split | Score`, ARIA radiogroup + `1`/`2`/`3` hotkeys), `#notation-quality-banner`, `#notation-wait-pill`, `ResizeObserver` on `#stage-canvas-wrap`, Score mode `collectOnly` piano key guides, and responsive Bar 2 layout down to `1024px`.
+  - Completed Post-Build Peer Review & QA Audit subagent pass and resolved findings (key-signature modulation cancellation naturals + `calcMeasureWidth()` allowance, `<select>` guard on `1`/`2`/`3` hotkeys), verified across 10 real Drive MIDIs, Demo Spell, and MusicXML pickup/modulation fixtures.
+- **Current status:** Verified (`"Testing successful"`). Merging into `main` via PR and closing Issue #39.

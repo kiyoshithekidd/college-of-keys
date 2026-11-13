@@ -9,6 +9,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Issue #39: Epic C — Scrolling Grand-Staff Sheet Music Split View:**
+  - Added `notation-engine.js` powered by `vexflow` (`^5.0.0`) and `@vexflow-fonts/bravura` (`^1.0.2`, bundled locally via `@font-face` in `styles.css`): renders Warm Grimoire Parchment (`#f4ebd9` + `./assets/images/notation/parchment-scroll-tile.png`), sticky left clef/key signature gutter (`getOrRenderStickyGutter()`), 30-tile LRU offscreen canvas cache, monotonic `tickToScoreX()` playhead tracking, Wax-Seal Crimson `#9f1239` playhead, multi-tempo/time-signature maps, key-signature normalization (`fromMidiMeta` minor key fix + Krumhansl fallback) with courtesy cancellation naturals on modulation, binary (16th) + triplet (8th tuplet) beat solving, cross-bar `StaveTie` arcs, `8↑`/`8↓` octave-fold tags, Rehearsal Loop `A–B` ribbon, and RH/LH/Wait-locked (`#065f46`)/overdue (`>2.0s` `#b91c1c` pulsing ring) highlights.
+  - Added Bar 2 `#view-mode-segmented` ARIA `radiogroup` (`Highway | Split | Score`) with `ArrowLeft`/`ArrowRight`/`ArrowUp`/`ArrowDown` navigation, unmodified `1`/`2`/`3` hotkeys (guarded when modals, text inputs, `<select>`, or the Tavern Menu are open), and strict `'highway'` boot default (`setStageViewMode('highway')`).
+  - Integrated Score mode `collectOnly` strike-line key guides in `drawFallingSpellHighway()`, `#notation-wait-pill` overlay (`syncNotationWaitOverlayPill()`), non-blocking `#notation-quality-banner` (`assessNotationQuality()`, suppressed on MusicXML) with 1-click Smart MIDI Hygiene cleanup or Highway switch, and single-row Bar 2 responsive breakpoints down to `1024px`.
+
+- **Issue #76: Grimoire Song Bundle (Sheet Music + MIDI + Backing Audio Sync) & Smart MIDI Hygiene:**
+  - Added `midi-hygiene.js` (`isUtilityTrack()`, `isLeadMelodyTrack()`, `isPianoCandidateTrackSmart()`, `selectAutoPianoTracks()`, `cleanPlayableHandNotes()`): excludes DAW utility/SFX tracks (`Chords`, `Markers`, `Click`), elevates Lead Melody + warm accompaniment over sparse late-song piano fills in GM band MIDIs, safely skips empty/percussion fallback tracks, and non-destructively snaps micro-jittered chord onsets (`<= 26ms`), strips transient ghost glitches (`< 80ms`, `velocity < 48`), caps `> 4`-note GM octave slabs (preserving top melody on RH, root bass on LH, and unique pitch classes), and trims runaway pedal sustains (`> 6.0s`).
+  - Added global and per-song Smart MIDI Hygiene toggling via `#toggle-midi-cleanup` and `#stat-cleaned-chip` without writing extraneous sidecars when unbundled songs follow the global preference.
+  - Added `song-bundle.js` and dual persistence (`grimoire_bundles.json` + portable `<Base>.bundle.json` sidecars) linking Playable Notes (`.mid`/`.musicxml`/`.mxl`), Sheet Music Reference (`.musicxml`/`.pdf` in `./Imports/Sheets`), Backing Audio (`.wav`/`.mp3`/`.m4a`/`.ogg`/`.flac`), YouTube/Spotify bookmark URLs, explicit `audioUnlinked`/`sheetUnlinked` suppression flags, and per-song sync/hygiene calibration with strict path-first & `BUILTIN_DEMO` isolation.
+  - Extended `python_ml/transcribe_quest.py` with `--audio-only` (`yt-dlp` clean stereo backing audio extraction without Basic Pitch ML synthesis), virtualenv-aware `resolvePythonExecutable()`, and Windows `taskkill /t /f` child-tree termination on unload.
+  - Added 2-tab **The Quest Board** (`#btn-quest-tab-bundle` / `#btn-quest-tab-transcribe`) with collapsible Today's Tavern Bounties (`#btn-toggle-quest-bounties`), a Clean Song Bundle Builder (pre-validating notes files prior to YouTube downloads, preventing cross-song asset collisions, and supporting direct Spellbook edit prefill via `#btn-spellbook-bundle`), and WAI-ARIA `ArrowLeft`/`ArrowRight`/`Home`/`End` tab navigation.
+  - Added contextual **Backing Audio Sync Calibrator** (`#btn-audio-sync`, `#audio-sync-popover`, `#btn-settings-open-sync`) in Bar 2 with Start Offset steppers (`-50ms`/`-10ms`/`+10ms`/`+50ms`), 1-tap **Audition 0:00** & **Mark Beat 1**, Web Audio RMS **Auto-Align** onset detection, and **Audio Drift Match** (`95.0%`–`105.0%`) synced cleanly in `animationLoop()`.
+
+### Changed
+- **Issue #76: Bar 2 Responsiveness, Quest Board 2-Tab Layout & Accessibility Polish:**
+  - Refined `#spell-scroll-bar` responsive breakpoints (`@media (max-width: 1460px)` and `1120px` in `styles.css`) so `#audio-sync-anchor` and `.spell-title-group` remain readable alongside transport and Rehearsal Loop controls.
+  - Updated `#grimoire-spellbook-modal` details panel with bundle indicators, Sheet Reference quick-open (`#btn-spellbook-open-sheet`), YouTube/Spotify external reference links, and 1-click `#btn-spellbook-bundle` editing.
+  - Added missing `aria-label` attributes to icon close/clear buttons, `returnFocus` restoration on Conservatory popover dismissal, `closeStreakPopover()` coordination across modals, and visible-only `Tab` focus trapping.
+
+### Added
+- **Issue #40: MusicXML Import to MIDI (`.musicxml`, `.xml`, `.mxl`):**
+  - Added pure-JS `musicxml-converter.js` (0 external runtime deps, using `@tonejs/midi` + Node `zlib.inflateRawSync` for compressed `.mxl` ZIP archives via `META-INF/container.xml`).
+  - Supports `<score-partwise>` and `<score-timewise>`, Grand Staff `<staff>1` (Right Hand Gold) & `<staff>2` (Left Hand Blue) mapping, extra pitched parts routed to Backing Band (`#playable-track-select`), score-synchronized `<repeat>` / 1st-2nd `<ending>` unrolling, `<tie>`/`<tied>` merging, `<chord/>`, `<backup>`/`<forward>`, `<sound tempo>`/`<metronome>` tempo changes, and `<key>`/`<time>` signatures.
+  - Captures `<harmony>` chord symbols and `<lyric>` counts on `currentSong` metadata for future `#39`/`#43`, and surfaces non-blocking amber warning / crimson error toasts (`#grimoire-toast`) for skipped `<grace/>` notes, simplified `<ornaments>`, or malformed files.
+  - Integrated `.musicxml`, `.xml`, and `.mxl` into `#midi-file-input` (`📜 Import Spell`), Spellbook `📜 Import File`, full-window drag-and-drop (`#global-drop-overlay`), `./Imports` & `./Midi Test Files` folder watcher (`fs.watch` + polling), Key Signature badges (`#stat-key-sig-chip`, `#spellbook-detail-keysig`), and paired backing audio lookup.
+
+- **Issue #24: Bardic Inspiration Meter (Star Power & Combo Shield):**
+  - Upgraded `#hud-inspiration-banner` into a clickable pill-gauge (`#hud-inspiration-fill`) showing live charge progress (`+4%` per clean note = 25 clean notes for 100%, `+1%` per fumbled note), ready state, and active burst countdown.
+  - Added **Manual 2x XP Surge** (`activateBardicInspirationBurst()` via HUD pill click or `Enter` key): spends a 100% charge for a 10-second `2.0x XP` boost with a draining meter, golden strike-line glow, and pulsing golden Star Power canvas border aura.
+  - Added **Auto Combo Shield** in `recordSpellChainBreak()`: holding a 100% charge automatically absorbs 1 off-key/missed combo break to save your active Spell Chain (`🛡️ COMBO SAVED!`).
+
+- **Issue #25: d20 Performance Check at Song End (3D Physics Dice Roller):**
+  - Added `d20-roller.js` powered by `three` + `cannon-es`: mounts a dark green tavern felt & walnut wood dice tray overlay (`#d20-tray-overlay`) inside `#performance-check-modal`, tosses a numbered gold 20-sided icosahedron (`ConvexPolyhedron`), detects bounce impacts for Tone.js clatter sounds, reads the actual top face (`1..20`) on settle, and disposes cleanly on modal close.
+  - Added D&D 5E `d20 + Bardic Accuracy Mod vs Song DC` scoring (`buildD20Outcome`, `computeBardicAccuracyMod`, `getSongPerformanceDC`) with reward XP tiers: Nat 20 (`+150 Bonus XP` + celebratory arpeggio), Critical Success (`+75 XP`), Success (`+35 XP`), Missed DC (`+10 Consolation XP`), and Nat 1 (`+5 Consolation XP` + tomato flavor + sad interval).
+  - Enforced one roll per song (`songSessionStats.d20Outcome`), ghosted 0-attempt preview mode, `prefers-reduced-motion` instant physics settle, and click / `Space` / `Enter` fast-settle.
+
+- **Issue #63: Practice Tempo Control (Slow the Song Down):**
+  - Expanded `#playback-speed-select` and `REHEARSAL_SPEED_PRESETS` (`#30`) to granular practice steps (`0.5x`, `0.6x`, `0.7x`, `0.75x`, `0.8x`, `0.85x`, `0.9x`, `1.0x`, `1.25x`).
+  - Added clickable on-screen **`−`** / **`+`** stepper buttons (`#btn-tempo-down`, `#btn-tempo-up`) flanking `#playback-speed-select` (plus `-` and `=` keyboard shortcuts) with `.tempo-modified` gold highlight when practicing off `1.0x` and responsive shrinking on `1024px–1280px` viewports.
+  - Added centralized `setPracticeTempo()` / `stepPracticeTempo()` syncing the Spell Highway, MIDI accompaniment, and `backingAudioEl.playbackRate` with `preservesPitch = true` live mid-playback, and persisted `preferredTempo` per song in `songPlayHistory`.
+
+- **Issue #62: Post-Song Breakdown (What Tripped Me Up):**
+  - Added per-measure accuracy tracking (`songSessionStats.measureStats`, `getSongBarDurationSec()`, `getMeasureNumberForTime()`, `recordMeasureOutcome()`) for player-controlled hands across Wait Mode and Arcade Mode.
+  - Added `#modal-breakdown-section` inside `#performance-check-modal` showing 4 clickable phrase-section accuracy pills (`Bars X–Y` with color-coded tier bars) and the top 2–3 weakest measures (or a flawless banner when 0 mistakes occurred), hidden on 0-attempt previews.
+  - Wired 1-tap **`🔁 Practice This`** buttons (`practiceWeakRegion()`) to pad single short bars to at least `2.0s`, close the modal, arm `rehearsalLoopState` (`#30`), jump to `A - 0.8s` pre-roll, sync backing audio, and pause playback so the player can place their hands on the keys before pressing Space.
+
+- **Issue #30: Loop Practice Mode (Rehearsal):**
+  - Added inline Rehearsal Loop controls (`[A]`, `[B]`, `🔁 Loop`, and `▾` options popover) to `#spell-scroll-bar` with keyboard shortcuts (`[` Set A, `]` Set B, `\` Toggle Loop) that never collide with QWERTY piano keys.
+  - Added visual A–B loop range fill and bracket markers (`#loop-range-fill`, `#loop-marker-a`, `#loop-marker-b`) on the timeline scrubber, plus golden `LOOP A` / `LOOP B` boundary lines on `#spell-canvas`.
+  - Implemented seamless A–B loop wrapping with a `0.8s` pre-roll (`REHEARSAL_PREROLL_SEC`) in both Wait Mode and Arcade Mode, syncing MIDI triggers and `backingAudioEl` without triggering the end-of-song Performance Check modal.
+  - Added optional **Auto-Ramp Tempo** inside `#rehearsal-popover` that steps up through `#playback-speed-select` presets (`0.5x → 0.75x → 1.0x → 1.25x`) after each 0-miss clean pass.
+
+- **Issue #79: Grimoire Favorites (Attuned Spells):**
+  - Added a clickable Star/Attune button (`.spellbook-card-star-btn`) to every Grimoire song card and a matching Star/Attune button (`#btn-spellbook-favorite-song`) to the Spell Details action bar.
+  - Added an **Attuned** filter toggle (`#btn-spellbook-favorites-filter`) with live attuned count badge (`#spellbook-fav-count`) next to the Spellbook search input, showing all starred songs across all difficulty tiers in one view and remembering the filter state across modal opens and restarts.
+  - Persisted attuned favorites per song in `localStorage` (`collegeOfKeys_grimoire_favorites_v1` & `collegeOfKeys_grimoire_v1`) and `grimoire_library.json` (`isFavorite`) via `loadGrimoireFavorites()` and `saveGrimoireFavorites()`, surviving restarts and folder rescans without ever deleting unstarred songs.
+
 - **Issue #53: Daily Quest System (Tavern Bounties):**
   - Added 3 rotating daily bounties per local calendar day (`DAILY_BOUNTY_SLOTS`: Song/Mode, Precision/Combo, and Volume/Endurance) persisted in `bardProfile.dailyQuests` with zero UTC drift.
   - Integrated a live Daily Bounty status summary onto the Tavern Notice Board (`#menu-daily-bounty-summary` on `station-quest`) with a custom transparent Wax-Sealed Bounty Scroll icon (`assets/images/icons/bounty-seal-transparent.png`), plus a **Today's Tavern Bounties** section at the top of `#quest-board-modal` with progress bars and 1 free daily reroll (`#btn-reroll-daily-bounty`).

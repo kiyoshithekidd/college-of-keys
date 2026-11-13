@@ -17,6 +17,30 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { pathToFileURL } = require('url');
 const { shell } = require('electron');
+const { createD20TrayRoller } = require('./d20-roller');
+const { isMusicXmlFileName, convertMusicXmlToMidiBuffer } = require('./musicxml-converter');
+const { isPianoCandidateTrackSmart, selectAutoPianoTracks, cleanPlayableHandNotes } = require('./midi-hygiene');
+const VexFlow = require('vexflow/bravura');
+const {
+  buildScoreData,
+  assessNotationQuality,
+  createNotationRenderer
+} = require('./notation-engine');
+const {
+  BUNDLE_STORE_FILENAME,
+  clampAudioOffsetSec,
+  clampAudioTempoRatio,
+  isSameFilePath: isBundleSameFilePath,
+  getSidecarBundlePath,
+  loadBundlesStore,
+  resolveBundleForSong,
+  saveBundleRecord,
+  removeBundleRecordForSong,
+  getMappedBackingAudioTime,
+  getEffectiveBackingPlaybackRate,
+  computeAudioOffsetForBeat1,
+  detectFirstAudioOnsetSec
+} = require('./song-bundle');
 
 const MIN_MIDI = 36; // C2
 const MAX_MIDI = 96; // C7
@@ -33,8 +57,11 @@ const FUMBLE_PAUSE_THRESHOLD_SEC = 2.0;  // Pausing > 2.0s in Wait Mode flags a 
 // Phase 5 Constants: LitRPG XP, Combo & Leveling Curve
 const BASE_NOTE_XP = 10;                 // +10 XP base per clean note
 const FUMBLED_NOTE_XP = 2;               // +2 XP base when paused > 2.0s in Wait Mode ("Fumbled Component")
-const BARDIC_INSPIRATION_STREAK = 50;    // 50+ Spell Chain triggers Bardic Inspiration (2.0x XP)
+const BARDIC_INSPIRATION_STREAK = 50;    // 50+ Spell Chain triggers passive Bardic Inspiration (2.0x XP)
 const BARDIC_INSPIRATION_MULT = 2.0;     // 2.0x temporary XP multiplier during Bardic Inspiration
+const INSPIRATION_CHARGE_PER_CLEAN_NOTE = 4;   // 25 clean notes = 100% full charge (Issue #24)
+const INSPIRATION_CHARGE_PER_FUMBLED_NOTE = 1; // Fumbled notes grant minor charge
+const INSPIRATION_BURST_DURATION_SEC = 10.0;   // 10s manual 2x XP Star Power burst
 const LEVEL_1_XP_THRESHOLD = 1000;       // Level 1 requires 1,000 XP
 const LEVEL_XP_SCALE_FACTOR = 1.5;       // Scales by 1.5x per level
 const BARD_PROFILE_STORAGE_KEY = 'collegeOfKeys_bardProfile_v1';
@@ -45,10 +72,18 @@ const FIRST_RUN_STORAGE_KEY = 'collegeOfKeys_hasSeenIntro_v1';
 
 // Phase 6 Constants: The Grimoire & Watched Directories
 const IMPORTS_DIR = path.join(__dirname, 'Imports');
+const IMPORTS_SHEETS_DIR = path.join(IMPORTS_DIR, 'Sheets');
 const MIDI_TEST_DIR = path.join(__dirname, 'Midi Test Files');
 const ARCHIVE_DIR = path.join(__dirname, 'Archive');
 const GRIMOIRE_STORAGE_KEY = 'collegeOfKeys_grimoire_v1';
+const GRIMOIRE_FAVORITES_STORAGE_KEY = 'collegeOfKeys_grimoire_favorites_v1';
+const GRIMOIRE_FAV_FILTER_STORAGE_KEY = 'collegeOfKeys_grimoire_attuned_filter_v1';
 const GRIMOIRE_INDEX_FILE = path.join(__dirname, 'grimoire_library.json');
+
+// Issue #76 Constants: Song Bundles, Sync Calibration & Smart MIDI Hygiene
+const BUNDLE_STORE_PATH = path.join(__dirname, BUNDLE_STORE_FILENAME);
+const MIDI_CLEANUP_STORAGE_KEY = 'collegeOfKeys_midiCleanup_v1';
+const QUEST_BOUNTIES_COLLAPSED_STORAGE_KEY = 'collegeOfKeys_bountiesCollapsed_v1';
 
 // Black key horizontal offset ratio relative to the boundary between two white keys
 const BLACK_KEY_OFFSETS = {
@@ -85,10 +120,20 @@ const SALAMANDER_SAMPLE_MAP = {
   'C7': 'C7.mp3'
 };
 
-// DOM Elements — Phase 1
+// DOM Elements — Phase 1 & Issue #39 (Stage & Sheet Music View Switch)
 const stageContainer = document.getElementById('stage-container');
+const stageCanvasWrap = document.getElementById('stage-canvas-wrap');
 const canvas = document.getElementById('spell-canvas');
 const ctx = canvas.getContext('2d');
+const viewModeSegmented = document.getElementById('view-mode-segmented');
+const viewModeButtons = viewModeSegmented ? Array.from(viewModeSegmented.querySelectorAll('[data-view-mode]')) : [];
+const notationQualityBanner = document.getElementById('notation-quality-banner');
+const notationQualityText = document.getElementById('notation-quality-text');
+const btnNotationEnableCleanup = document.getElementById('btn-notation-enable-cleanup');
+const btnNotationSwitchHighway = document.getElementById('btn-notation-switch-highway');
+const btnNotationDismiss = document.getElementById('btn-notation-dismiss');
+const notationBezelOverlays = document.getElementById('notation-bezel-overlays');
+const notationWaitPill = document.getElementById('notation-wait-pill');
 const midiStatusPill = document.getElementById('midi-status-pill');
 const midiStatusText = document.getElementById('midi-status-text');
 const btnRescanMidi = document.getElementById('btn-rescan-midi');
@@ -106,6 +151,9 @@ const btnToggleSettings = document.getElementById('btn-toggle-settings');
 const settingsPopover = document.getElementById('settings-popover');
 const btnCloseSettings = document.getElementById('btn-close-settings');
 const toggleQwertyLabelsCheckbox = document.getElementById('toggle-qwerty-labels');
+const toggleMidiCleanupCheckbox = document.getElementById('toggle-midi-cleanup');
+const settingsSyncRow = document.getElementById('settings-sync-row');
+const btnSettingsOpenSync = document.getElementById('btn-settings-open-sync');
 const btnSpellDetails = document.getElementById('btn-spell-details');
 const spellDetailsPopover = document.getElementById('spell-details-popover');
 const btnCloseSpellDetails = document.getElementById('btn-close-spell-details');
@@ -121,11 +169,29 @@ const btnWaitMode = document.getElementById('btn-wait-mode');
 const waitModeStateText = document.getElementById('wait-mode-state');
 const songProgressSlider = document.getElementById('song-progress-slider');
 const songTimeReadout = document.getElementById('song-time-readout');
+const loopRangeFill = document.getElementById('loop-range-fill');
+const loopMarkerA = document.getElementById('loop-marker-a');
+const loopMarkerB = document.getElementById('loop-marker-b');
+const btnLoopA = document.getElementById('btn-loop-a');
+const btnLoopB = document.getElementById('btn-loop-b');
+const btnRehearsalToggle = document.getElementById('btn-rehearsal-toggle');
+const btnRehearsalPopover = document.getElementById('btn-rehearsal-popover');
+const rehearsalPopover = document.getElementById('rehearsal-popover');
+const btnCloseRehearsalPopover = document.getElementById('btn-close-rehearsal-popover');
+const rehearsalATime = document.getElementById('rehearsal-a-time');
+const rehearsalBTime = document.getElementById('rehearsal-b-time');
+const btnLoopClear = document.getElementById('btn-loop-clear');
+const chkRehearsalAutoramp = document.getElementById('chk-rehearsal-autoramp');
+const rehearsalTargetSpeedSelect = document.getElementById('rehearsal-target-speed');
+const rehearsalPassStatus = document.getElementById('rehearsal-pass-status');
 const playableTrackSelect = document.getElementById('playable-track-select');
 const handIsolationSelect = document.getElementById('hand-isolation-select');
 const accompanimentSelect = document.getElementById('accompaniment-select');
 const btnBackingBand = document.getElementById('btn-backing-band');
 const backingBandStateText = document.getElementById('backing-band-state');
+const tempoControlGroup = document.getElementById('tempo-control-group');
+const btnTempoDown = document.getElementById('btn-tempo-down');
+const btnTempoUp = document.getElementById('btn-tempo-up');
 const playbackSpeedSelect = document.getElementById('playback-speed-select');
 const fallSpeedSelect = document.getElementById('fall-speed-select');
 
@@ -141,6 +207,32 @@ const statT1Notes = document.getElementById('stat-t1-notes');
 const statT2Notes = document.getElementById('stat-t2-notes');
 const statBandTracks = document.getElementById('stat-band-tracks');
 const statFoldedNotes = document.getElementById('stat-folded-notes');
+const statKeySigChip = document.getElementById('stat-key-sig-chip');
+const statKeySig = document.getElementById('stat-key-sig');
+const statCleanedChip = document.getElementById('stat-cleaned-chip');
+const statCleaned = document.getElementById('stat-cleaned');
+
+// DOM Elements — Issue #76 (Bar 2 Backing Audio Sync Calibrator Popover)
+const audioSyncAnchor = document.getElementById('audio-sync-anchor');
+const btnAudioSync = document.getElementById('btn-audio-sync');
+const syncBadgePill = document.getElementById('sync-badge-pill');
+const audioSyncPopover = document.getElementById('audio-sync-popover');
+const btnCloseAudioSync = document.getElementById('btn-close-audio-sync');
+const syncOffsetReadout = document.getElementById('sync-offset-readout');
+const btnOffsetMinus50 = document.getElementById('btn-offset-minus-50');
+const btnOffsetMinus10 = document.getElementById('btn-offset-minus-10');
+const btnOffsetPlus10 = document.getElementById('btn-offset-plus-10');
+const btnOffsetPlus50 = document.getElementById('btn-offset-plus-50');
+const btnSyncAudition = document.getElementById('btn-sync-audition');
+const btnSyncMarkBeat1 = document.getElementById('btn-sync-mark-beat1');
+const btnSyncAutoAlign = document.getElementById('btn-sync-auto-align');
+const btnSyncReset = document.getElementById('btn-sync-reset');
+const syncDriftReadout = document.getElementById('sync-drift-readout');
+const btnDriftDownHalf = document.getElementById('btn-drift-down-half');
+const btnDriftDownFine = document.getElementById('btn-drift-down-fine');
+const btnDriftUpFine = document.getElementById('btn-drift-up-fine');
+const btnDriftUpHalf = document.getElementById('btn-drift-up-half');
+const syncStatusHint = document.getElementById('sync-status-hint');
 
 // DOM Elements — Phase 5 (LitRPG HUD & Post-Song Performance Check Modal)
 const btnPerformanceCheck = document.getElementById('btn-performance-check');
@@ -157,11 +249,16 @@ const hudXpMultiplier = document.getElementById('hud-xp-multiplier');
 const hudLastXpGain = document.getElementById('hud-last-xp-gain');
 const hudInspirationBanner = document.getElementById('hud-inspiration-banner');
 const hudInspirationText = document.getElementById('hud-inspiration-text');
+const hudInspirationFill = document.getElementById('hud-inspiration-fill');
 const btnBoostChain = document.getElementById('btn-boost-chain');
 
 const performanceCheckModal = document.getElementById('performance-check-modal');
+const d20TrayOverlay = document.getElementById('d20-tray-overlay');
+const d20TrayCanvasHost = document.getElementById('d20-tray-canvas-host');
+const d20GradeBanner = document.getElementById('d20-grade-banner');
 const modalSongSubtitle = document.getElementById('modal-song-subtitle');
 const modalD20Badge = document.getElementById('modal-d20-badge');
+const modalD20Math = document.getElementById('modal-d20-math');
 const modalGradeTitle = document.getElementById('modal-grade-title');
 const modalGradeFlavor = document.getElementById('modal-grade-flavor');
 const modalLevelupBanner = document.getElementById('modal-levelup-banner');
@@ -177,6 +274,10 @@ const modalStatChain = document.getElementById('modal-stat-chain');
 const modalStatClean = document.getElementById('modal-stat-clean');
 const modalStatFumbled = document.getElementById('modal-stat-fumbled');
 const modalStatRolls = document.getElementById('modal-stat-rolls');
+const modalBreakdownSection = document.getElementById('modal-breakdown-section');
+const modalBreakdownSummary = document.getElementById('modal-breakdown-summary');
+const modalSectionBars = document.getElementById('modal-section-bars');
+const modalWeakMeasures = document.getElementById('modal-weak-measures');
 const btnModalReplay = document.getElementById('btn-modal-replay');
 const btnModalClose = document.getElementById('btn-modal-close');
 
@@ -189,6 +290,7 @@ const grimoireToastText = document.getElementById('grimoire-toast-text');
 // Issue #69: The Flippable Spellbook Pop-Up Module Elements
 const grimoireSpellbookModal = document.getElementById('grimoire-spellbook-modal');
 const btnCloseSpellbook = document.getElementById('btn-close-spellbook');
+const btnSpellbookImportFile = document.getElementById('btn-spellbook-import-file');
 const btnSpellbookSaveCurrent = document.getElementById('btn-spellbook-save-current');
 const btnSpellbookOpenImports = document.getElementById('btn-spellbook-open-imports');
 const btnSpellbookDropTest = document.getElementById('btn-spellbook-drop-test');
@@ -198,6 +300,8 @@ const spellbookTierXp = document.getElementById('spellbook-tier-xp');
 const spellbookTierName = document.getElementById('spellbook-tier-name');
 const spellbookTierDesc = document.getElementById('spellbook-tier-desc');
 const spellbookSearchInput = document.getElementById('spellbook-search-input');
+const btnSpellbookFavoritesFilter = document.getElementById('btn-spellbook-favorites-filter');
+const spellbookFavCount = document.getElementById('spellbook-fav-count');
 const spellbookSongList = document.getElementById('spellbook-song-list');
 const spellbookEmptyState = document.getElementById('spellbook-empty-state');
 const btnSpellbookQuestPointer = document.getElementById('btn-spellbook-quest-pointer');
@@ -206,7 +310,9 @@ const spellbookPageNumRight = document.getElementById('spellbook-page-num-right'
 
 // Right Page Details Elements
 const spellbookDetailTierChip = document.getElementById('spellbook-detail-tier-chip');
+const spellbookDetailKeySig = document.getElementById('spellbook-detail-keysig');
 const spellbookDetailSource = document.getElementById('spellbook-detail-source');
+const globalDropOverlay = document.getElementById('global-drop-overlay');
 const spellbookDetailTitle = document.getElementById('spellbook-detail-title');
 const spellbookDetailFile = document.getElementById('spellbook-detail-file');
 const spellbookDetailBpm = document.getElementById('spellbook-detail-bpm');
@@ -219,7 +325,14 @@ const spellbookDetailLastAcc = document.getElementById('spellbook-detail-last-ac
 const spellbookDetailTotalXp = document.getElementById('spellbook-detail-total-xp');
 const spellbookDetailLastPlayed = document.getElementById('spellbook-detail-last-played');
 const spellbookDetailAudioBadge = document.getElementById('spellbook-detail-audio-badge');
+const spellbookBundleStrip = document.getElementById('spellbook-bundle-strip');
+const spellbookBundleNotesChip = document.getElementById('spellbook-bundle-notes-chip');
+const spellbookBundleSheetChip = document.getElementById('spellbook-bundle-sheet-chip');
+const spellbookBundleAudioChip = document.getElementById('spellbook-bundle-audio-chip');
+const spellbookBundleSpotifyLink = document.getElementById('spellbook-bundle-spotify-link');
+const btnSpellbookBundle = document.getElementById('btn-spellbook-bundle');
 const btnSpellbookLoadSong = document.getElementById('btn-spellbook-load-song');
+const btnSpellbookFavoriteSong = document.getElementById('btn-spellbook-favorite-song');
 const btnSpellbookDeleteSong = document.getElementById('btn-spellbook-delete-song');
 
 // Navigation Bar Elements
@@ -236,10 +349,33 @@ const btnCloseDeleteConfirm = document.getElementById('btn-close-delete-confirm'
 const btnDeleteConfirmCancel = document.getElementById('btn-delete-confirm-cancel');
 const btnDeleteConfirmAccept = document.getElementById('btn-delete-confirm-accept');
 
-// DOM Elements — Phase 9 ("The Quest Board" In-App YouTube-to-MIDI Sourcing & Quick Links)
+// DOM Elements — Phase 9 & Issue #76 ("The Quest Board": Clean Song Bundles, Transcriber & Bounties)
 const btnOpenQuestBoard = document.getElementById('btn-open-quest-board');
 const questBoardModal = document.getElementById('quest-board-modal');
 const btnCloseQuestBoard = document.getElementById('btn-close-quest-board');
+const btnToggleQuestBounties = document.getElementById('btn-toggle-quest-bounties');
+const dailyBountiesCollapsibleWrap = document.getElementById('daily-bounties-collapsible-wrap');
+const btnQuestTabBundle = document.getElementById('btn-quest-tab-bundle');
+const btnQuestTabTranscribe = document.getElementById('btn-quest-tab-transcribe');
+const questTabPanelBundle = document.getElementById('quest-tab-panel-bundle');
+const questTabPanelTranscribe = document.getElementById('quest-tab-panel-transcribe');
+const questBundleTargetSelect = document.getElementById('quest-bundle-target-select');
+const questBundleTitleInput = document.getElementById('quest-bundle-title-input');
+const questBundleNotesInput = document.getElementById('quest-bundle-notes-input');
+const btnQuestBundlePickNotes = document.getElementById('btn-quest-bundle-pick-notes');
+const questBundleNotesLabel = document.getElementById('quest-bundle-notes-label');
+const questBundleSheetInput = document.getElementById('quest-bundle-sheet-input');
+const btnQuestBundlePickSheet = document.getElementById('btn-quest-bundle-pick-sheet');
+const questBundleSheetLabel = document.getElementById('quest-bundle-sheet-label');
+const btnQuestBundleClearSheet = document.getElementById('btn-quest-bundle-clear-sheet');
+const questBundleYoutubeUrl = document.getElementById('quest-bundle-youtube-url');
+const questBundleAudioInput = document.getElementById('quest-bundle-audio-input');
+const btnQuestBundlePickAudio = document.getElementById('btn-quest-bundle-pick-audio');
+const questBundleAudioLabel = document.getElementById('quest-bundle-audio-label');
+const btnQuestBundleClearAudio = document.getElementById('btn-quest-bundle-clear-audio');
+const questBundleSpotifyUrl = document.getElementById('quest-bundle-spotify-url');
+const btnSaveSongBundle = document.getElementById('btn-save-song-bundle');
+const btnQuestBundleLoadNow = document.getElementById('btn-quest-bundle-load-now');
 const questStatusBadge = document.getElementById('quest-status-badge');
 const questYoutubeUrlInput = document.getElementById('quest-youtube-url');
 const questCustomTitleInput = document.getElementById('quest-custom-title');
@@ -367,6 +503,50 @@ const playbackState = {
   isScrubbing: false
 };
 
+// Issue #39 State: Grand-Staff Sheet Music Renderer & Stage View Mode (Always boots in 'highway')
+const VALID_STAGE_VIEW_MODES = ['highway', 'split', 'score'];
+let stageViewMode = 'highway';
+let cachedNotationPaneHeight = 0;
+let cachedHighwayTopY = 0;
+const dismissedQualitySongIds = new Set();
+const activeWaitNoteIdSet = new Set();
+
+const parchmentTileImg = new Image();
+parchmentTileImg.src = './assets/images/notation/parchment-scroll-tile.png';
+const notationRenderer = createNotationRenderer({
+  vf: VexFlow,
+  parchmentImage: parchmentTileImg
+});
+parchmentTileImg.addEventListener('load', () => {
+  notationRenderer.clearCache();
+});
+if (document.fonts && typeof document.fonts.load === 'function') {
+  document.fonts.load('24px Bravura').then(() => {
+    notationRenderer.clearCache();
+  }).catch(() => {});
+}
+if (document.fonts?.ready) {
+  document.fonts.ready.then(() => {
+    notationRenderer.clearCache();
+  }).catch(() => {});
+}
+
+// Issue #30: Loop Practice Mode (Rehearsal) State
+const REHEARSAL_SPEED_PRESETS = [0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 1.0, 1.25];
+const REHEARSAL_PREROLL_SEC = 0.8;
+const MIN_REHEARSAL_LOOP_SPAN_SEC = 0.5;
+
+const rehearsalLoopState = {
+  enabled: false,
+  startTime: null,
+  endTime: null,
+  autoRamp: false,
+  targetSpeed: 1.0,
+  cleanPasses: 0,
+  totalPasses: 0,
+  passMistakes: 0
+};
+
 // Phase 5 State: Persistent Bard Profile & Per-Song Performance Session Stats
 const bardProfile = {
   totalXp: 0,
@@ -395,14 +575,61 @@ const songSessionStats = {
   cleanChordRolls: 0,
   lastGainText: 'Strike notes to earn XP',
   lastGainFumbled: false,
-  hasShownEndModal: false
+  hasShownEndModal: false,
+  measureStats: {},
+  d20Outcome: null,
+  inspirationCharge: 0,
+  inspirationBurstRemainingSec: 0,
+  lastBurstHudSyncMs: 0
 };
+
+let activeD20Roller = null;
 
 // Phase 6 State: The Grimoire Spell Library & Folder Watcher
 const grimoireSpells = new Map(); // id -> spellEntry
+const grimoireFavorites = new Set(); // Set of favorited entry.id strings (Issue #79)
 let grimoireWatcher = null;
 let grimoireToastTimer = null;
 let testDropCounter = 0;
+
+// Issue #76 State: Smart MIDI Hygiene & Backing Audio Audition Calibration
+function loadMidiCleanupPreference() {
+  try {
+    const raw = localStorage.getItem(MIDI_CLEANUP_STORAGE_KEY);
+    if (raw === 'false') return false;
+  } catch {
+    // Ignore storage read error
+  }
+  return true;
+}
+
+function saveMidiCleanupPreference(enabled) {
+  try {
+    localStorage.setItem(MIDI_CLEANUP_STORAGE_KEY, enabled ? 'true' : 'false');
+  } catch {
+    // Ignore storage write error
+  }
+}
+
+let midiCleanupGlobalEnabled = loadMidiCleanupPreference();
+
+function isEffectiveMidiCleanupEnabled(song = currentSong) {
+  if (song && typeof song.midiCleanupOverride === 'boolean') {
+    return song.midiCleanupOverride;
+  }
+  return Boolean(midiCleanupGlobalEnabled);
+}
+
+function syncMidiCleanupCheckboxUI() {
+  if (!toggleMidiCleanupCheckbox) return;
+  toggleMidiCleanupCheckbox.checked = isEffectiveMidiCleanupEnabled(currentSong);
+}
+
+let audioAuditionEl = null;
+let audioAuditionStartedAtMs = null;
+let audioAuditionTimer = null;
+let auditionRequestSeq = 0;
+let isAuditionPending = false;
 
 // Phase 7 State: 60 FPS Arcane Particle Bursts, Shockwaves, Floating Runes & Ambient Motes
 const strikeParticles = [];
@@ -673,7 +900,7 @@ function handleNoteOn(midi, velocity = 100, source = 'midi') {
 
   // Phase 7: If playing freely (or outside an active strike-zone gate), spawn an immediate key spark burst!
   if (!matchedStrikeZone) {
-    const isInspired = songSessionStats.spellChain >= BARDIC_INSPIRATION_STREAK;
+    const isInspired = isBardicInspirationActive();
     const freeTheme = isInspired ? 'inspired' : (midi >= MIDDLE_C ? 'gold' : 'blue');
     spawnKeyParticleBurst(midi, freeTheme, 14, true);
   }
@@ -789,17 +1016,7 @@ function calculateSpellDifficulty(totalPlayableNotes, durationSeconds) {
 }
 
 function isPianoCandidateTrack(track) {
-  if (track.instrument && track.instrument.percussion) return false;
-  const family = (track.instrument?.family || '').toLowerCase();
-  const instName = (track.instrument?.name || '').toLowerCase();
-  const trackName = (track.name || '').toLowerCase();
-  const prog = track.instrument?.number ?? -1;
-
-  if (family === 'piano' || (prog >= 0 && prog <= 7)) return true;
-  if (/piano|keys|keyboard|clav|harpsichord|rh|lh|right hand|left hand/.test(`${trackName} ${instName}`)) {
-    return true;
-  }
-  return false;
+  return isPianoCandidateTrackSmart(track);
 }
 
 function areTracksDuplicates(trackA, trackB) {
@@ -817,8 +1034,29 @@ function areTracksDuplicates(trackA, trackB) {
   return true;
 }
 
-function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath = null) {
+function loadSongFromBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath = null, { quietSuccess = false } = {}) {
+  if (isMusicXmlFileName(fileName)) {
+    const converted = convertMusicXmlToMidiBuffer(arrayBuffer, fileName);
+    const loaded = parseMidiBuffer(converted.midiArrayBuffer, fileName, filePath, converted.metadata);
+    if (!loaded) return false;
+    if (converted.warnings && converted.warnings.length > 0) {
+      const summary = converted.warnings.length === 1
+        ? converted.warnings[0]
+        : `${converted.warnings[0]} (+${converted.warnings.length - 1} more note${converted.warnings.length > 2 ? 's' : ''})`;
+      showGrimoireToast(`⚠ Imported "${converted.metadata.title}": ${summary}`, 'warning');
+    } else if (!quietSuccess) {
+      showGrimoireToast(`🎼 Imported MusicXML: "${converted.metadata.title}"`, 'success');
+    }
+    return true;
+  }
+  return parseMidiBuffer(arrayBuffer, fileName, filePath);
+}
+
+function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath = null, musicXmlMeta = null) {
   pausePlayback();
+  if (typeof stopAudioAudition === 'function') {
+    stopAudioAudition();
+  }
 
   const midiData = new Midi(arrayBuffer);
 
@@ -841,6 +1079,7 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
         : 60;
       return {
         index: idx,
+        channel: t.channel ?? 0,
         name: t.name?.trim() || t.instrument?.name || `Track ${idx + 1}`,
         instrumentName: t.instrument?.name || 'Unknown Instrument',
         instrumentFamily: t.instrument?.family || 'unknown',
@@ -866,8 +1105,8 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     .filter((t) => t.notes.length > 0);
 
   if (rawTracks.length === 0) {
-    alert('This MIDI file contains no playable notes.');
-    return;
+    showGrimoireToast('This file contains no playable notes.', 'error');
+    return false;
   }
 
   for (let i = 0; i < rawTracks.length; i++) {
@@ -883,49 +1122,81 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
   }
 
   const duration = Math.max(midiData.duration || 1, 1);
-  const cleanTitle = midiData.name?.trim() || fileName.replace(/\.(mid|midi)$/i, '');
+  const cleanTitle = (musicXmlMeta?.title && musicXmlMeta.title.trim())
+    || midiData.name?.trim()
+    || fileName.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
 
-  // If a previous song had a synced backing audio element, stop it before loading new song
+  // If a previous song had a synced backing audio element, stop & dispose it cleanly before loading new song
   if (currentSong?.backingAudioEl) {
     try {
+      currentSong.backingAudioEl._disposed = true;
       currentSong.backingAudioEl.pause();
-      currentSong.backingAudioEl.src = '';
+      currentSong.backingAudioEl.removeAttribute('src');
+      currentSong.backingAudioEl.load();
     } catch {
       // Ignore audio cleanup errors
     }
   }
 
-  // Check if this .mid file has a paired backing audio track (.wav, .mp3, .ogg, .m4a)
-  let backingAudioPath = null;
+  const rawBuf = Buffer.from(arrayBuffer);
+  const isDemo = filePath === 'BUILTIN_DEMO';
+  const songId = isDemo
+    ? 'builtin::demo'
+    : crypto.createHash('sha1').update(rawBuf).digest('hex');
+
+  const bundleStore = loadBundlesStore(BUNDLE_STORE_PATH);
+  const bundle = resolveBundleForSong({
+    filePath,
+    fileName,
+    songId,
+    title: cleanTitle,
+    store: bundleStore,
+    projectRoot: __dirname
+  });
+  const effectiveTitle = (bundle.title && bundle.title.trim()) || cleanTitle;
+
+  const backingAudioPath = bundle.backingAudioPath || null;
   let backingAudioEl = null;
-  if (filePath && filePath !== 'BUILTIN_DEMO') {
-    const baseNoExt = filePath.replace(/\.(mid|midi)$/i, '');
-    for (const ext of ['.wav', '.mp3', '.ogg', '.m4a']) {
-      if (fs.existsSync(baseNoExt + ext)) {
-        backingAudioPath = baseNoExt + ext;
-        break;
-      }
-    }
-  }
-  if (backingAudioPath) {
+  if (backingAudioPath && fs.existsSync(backingAudioPath)) {
     try {
-      backingAudioEl = new Audio(pathToFileURL(backingAudioPath).href);
-      backingAudioEl.preload = 'auto';
-      backingAudioEl.volume = getBackingAudioVolumeFromSlider();
+      const el = new Audio(pathToFileURL(backingAudioPath).href);
+      el.preload = 'auto';
+      el.preservesPitch = true;
+      el.webkitPreservesPitch = true;
+      el.volume = getBackingAudioVolumeFromSlider();
+      el.addEventListener('error', () => {
+        if (el._disposed) return;
+        showGrimoireToast(`Could not load backing audio "${path.basename(backingAudioPath)}".`, 'warning');
+      });
+      backingAudioEl = el;
     } catch {
       backingAudioEl = null;
     }
   }
 
-  const rawBuf = Buffer.from(arrayBuffer);
-  const isDemo = fileName === 'Demo Spell (The Tavern Busker)' || cleanTitle.toLowerCase().includes('demo spell');
-  const songId = isDemo
-    ? 'builtin::demo'
-    : crypto.createHash('sha1').update(rawBuf).digest('hex');
+  const headerTempos = (midiData.header.tempos || [])
+    .filter((t) => t && Number.isFinite(Number(t.bpm)) && Number(t.bpm) > 0)
+    .map((t) => ({ ticks: Math.max(0, Math.round(Number(t.ticks) || 0)), bpm: Number(t.bpm) }));
+  const headerTimeSignatures = (midiData.header.timeSignatures || [])
+    .filter((ts) => ts && Array.isArray(ts.timeSignature) && ts.timeSignature.length >= 2)
+    .map((ts) => ({
+      ticks: Math.max(0, Math.round(Number(ts.ticks) || 0)),
+      timeSignature: [Number(ts.timeSignature[0]) || 4, Number(ts.timeSignature[1]) || 4]
+    }));
+  const headerKeySignatures = (midiData.header.keySignatures || [])
+    .filter((ks) => ks && typeof ks.key === 'string' && ks.key.trim().length > 0)
+    .map((ks) => ({
+      ticks: Math.max(0, Math.round(Number(ks.ticks) || 0)),
+      key: ks.key.trim(),
+      scale: ks.scale || 'major',
+      fromMidiMeta: true
+    }));
+
+  notationRenderer.clearCache();
 
   currentSong = {
     songId,
-    title: cleanTitle,
+    title: effectiveTitle,
     fileName,
     filePath,
     rawBuffer: rawBuf,
@@ -936,6 +1207,12 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     beatsPerMeasure,
     duration,
     ppq: midiData.header.ppq || 480,
+    headerTempos,
+    headerTimeSignatures,
+    headerKeySignatures,
+    keySignature: musicXmlMeta?.keySignature || null,
+    chordMarkers: musicXmlMeta?.chordMarkers || [],
+    musicXmlMeta: musicXmlMeta || null,
     rawTracks,
     selectedTrackMode: 'auto-piano',
     track1Notes: [],
@@ -944,8 +1221,19 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     backingBandNotes: [],
     backingAudioPath,
     backingAudioEl,
+    sheetMusicPath: bundle.sheetMusicPath || null,
+    youtubeUrl: bundle.youtubeUrl || null,
+    spotifyUrl: bundle.spotifyUrl || null,
+    audioOffsetSec: bundle.audioOffsetSec ?? 0,
+    audioTempoRatio: bundle.audioTempoRatio ?? 1.0,
+    midiCleanupOverride: typeof bundle.midiCleanupEnabled === 'boolean' ? bundle.midiCleanupEnabled : null,
+    midiCleanStats: { enabled: false, selectionNote: null, snapped: 0, removed: 0, trimmed: 0 },
+    hasCustomBundle: Boolean(bundle.hasCustomBundle),
     foldedNotesCount: 0,
-    difficulty: null
+    difficulty: null,
+    notationScore: null,
+    notationQuality: null,
+    noteIdMap: new Map()
   };
 
   populateTrackSelectorDropdown(currentSong);
@@ -955,7 +1243,20 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
   btnPlayPause.disabled = false;
   btnRestart.disabled = false;
   songProgressSlider.disabled = false;
+  clearRehearsalLoop();
+
+  const savedHistory = getSongHistoryRecord({ id: songId, filePath, title: effectiveTitle });
+  const restoredTempo = typeof savedHistory?.preferredTempo === 'number'
+    ? savedHistory.preferredTempo
+    : 1.0;
+  setPracticeTempo(restoredTempo, { persist: false, toast: false });
+
+  syncMidiCleanupCheckboxUI();
+  if (typeof updateAudioSyncUI === 'function') {
+    updateAudioSyncUI();
+  }
   renderGrimoireSidebar();
+  return true;
 }
 
 function populateTrackSelectorDropdown(song) {
@@ -1009,6 +1310,9 @@ function foldAndDeduplicateHandNotes(noteArr, handTrack) {
       prevSamePitch.duration = Math.max(0.05, mergedEnd - prevSamePitch.time);
       prevSamePitch.velocity = Math.max(prevSamePitch.velocity, note.velocity);
       prevSamePitch.wasFolded = prevSamePitch.wasFolded || note.wasFolded;
+      if (note.wasFolded && !prevSamePitch.semitoneShift && note.semitoneShift) {
+        prevSamePitch.semitoneShift = note.semitoneShift;
+      }
     } else {
       deduped.push(note);
     }
@@ -1025,72 +1329,14 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
   const chosenPlayableIndices = new Set();
   let track1Raw = [];
   let track2Raw = [];
+  let selectionNote = null;
 
   if (mode === 'auto-piano') {
-    let pianoTracks = rawTracks
-      .map((t, idx) => ({ t, idx }))
-      .filter((item) => item.t.isPianoCandidate && !item.t.isPercussion && !item.t.isDuplicate);
-
-    if (pianoTracks.length === 0) {
-      pianoTracks = rawTracks
-        .map((t, idx) => ({ t, idx }))
-        .filter((item) => !item.t.isPercussion && !item.t.isDuplicate);
-    }
-    if (pianoTracks.length === 0) {
-      pianoTracks = [{ t: rawTracks[0], idx: 0 }];
-    }
-
-    if (pianoTracks.length >= 2) {
-      const trebleCandidates = pianoTracks
-        .filter((item) => item.t.avgPitch >= 62)
-        .sort((a, b) => b.t.notes.length - a.t.notes.length);
-      const bassCandidates = pianoTracks
-        .filter((item) => item.t.avgPitch < 62)
-        .sort((a, b) => b.t.notes.length - a.t.notes.length);
-
-      let rhChoice = null;
-      let lhChoice = null;
-
-      if (trebleCandidates.length > 0 && bassCandidates.length > 0) {
-        rhChoice = trebleCandidates[0];
-        lhChoice = bassCandidates[0];
-      } else {
-        const topTwo = pianoTracks
-          .slice()
-          .sort((a, b) => b.t.notes.length - a.t.notes.length)
-          .slice(0, 2)
-          .sort((a, b) => b.t.avgPitch - a.t.avgPitch);
-        rhChoice = topTwo[0];
-        lhChoice = topTwo[1];
-      }
-
-      chosenPlayableIndices.add(rhChoice.idx);
-      chosenPlayableIndices.add(lhChoice.idx);
-      track1Raw = rhChoice.t.notes;
-      track2Raw = lhChoice.t.notes;
-
-      rawTracks.forEach((t, idx) => {
-        if (t.isDuplicate && (t.duplicateOfIndex === rhChoice.idx || t.duplicateOfIndex === lhChoice.idx)) {
-          chosenPlayableIndices.add(idx);
-        }
-      });
-    } else {
-      const singleIdx = pianoTracks[0].idx;
-      chosenPlayableIndices.add(singleIdx);
-      rawTracks.forEach((t, idx) => {
-        if (t.isDuplicate && t.duplicateOfIndex === singleIdx) {
-          chosenPlayableIndices.add(idx);
-        }
-      });
-      for (const n of pianoTracks[0].t.notes) {
-        const foldedCheck = foldMidiTo61Keys(n.originalMidi);
-        if (foldedCheck >= MIDDLE_C) {
-          track1Raw.push(n);
-        } else {
-          track2Raw.push(n);
-        }
-      }
-    }
+    const sel = selectAutoPianoTracks(rawTracks, currentSong.duration);
+    sel.chosenPlayableIndices.forEach((idx) => chosenPlayableIndices.add(idx));
+    track1Raw = sel.track1Raw;
+    track2Raw = sel.track2Raw;
+    selectionNote = sel.selectionNote || null;
   } else if (mode.startsWith('track-')) {
     const idx = Number(mode.replace('track-', ''));
     const chosen = rawTracks[idx] || rawTracks[0];
@@ -1105,6 +1351,27 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
       }
     }
   }
+
+  const cleanupEnabled = isEffectiveMidiCleanupEnabled(currentSong);
+  let snapped = 0;
+  let removed = 0;
+  let trimmed = 0;
+  if (cleanupEnabled) {
+    const clean1 = cleanPlayableHandNotes(track1Raw, 1);
+    const clean2 = cleanPlayableHandNotes(track2Raw, 2);
+    track1Raw = clean1.notes;
+    track2Raw = clean2.notes;
+    snapped = clean1.snappedCount + clean2.snappedCount;
+    removed = clean1.removedCount + clean2.removedCount;
+    trimmed = clean1.trimmedSustainCount + clean2.trimmedSustainCount;
+  }
+  currentSong.midiCleanStats = {
+    enabled: cleanupEnabled,
+    selectionNote,
+    snapped,
+    removed,
+    trimmed
+  };
 
   const foldedT1 = foldAndDeduplicateHandNotes(track1Raw, 1);
   const foldedT2 = foldAndDeduplicateHandNotes(track2Raw, 2);
@@ -1141,9 +1408,134 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
 
   currentSong.difficulty = calculateSpellDifficulty(allPlayable.length, activeDuration);
 
+  const noteIdMap = new Map();
+  for (const n of currentSong.track1Notes) noteIdMap.set(n.id, n);
+  for (const n of currentSong.track2Notes) noteIdMap.set(n.id, n);
+  currentSong.noteIdMap = noteIdMap;
+
+  currentSong.notationScore = buildScoreData(currentSong, { vf: VexFlow });
+  currentSong.notationQuality = assessNotationQuality(currentSong, currentSong.notationScore);
+  notationRenderer.clearCache();
+
   resetSongProgressFlags(playbackState.currentTime, { preserveTriggeredAtTarget: true });
   updateSpellInspectorHUD();
+  updateNotationQualityBanner();
   updateLitrpgHUD();
+}
+
+function updateNotationQualityBanner() {
+  if (!notationQualityBanner) return;
+  const inNotationView = stageViewMode === 'split' || stageViewMode === 'score';
+  const qual = currentSong?.notationQuality;
+  const songKey = currentSong?.songId || currentSong?.fileName;
+  const shouldShow = Boolean(
+    inNotationView &&
+    currentSong &&
+    qual?.isMessy &&
+    !(songKey && dismissedQualitySongIds.has(songKey))
+  );
+
+  const wasHidden = notationQualityBanner.classList.contains('hidden');
+  notationQualityBanner.classList.toggle('hidden', !shouldShow);
+
+  if (shouldShow && notationQualityText) {
+    notationQualityText.textContent = qual.summaryReason || 'Rough audio transcription detected \u2014 notation may appear crowded.';
+  }
+  if (btnNotationEnableCleanup) {
+    const canOfferCleanup = shouldShow && !isEffectiveMidiCleanupEnabled(currentSong);
+    btnNotationEnableCleanup.classList.toggle('hidden', !canOfferCleanup);
+  }
+  if (wasHidden !== !shouldShow) {
+    requestAnimationFrame(() => computeKeyGeometry());
+  }
+}
+
+const lastNotationWaitState = {
+  visible: false,
+  overdue: false,
+  text: ''
+};
+
+function syncNotationWaitOverlayPill(nowMs = performance.now()) {
+  if (!notationBezelOverlays || !notationWaitPill) return;
+  const inNotationView = stageViewMode === 'split' || stageViewMode === 'score';
+  const activeWait = Boolean(
+    inNotationView &&
+    currentSong &&
+    playbackState.isWaitingForStrike &&
+    playbackState.waitMode &&
+    playbackState.activeStrikeGroup
+  );
+
+  if (!activeWait) {
+    if (lastNotationWaitState.visible) {
+      notationBezelOverlays.classList.add('hidden');
+      notationWaitPill.classList.add('hidden');
+      notationWaitPill.classList.remove('overdue');
+      lastNotationWaitState.visible = false;
+      lastNotationWaitState.overdue = false;
+      lastNotationWaitState.text = '';
+    }
+    return;
+  }
+
+  const waitSec = playbackState.waitStartedAtMs !== null
+    ? Math.max(0, (nowMs - playbackState.waitStartedAtMs) / 1000)
+    : 0;
+  const overdue = waitSec > FUMBLE_PAUSE_THRESHOLD_SEC;
+  const missing = Array.from(playbackState.activeStrikeGroup.requiredPitches || [])
+    .filter((p) => !playbackState.activeStrikeGroup.satisfiedPitches?.has(p))
+    .sort((a, b) => a - b)
+    .map(midiToNoteName);
+  const targetText = missing.length > 0
+    ? `${overdue ? '\u26A0' : '\u23F3'} ${missing.join(' + ')} (${waitSec.toFixed(1)}s)`
+    : `${overdue ? '\u26A0' : '\u23F3'} Wait (${waitSec.toFixed(1)}s)`;
+
+  if (!lastNotationWaitState.visible) {
+    notationBezelOverlays.classList.remove('hidden');
+    notationWaitPill.classList.remove('hidden');
+    lastNotationWaitState.visible = true;
+  }
+  if (lastNotationWaitState.overdue !== overdue) {
+    notationWaitPill.classList.toggle('overdue', overdue);
+    lastNotationWaitState.overdue = overdue;
+  }
+  if (lastNotationWaitState.text !== targetText) {
+    notationWaitPill.textContent = targetText;
+    lastNotationWaitState.text = targetText;
+  }
+}
+
+function setStageViewMode(mode, { announceToast = false } = {}) {
+  const nextMode = VALID_STAGE_VIEW_MODES.includes(mode) ? mode : 'highway';
+  const changed = stageViewMode !== nextMode;
+  stageViewMode = nextMode;
+
+  if (stageContainer) {
+    stageContainer.classList.remove('mode-highway', 'mode-split', 'mode-score');
+    stageContainer.classList.add(`mode-${nextMode}`);
+  }
+  document.body.classList.toggle('view-mode-notation', nextMode === 'split' || nextMode === 'score');
+
+  for (const btn of viewModeButtons) {
+    const isActive = btn.dataset.viewMode === nextMode;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-checked', isActive ? 'true' : 'false');
+    btn.tabIndex = isActive ? 0 : -1;
+  }
+
+  updateNotationQualityBanner();
+  syncNotationWaitOverlayPill(performance.now());
+  computeKeyGeometry();
+
+  if (announceToast && changed) {
+    const labels = {
+      highway: 'Highway View',
+      split: 'Split View (Grand Staff + Highway)',
+      score: 'Score View (Full Grand Staff)'
+    };
+    showGrimoireToast(`\uD83C\uDFBC Switched to ${labels[nextMode]}`);
+  }
 }
 
 function updateSpellInspectorHUD() {
@@ -1161,10 +1553,52 @@ function updateSpellInspectorHUD() {
   statDuration.textContent = formatSeconds(currentSong.duration);
   statT1Notes.textContent = String(currentSong.track1Notes.length);
   statT2Notes.textContent = String(currentSong.track2Notes.length);
-  statBandTracks.textContent = currentSong.backingAudioPath && currentSong.backingBandTracks.length === 0
-    ? '1 (Audio)'
-    : String(currentSong.backingBandTracks.length);
+  if (currentSong.backingAudioPath && currentSong.backingBandTracks.length > 0) {
+    statBandTracks.textContent = `${currentSong.backingBandTracks.length} + Audio`;
+  } else if (currentSong.backingAudioPath) {
+    statBandTracks.textContent = 'Audio';
+  } else {
+    statBandTracks.textContent = String(currentSong.backingBandTracks.length);
+  }
   statFoldedNotes.textContent = String(currentSong.foldedNotesCount);
+  const effectiveKeyLabel = currentSong.keySignature
+    || (currentSong.notationScore
+      ? `${currentSong.notationScore.primaryKeyDisplay}${currentSong.notationScore.keyIsEstimated ? ' (Est.)' : ''}`
+      : null);
+  if (statKeySigChip && statKeySig) {
+    if (effectiveKeyLabel) {
+      statKeySig.textContent = effectiveKeyLabel;
+      statKeySigChip.classList.remove('hidden');
+    } else {
+      statKeySigChip.classList.add('hidden');
+    }
+  }
+  if (statCleanedChip && statCleaned) {
+    const stats = currentSong.midiCleanStats || { enabled: false, selectionNote: null, snapped: 0, removed: 0, trimmed: 0 };
+    statCleanedChip.classList.remove('hidden');
+    if (stats.enabled) {
+      const totalFixes = stats.snapped + stats.removed + stats.trimmed;
+      if (totalFixes > 0) {
+        statCleaned.textContent = `Clean (${totalFixes} fixes)`;
+      } else if (stats.selectionNote) {
+        statCleaned.textContent = 'Clean (Smart Track)';
+      } else {
+        statCleaned.textContent = 'Clean (0 fixes)';
+      }
+      const details = [
+        `${stats.snapped} chord jitter snapped`,
+        `${stats.removed} ghosts/slabs trimmed`,
+        `${stats.trimmed} long sustains capped`
+      ];
+      if (stats.selectionNote) details.unshift(stats.selectionNote);
+      statCleanedChip.title = `Smart MIDI Hygiene ON: ${details.join(' • ')}`;
+    } else {
+      statCleaned.textContent = 'Raw';
+      statCleanedChip.title = stats.selectionNote
+        ? `Smart MIDI Hygiene OFF (${stats.selectionNote})`
+        : 'Smart MIDI Hygiene OFF — showing raw unquantized MIDI notes';
+    }
+  }
 }
 
 // ============================================================================
@@ -1417,7 +1851,57 @@ function resetSongSessionStats() {
   songSessionStats.lastGainText = 'Strike notes to earn XP';
   songSessionStats.lastGainFumbled = false;
   songSessionStats.hasShownEndModal = false;
+  songSessionStats.measureStats = {};
+  songSessionStats.d20Outcome = null;
+  songSessionStats.inspirationCharge = 0;
+  songSessionStats.inspirationBurstRemainingSec = 0;
+  songSessionStats.lastBurstHudSyncMs = 0;
   updateLitrpgHUD();
+}
+
+function isBardicInspirationActive() {
+  return songSessionStats.inspirationBurstRemainingSec > 0 || songSessionStats.spellChain >= BARDIC_INSPIRATION_STREAK;
+}
+
+function activateBardicInspirationBurst() {
+  if (songSessionStats.inspirationBurstRemainingSec > 0 || songSessionStats.inspirationCharge < 100) {
+    return false;
+  }
+  songSessionStats.inspirationCharge = 0;
+  songSessionStats.inspirationBurstRemainingSec = INSPIRATION_BURST_DURATION_SEC;
+  songSessionStats.lastBurstHudSyncMs = performance.now();
+  spawnFloatingCanvasRune(MIDDLE_C, '⚡ 2x XP BARDIC SURGE!', '#ffd700');
+  showGrimoireToast('⚡ Bardic Inspiration Unleashed! (2.0x XP for 10s)');
+  updateLitrpgHUD();
+  return true;
+}
+
+/**
+ * Compute duration of 1 measure (bar) in seconds using the active song's BPM & time signature (Issue #62).
+ */
+function getSongBarDurationSec() {
+  if (!currentSong) return 2.0;
+  const denominator = Math.max(1, currentSong.timeSigDenominator || 4);
+  const beatDur = (60 / Math.max(30, currentSong.bpm || 120)) * (4 / denominator);
+  const beatsPerMeasure = Math.max(1, currentSong.beatsPerMeasure || currentSong.timeSigNumerator || 4);
+  return Math.max(0.25, beatDur * beatsPerMeasure);
+}
+
+function getMeasureNumberForTime(timeSec) {
+  const barDur = getSongBarDurationSec();
+  return Math.max(1, Math.floor(Math.max(0, timeSec) / barDur) + 1);
+}
+
+function recordMeasureOutcome(timeSec, { clean = 0, fumbled = 0, missed = 0 } = {}) {
+  if (!currentSong) return;
+  const measureNum = getMeasureNumberForTime(timeSec);
+  if (!songSessionStats.measureStats[measureNum]) {
+    songSessionStats.measureStats[measureNum] = { clean: 0, fumbled: 0, missed: 0 };
+  }
+  const bucket = songSessionStats.measureStats[measureNum];
+  bucket.clean += clean;
+  bucket.fumbled += fumbled;
+  bucket.missed += missed;
 }
 
 /**
@@ -1444,8 +1928,10 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll) {
 
   if (isFumbledPause) {
     songSessionStats.fumbledNotesHit += noteCount;
+    recordMeasureOutcome(group.anchorTime, { fumbled: noteCount });
   } else {
     songSessionStats.cleanNotesHit += noteCount;
+    recordMeasureOutcome(group.anchorTime, { clean: noteCount });
   }
 
   if (!group.wrongKeyDuringRoll) {
@@ -1458,8 +1944,17 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll) {
     }
   }
 
+  if (songSessionStats.inspirationBurstRemainingSec <= 0 && !group.wrongKeyDuringRoll) {
+    const chargeGain = noteCount * (isFumbledPause ? INSPIRATION_CHARGE_PER_FUMBLED_NOTE : INSPIRATION_CHARGE_PER_CLEAN_NOTE);
+    const prevCharge = songSessionStats.inspirationCharge;
+    songSessionStats.inspirationCharge = Math.min(100, prevCharge + chargeGain);
+    if (prevCharge < 100 && songSessionStats.inspirationCharge >= 100) {
+      showGrimoireToast('⚡ Bardic Inspiration Charged! Click HUD or press Enter for 2x XP (or auto-shield)');
+    }
+  }
+
   const diffMult = currentSong?.difficulty?.xpMultiplier ?? 1.0;
-  const isInspired = songSessionStats.spellChain >= BARDIC_INSPIRATION_STREAK;
+  const isInspired = isBardicInspirationActive();
   const inspirationMult = isInspired ? BARDIC_INSPIRATION_MULT : 1.0;
   const baseXpPerNote = isFumbledPause ? FUMBLED_NOTE_XP : BASE_NOTE_XP;
 
@@ -1508,10 +2003,29 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll) {
 
 /**
  * Break Spell Chain when an off-key note is struck or a note is missed in Arcade Mode
+ * (or auto-consume a full Bardic Inspiration charge to shield the combo!)
  */
 function recordSpellChainBreak(reasonText = 'Chain Broken! (Off-Key)') {
-  songSessionStats.spellChain = 0;
   songSessionStats.wrongOrMissedNotes++;
+  if (rehearsalLoopState.enabled) {
+    rehearsalLoopState.passMistakes++;
+  }
+
+  if (
+    songSessionStats.inspirationCharge >= 100 &&
+    songSessionStats.inspirationBurstRemainingSec <= 0 &&
+    songSessionStats.spellChain > 0
+  ) {
+    songSessionStats.inspirationCharge = 0;
+    songSessionStats.lastGainText = '🛡️ Combo Saved! (Inspiration Shield)';
+    songSessionStats.lastGainFumbled = false;
+    spawnFloatingCanvasRune(MIDDLE_C, '🛡️ COMBO SAVED!', '#38bdf8');
+    showGrimoireToast(`🛡️ Inspiration Shielded your ${songSessionStats.spellChain} Chain!`);
+    updateLitrpgHUD();
+    return;
+  }
+
+  songSessionStats.spellChain = 0;
   songSessionStats.lastGainText = reasonText;
   songSessionStats.lastGainFumbled = true;
   updateLitrpgHUD();
@@ -1541,7 +2055,9 @@ function updateLitrpgHUD() {
   hudMaxChain.textContent = `Max: ${songSessionStats.maxSpellChain}`;
 
   const diffMult = currentSong?.difficulty?.xpMultiplier ?? 1.0;
-  const isInspired = songSessionStats.spellChain >= BARDIC_INSPIRATION_STREAK;
+  const isInspired = isBardicInspirationActive();
+  const isBurstActive = songSessionStats.inspirationBurstRemainingSec > 0;
+  const isReady = !isBurstActive && songSessionStats.inspirationCharge >= 100;
   const effectiveMult = diffMult * (isInspired ? BARDIC_INSPIRATION_MULT : 1.0);
   hudXpMultiplier.textContent = `${effectiveMult.toFixed(1)}x XP`;
 
@@ -1550,21 +2066,466 @@ function updateLitrpgHUD() {
 
   litrpgHudCard.classList.toggle('bardic-inspiration-active', isInspired);
   hudInspirationBanner.classList.toggle('active', isInspired);
+  hudInspirationBanner.classList.toggle('ready', isReady);
 
-  if (isInspired) {
-    hudInspirationText.textContent = `🔥 BARDIC INSPIRATION ACTIVE! (2.0x XP Boost • ${songSessionStats.spellChain} Chain)`;
+  if (isBurstActive) {
+    const burstPct = Math.max(0, Math.min(100, (songSessionStats.inspirationBurstRemainingSec / INSPIRATION_BURST_DURATION_SEC) * 100));
+    hudInspirationText.textContent = `🔥 BARDIC SURGE! 2.0x XP (${songSessionStats.inspirationBurstRemainingSec.toFixed(1)}s)`;
+    if (hudInspirationFill) hudInspirationFill.style.width = `${burstPct.toFixed(1)}%`;
+  } else if (isReady) {
+    hudInspirationText.textContent = '⚡ INSPIRATION READY — Click or [Enter] (2x XP / Shield)';
+    if (hudInspirationFill) hudInspirationFill.style.width = '100%';
+  } else if (songSessionStats.spellChain >= BARDIC_INSPIRATION_STREAK) {
+    hudInspirationText.textContent = `🔥 50+ CHAIN INSPIRED! (2.0x XP • ${songSessionStats.spellChain} Chain)`;
+    if (hudInspirationFill) hudInspirationFill.style.width = `${songSessionStats.inspirationCharge}%`;
   } else {
-    const needed = Math.max(0, BARDIC_INSPIRATION_STREAK - songSessionStats.spellChain);
-    hudInspirationText.textContent = `✨ ${needed} more chain for Bardic Inspiration (2x XP)`;
+    const notesLeft = Math.max(1, Math.ceil((100 - songSessionStats.inspirationCharge) / INSPIRATION_CHARGE_PER_CLEAN_NOTE));
+    hudInspirationText.textContent = `✨ Inspiration ${songSessionStats.inspirationCharge}% (${notesLeft} clean notes)`;
+    if (hudInspirationFill) hudInspirationFill.style.width = `${songSessionStats.inspirationCharge}%`;
   }
 }
 
 /**
- * Open the Post-Song "Performance Check" Modal with D20 Grade & LitRPG Breakdown
+ * Issue #62: Build 4-section phrase accuracy & top 3 weakest measures from songSessionStats.measureStats
+ */
+function buildPostSongBreakdown() {
+  if (!currentSong || !currentSong.duration) {
+    return { sections: [], weakMeasures: [], totalMeasures: 0 };
+  }
+
+  const barDur = getSongBarDurationSec();
+  const totalMeasures = Math.max(1, Math.ceil(currentSong.duration / barDur));
+  const sectionCount = Math.min(4, totalMeasures);
+  const sections = [];
+
+  for (let i = 0; i < sectionCount; i++) {
+    const startBar = Math.floor((i * totalMeasures) / sectionCount) + 1;
+    const endBar = Math.max(startBar, Math.floor(((i + 1) * totalMeasures) / sectionCount));
+    let clean = 0;
+    let fumbled = 0;
+    let missed = 0;
+    for (let b = startBar; b <= endBar; b++) {
+      const st = songSessionStats.measureStats[b];
+      if (st) {
+        clean += st.clean;
+        fumbled += st.fumbled;
+        missed += st.missed;
+      }
+    }
+    const attempts = clean + fumbled + missed;
+    const accuracyPct = attempts > 0
+      ? Math.round(((clean + fumbled * 0.5) / attempts) * 100)
+      : null;
+    const startSec = (startBar - 1) * barDur;
+    const endSec = Math.min(currentSong.duration, endBar * barDur);
+    const label = startBar === endBar ? `Bar ${startBar}` : `Bars ${startBar}–${endBar}`;
+    sections.push({
+      label,
+      startBar,
+      endBar,
+      startSec,
+      endSec,
+      attempts,
+      mistakes: fumbled + missed,
+      accuracyPct
+    });
+  }
+
+  const weakMeasures = [];
+  for (const [mStr, st] of Object.entries(songSessionStats.measureStats)) {
+    const measure = Number(mStr);
+    const mistakes = st.fumbled + st.missed;
+    if (mistakes <= 0) continue;
+    const attempts = st.clean + st.fumbled + st.missed;
+    const accuracyPct = attempts > 0
+      ? Math.round(((st.clean + st.fumbled * 0.5) / attempts) * 100)
+      : 0;
+    const startSec = (measure - 1) * barDur;
+    const endSec = Math.min(currentSong.duration, measure * barDur);
+    weakMeasures.push({
+      measure,
+      startSec,
+      endSec,
+      clean: st.clean,
+      fumbled: st.fumbled,
+      missed: st.missed,
+      mistakes,
+      attempts,
+      accuracyPct
+    });
+  }
+
+  weakMeasures.sort((a, b) => a.accuracyPct - b.accuracyPct || b.mistakes - a.mistakes || a.measure - b.measure);
+
+  return {
+    sections,
+    weakMeasures: weakMeasures.slice(0, 3),
+    totalMeasures
+  };
+}
+
+/**
+ * Issue #62: 1-tap jump from Post-Song Breakdown into Rehearsal Loop Mode (Issue #30).
+ * Pads single short bars to at least 2.0s, arms A->B loop, jumps to A - 0.8s pre-roll, and pauses.
+ */
+function practiceWeakRegion(startSec, endSec, label = 'Weak Measure') {
+  if (!currentSong || !currentSong.duration) return;
+
+  let a = Math.max(0, Math.min(currentSong.duration, startSec));
+  let b = Math.max(a, Math.min(currentSong.duration, endSec));
+
+  if ((b - a) < 2.0) {
+    b = Math.min(currentSong.duration, a + 2.0);
+  }
+  if ((b - a) < 2.0) {
+    a = Math.max(0, b - 2.0);
+  }
+
+  closePerformanceCheckModal();
+  pausePlayback();
+
+  rehearsalLoopState.startTime = a;
+  rehearsalLoopState.endTime = b;
+  rehearsalLoopState.enabled = (b - a) >= MIN_REHEARSAL_LOOP_SPAN_SEC;
+  rehearsalLoopState.passMistakes = 0;
+  rehearsalLoopState.cleanPasses = 0;
+  rehearsalLoopState.totalPasses = 0;
+
+  const jumpTime = Math.max(0, a - REHEARSAL_PREROLL_SEC);
+  playbackState.currentTime = jumpTime;
+  playbackState.isWaitingForStrike = false;
+  playbackState.waitStartedAtMs = null;
+  playbackState.activeStrikeGroup = null;
+  resetSongProgressFlags(jumpTime);
+
+  seekBackingAudioToSongTime(jumpTime);
+  syncBackingAudioElement(jumpTime);
+  updateTimelineUI();
+  updateRehearsalUI();
+  showGrimoireToast(`\uD83D\uDD01 Loop armed for ${label} (${formatSeconds(a)} \u2192 ${formatSeconds(b)}) \u2014 Press Space when ready`);
+}
+
+function renderPostSongBreakdown(totalAttempts) {
+  if (!modalBreakdownSection || !modalBreakdownSummary || !modalSectionBars || !modalWeakMeasures) return;
+
+  if (!currentSong || totalAttempts === 0) {
+    modalBreakdownSection.classList.add('hidden');
+    return;
+  }
+
+  const { sections, weakMeasures } = buildPostSongBreakdown();
+  if (sections.length === 0) {
+    modalBreakdownSection.classList.add('hidden');
+    return;
+  }
+
+  modalBreakdownSection.classList.remove('hidden');
+
+  const totalMistakes = songSessionStats.fumbledNotesHit + songSessionStats.wrongOrMissedNotes;
+  modalBreakdownSummary.textContent = totalMistakes === 0
+    ? 'Flawless Run!'
+    : `${totalMistakes} trip${totalMistakes === 1 ? '' : 's'} across ${weakMeasures.length} key bar${weakMeasures.length === 1 ? '' : 's'}`;
+
+  while (modalSectionBars.firstChild) {
+    modalSectionBars.removeChild(modalSectionBars.firstChild);
+  }
+  for (const sec of sections) {
+    const pill = document.createElement('button');
+    pill.type = 'button';
+    pill.className = 'breakdown-section-pill';
+    if (sec.accuracyPct !== null) {
+      if (sec.accuracyPct < 70) pill.classList.add('tier-weak');
+      else if (sec.accuracyPct < 90) pill.classList.add('tier-warn');
+    }
+    pill.title = sec.attempts > 0
+      ? `Click to practice ${sec.label} (${sec.accuracyPct}% accuracy)`
+      : `${sec.label} (No player notes)`;
+
+    const lblEl = document.createElement('span');
+    lblEl.className = 'breakdown-section-label';
+    lblEl.textContent = sec.label;
+
+    const pctEl = document.createElement('span');
+    pctEl.className = 'breakdown-section-pct';
+    pctEl.textContent = sec.accuracyPct === null ? '—' : `${sec.accuracyPct}%`;
+
+    const barEl = document.createElement('div');
+    barEl.className = 'breakdown-section-bar';
+    barEl.style.width = `${sec.accuracyPct === null ? 0 : Math.max(8, sec.accuracyPct)}%`;
+
+    pill.appendChild(lblEl);
+    pill.appendChild(pctEl);
+    pill.appendChild(barEl);
+
+    if (sec.attempts > 0) {
+      pill.addEventListener('click', () => {
+        practiceWeakRegion(sec.startSec, sec.endSec, sec.label);
+      });
+    } else {
+      pill.disabled = true;
+      pill.style.opacity = '0.55';
+      pill.style.cursor = 'default';
+    }
+
+    modalSectionBars.appendChild(pill);
+  }
+
+  while (modalWeakMeasures.firstChild) {
+    modalWeakMeasures.removeChild(modalWeakMeasures.firstChild);
+  }
+
+  if (weakMeasures.length === 0) {
+    const flawless = document.createElement('div');
+    flawless.className = 'breakdown-flawless';
+    flawless.textContent = '✨ No weak bars detected — every measure was clean!';
+    modalWeakMeasures.appendChild(flawless);
+    return;
+  }
+
+  for (const wm of weakMeasures) {
+    const row = document.createElement('div');
+    row.className = 'breakdown-weak-row';
+
+    const info = document.createElement('div');
+    info.className = 'breakdown-weak-info';
+
+    const badge = document.createElement('span');
+    badge.className = 'breakdown-bar-badge';
+    badge.textContent = `Bar ${wm.measure}`;
+
+    const parts = [];
+    if (wm.missed > 0) parts.push(`${wm.missed} miss${wm.missed === 1 ? '' : 'es'}`);
+    if (wm.fumbled > 0) parts.push(`${wm.fumbled} fumbled`);
+    const detail = document.createElement('span');
+    detail.className = 'breakdown-weak-detail';
+    detail.textContent = `${wm.accuracyPct}% • ${parts.join(', ')}`;
+
+    info.appendChild(badge);
+    info.appendChild(detail);
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-practice-measure';
+    btn.textContent = '🔁 Practice This';
+    btn.title = `Loop Bar ${wm.measure} (${formatSeconds(wm.startSec)}–${formatSeconds(wm.endSec)})`;
+    btn.addEventListener('click', () => {
+      practiceWeakRegion(wm.startSec, wm.endSec, `Bar ${wm.measure}`);
+    });
+
+    row.appendChild(info);
+    row.appendChild(btn);
+    modalWeakMeasures.appendChild(row);
+  }
+}
+
+let diceBounceSynth = null;
+
+function playDiceBounceSound(impactSpeed = 3) {
+  try {
+    if (typeof Tone === 'undefined') return;
+    if (Tone.context.state !== 'running') {
+      Tone.context.resume().catch(() => {});
+    }
+    if (!diceBounceSynth) {
+      diceBounceSynth = new Tone.Synth({
+        oscillator: { type: 'triangle' },
+        envelope: { attack: 0.002, decay: 0.04, sustain: 0, release: 0.02 }
+      }).toDestination();
+    }
+    const db = Math.max(-28, Math.min(-8, -24 + impactSpeed * 1.4));
+    diceBounceSynth.volume.value = db;
+    const freq = 150 + Math.random() * 95;
+    diceBounceSynth.triggerAttackRelease(freq, 0.045, Tone.now());
+  } catch {
+    // Ignore audio errors
+  }
+}
+
+function playNat20Flourish() {
+  try {
+    const inst = getActiveInstrument();
+    if (!inst || typeof Tone === 'undefined') return;
+    const now = Tone.now();
+    ['C5', 'E5', 'G5', 'C6'].forEach((note, idx) => {
+      inst.triggerAttackRelease(note, 0.35, now + idx * 0.08, 0.8);
+    });
+  } catch {
+    // Ignore audio errors
+  }
+}
+
+function playNat1TomatoSound() {
+  try {
+    const inst = getActiveInstrument();
+    if (!inst || typeof Tone === 'undefined') return;
+    const now = Tone.now();
+    inst.triggerAttackRelease('F#3', 0.25, now, 0.7);
+    inst.triggerAttackRelease('C3', 0.45, now + 0.18, 0.75);
+  } catch {
+    // Ignore audio errors
+  }
+}
+
+function computeBardicAccuracyMod(accuracyPct) {
+  if (accuracyPct >= 95) return 5;
+  if (accuracyPct >= 90) return 4;
+  if (accuracyPct >= 80) return 3;
+  if (accuracyPct >= 70) return 2;
+  if (accuracyPct >= 60) return 1;
+  return 0;
+}
+
+function getSongPerformanceDC(song) {
+  const mult = song?.difficulty?.xpMultiplier ?? 1.0;
+  if (mult >= 3.0) return 17;
+  if (mult >= 2.2) return 15;
+  if (mult >= 1.6) return 13;
+  if (mult >= 1.25) return 12;
+  return 10;
+}
+
+function buildD20Outcome(dieRoll, accuracyPct, song) {
+  const mod = computeBardicAccuracyMod(accuracyPct);
+  const dc = getSongPerformanceDC(song);
+  const total = dieRoll + mod;
+  const modSign = mod >= 0 ? `+${mod}` : String(mod);
+  const mathText = `d20 (${dieRoll}) ${modSign} Accuracy = ${total} vs DC ${dc}`;
+
+  if (dieRoll === 20) {
+    return {
+      dieRoll,
+      mod,
+      total,
+      dc,
+      tier: 'nat-20',
+      bonusXp: 150,
+      mathText: `${mathText} — CRITICAL! (+150 XP)`,
+      gradeTitle: 'Natural 20 — The Tavern Erupts!',
+      gradeFlavor: 'Thunderous applause! Patrons toss a shower of gold coins onto the stage (+150 Bonus XP).'
+    };
+  }
+  if (dieRoll === 1) {
+    return {
+      dieRoll,
+      mod,
+      total,
+      dc,
+      tier: 'nat-1',
+      bonusXp: 5,
+      mathText: `${mathText} — FUMBLE! (+5 XP)`,
+      gradeTitle: 'Natural 1 — A Tomato Hits the Stage!',
+      gradeFlavor: 'Splat! A heckler in the back row has terrible aim, but you earn +5 Consolation XP.'
+    };
+  }
+  if (total >= dc + 5) {
+    return {
+      dieRoll,
+      mod,
+      total,
+      dc,
+      tier: 'crit-success',
+      bonusXp: 75,
+      mathText: `${mathText} — Standing Ovation! (+75 XP)`,
+      gradeTitle: `Total ${total} vs DC ${dc} — Masterful Encore!`,
+      gradeFlavor: 'The barkeep pours celebratory honey-mead for the whole table (+75 Bonus XP).'
+    };
+  }
+  if (total >= dc) {
+    return {
+      dieRoll,
+      mod,
+      total,
+      dc,
+      tier: 'success',
+      bonusXp: 35,
+      mathText: `${mathText} — Success! (+35 XP)`,
+      gradeTitle: `Total ${total} vs DC ${dc} — Solid Tavern Performance`,
+      gradeFlavor: 'Patrons raise their silver flagons and cheer your arcane melody (+35 Bonus XP).'
+    };
+  }
+  return {
+    dieRoll,
+    mod,
+    total,
+    dc,
+    tier: 'miss',
+    bonusXp: 10,
+    mathText: `${mathText} — Missed DC (+10 XP)`,
+    gradeTitle: `Total ${total} vs DC ${dc} — Tough Crowd`,
+    gradeFlavor: 'A few murmurs in the tavern, but every rehearsal sharpens your craft (+10 Consolation XP).'
+  };
+}
+
+function refreshModalXpSection() {
+  const leveledUp = bardProfile.level > songSessionStats.startingLevel;
+  modalLevelupBanner.classList.toggle('hidden', !leveledUp);
+  if (leveledUp) {
+    modalNewLevel.textContent = `Level ${bardProfile.level}`;
+    modalNewTitle.textContent = bardProfile.title;
+  }
+
+  modalBardLevel.textContent = `LVL ${bardProfile.level}`;
+  modalBardTitle.textContent = bardProfile.title;
+  modalXpNumbers.textContent = `${bardProfile.xpIntoLevel.toLocaleString()} / ${bardProfile.xpForNextLevel.toLocaleString()} XP (Total: ${bardProfile.totalXp.toLocaleString()} XP)`;
+
+  const pct = bardProfile.xpForNextLevel > 0
+    ? Math.min(100, Math.max(0, (bardProfile.xpIntoLevel / bardProfile.xpForNextLevel) * 100))
+    : 0;
+  modalXpBarFill.style.width = `${pct.toFixed(1)}%`;
+  modalStatXp.textContent = `+${songSessionStats.songXpEarned.toLocaleString()} XP`;
+}
+
+function applyD20OutcomeToModal(outcome, isPreview = false) {
+  if (d20GradeBanner) {
+    d20GradeBanner.classList.toggle('nat-20', !isPreview && outcome?.tier === 'nat-20');
+    d20GradeBanner.classList.toggle('nat-1', !isPreview && outcome?.tier === 'nat-1');
+  }
+  if (modalD20Badge) {
+    modalD20Badge.classList.toggle('nat-20', !isPreview && outcome?.tier === 'nat-20');
+    modalD20Badge.classList.toggle('nat-1', !isPreview && outcome?.tier === 'nat-1');
+    modalD20Badge.classList.toggle('preview-ghost', isPreview);
+    modalD20Badge.textContent = isPreview ? '10' : String(outcome.dieRoll);
+  }
+  if (modalD20Math) {
+    if (isPreview || !outcome) {
+      modalD20Math.classList.add('hidden');
+    } else {
+      modalD20Math.textContent = outcome.mathText;
+      modalD20Math.classList.remove('hidden');
+    }
+  }
+  if (isPreview) {
+    modalGradeTitle.textContent = 'Preview Mode — Uncast Scroll';
+    modalGradeFlavor.textContent = 'Strike notes on the Spell Highway to roll a real 3D d20 Performance Check!';
+  } else if (outcome) {
+    modalGradeTitle.textContent = outcome.gradeTitle;
+    modalGradeFlavor.textContent = outcome.gradeFlavor;
+  }
+}
+
+let d20DisposeTimer = null;
+
+function disposeActiveD20Roller() {
+  if (d20DisposeTimer !== null) {
+    clearTimeout(d20DisposeTimer);
+    d20DisposeTimer = null;
+  }
+  if (activeD20Roller) {
+    activeD20Roller.dispose();
+    activeD20Roller = null;
+  }
+  if (d20TrayOverlay) {
+    d20TrayOverlay.classList.add('hidden');
+  }
+}
+
+/**
+ * Open the Post-Song "Performance Check" Modal with 3D Physics D20 Roll & LitRPG Breakdown (Issue #25)
  */
 function openPerformanceCheckModal({ recordPlay = false } = {}) {
   pausePlayback();
   closeAllConservatoryPopovers();
+  disposeActiveD20Roller();
 
   const totalAttempts =
     songSessionStats.cleanNotesHit +
@@ -1576,41 +2537,9 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
     : 1.0;
   const accuracyPct = Math.round(accuracyRatio * 100);
 
-  // Map accuracy % to a D&D 5E D20 Performance Roll (1..20)
-  const d20Roll = totalAttempts === 0
-    ? 10
-    : Math.max(1, Math.min(20, Math.round(accuracyRatio * 20)));
-
-  let gradeTitle = 'Natural 20 — Legendary Virtuoso!';
-  let gradeFlavor = 'The entire tavern erupts in thunderous applause as arcane gold light fills the rafters!';
-
-  if (totalAttempts === 0) {
-    gradeTitle = 'Roll 10 — Uncast Scroll (Preview)';
-    gradeFlavor = 'Strike notes on the Spell Highway to test your Bardic Performance Check!';
-  } else if (d20Roll === 20) {
-    gradeTitle = 'Natural 20 — Legendary Virtuoso!';
-    gradeFlavor = 'Flawless somatic execution! Even the Archmage of the College stands in awe.';
-  } else if (d20Roll >= 17) {
-    gradeTitle = `Roll ${d20Roll} — Masterful Spell-Weaving!`;
-    gradeFlavor = 'Rich harmonies and crisp chord rolls echo across the conservatory hall.';
-  } else if (d20Roll >= 13) {
-    gradeTitle = `Roll ${d20Roll} — Solid Tavern Performance`;
-    gradeFlavor = 'Patrons raise their silver flagons and toss gold coins onto the stage.';
-  } else if (d20Roll >= 8) {
-    gradeTitle = `Roll ${d20Roll} — Apprentice Incantation`;
-    gradeFlavor = 'A few fumbled components, but the arcane melody held together.';
-  } else {
-    gradeTitle = `Roll ${d20Roll} — Wild Magic Surge`;
-    gradeFlavor = 'Use Wait Mode and slow the Tempo to 0.5x or 0.75x to master this scroll!';
-  }
-
   const songName = currentSong ? currentSong.title : 'Practice Session';
   const diffLabel = currentSong?.difficulty?.label || 'Cantrip (1.0x XP)';
   modalSongSubtitle.textContent = `${songName} • ${diffLabel}`;
-
-  modalD20Badge.textContent = String(d20Roll);
-  modalGradeTitle.textContent = gradeTitle;
-  modalGradeFlavor.textContent = gradeFlavor;
 
   // Record song play history & Daily Quests BEFORE rendering XP/Level-Up banner (Issue #52, #53, #67)
   // Only the natural end-of-song path records play history; the manual button does not (Issue #67)
@@ -1650,23 +2579,8 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
     }
   }
 
-  const leveledUp = bardProfile.level > songSessionStats.startingLevel;
-  modalLevelupBanner.classList.toggle('hidden', !leveledUp);
-  if (leveledUp) {
-    modalNewLevel.textContent = `Level ${bardProfile.level}`;
-    modalNewTitle.textContent = bardProfile.title;
-  }
+  refreshModalXpSection();
 
-  modalBardLevel.textContent = `LVL ${bardProfile.level}`;
-  modalBardTitle.textContent = bardProfile.title;
-  modalXpNumbers.textContent = `${bardProfile.xpIntoLevel.toLocaleString()} / ${bardProfile.xpForNextLevel.toLocaleString()} XP (Total: ${bardProfile.totalXp.toLocaleString()} XP)`;
-
-  const pct = bardProfile.xpForNextLevel > 0
-    ? Math.min(100, Math.max(0, (bardProfile.xpIntoLevel / bardProfile.xpForNextLevel) * 100))
-    : 0;
-  modalXpBarFill.style.width = `${pct.toFixed(1)}%`;
-
-  modalStatXp.textContent = `+${songSessionStats.songXpEarned.toLocaleString()} XP`;
   modalStatAccuracy.textContent = totalAttempts === 0 ? '—' : `${accuracyPct}%`;
   const inspiredSuffix = songSessionStats.maxSpellChain >= BARDIC_INSPIRATION_STREAK ? ' 🔥' : '';
   modalStatChain.textContent = `${songSessionStats.maxSpellChain}${inspiredSuffix}`;
@@ -1674,10 +2588,72 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
   modalStatFumbled.textContent = String(songSessionStats.fumbledNotesHit);
   modalStatRolls.textContent = `${songSessionStats.cleanChordRolls} Rolls • ${songSessionStats.wrongOrMissedNotes} Off-Key`;
 
+  renderPostSongBreakdown(totalAttempts);
   performanceCheckModal.classList.remove('hidden');
+
+  if (totalAttempts === 0) {
+    applyD20OutcomeToModal(null, true);
+    return;
+  }
+
+  // One roll per song: if already rolled this session, show settled outcome without re-rolling
+  if (songSessionStats.d20Outcome) {
+    applyD20OutcomeToModal(songSessionStats.d20Outcome, false);
+    return;
+  }
+
+  // Show pending state while the 3D physics die tumbles
+  if (modalD20Badge) {
+    modalD20Badge.textContent = '?';
+    modalD20Badge.classList.remove('nat-20', 'nat-1', 'preview-ghost');
+  }
+  if (modalD20Math) {
+    modalD20Math.classList.add('hidden');
+  }
+  if (d20GradeBanner) {
+    d20GradeBanner.classList.remove('nat-20', 'nat-1');
+  }
+  modalGradeTitle.textContent = 'Rolling Performance Check...';
+  modalGradeFlavor.textContent = 'The golden d20 tumbles across the tavern felt...';
+
+  const reducedMotion = Boolean(
+    typeof window !== 'undefined' &&
+    window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+
+  if (!reducedMotion && d20TrayOverlay) {
+    d20TrayOverlay.classList.remove('hidden');
+  }
+
+  if (d20TrayCanvasHost) {
+    activeD20Roller = createD20TrayRoller(d20TrayCanvasHost, {
+      reducedMotion,
+      onBounce: (impact) => playDiceBounceSound(impact),
+      onSettled: (rolledFace) => {
+        const outcome = buildD20Outcome(rolledFace, accuracyPct, currentSong);
+        songSessionStats.d20Outcome = outcome;
+        if (outcome.bonusXp > 0) {
+          awardBardXp(outcome.bonusXp);
+          refreshModalXpSection();
+        }
+        applyD20OutcomeToModal(outcome, false);
+        if (outcome.tier === 'nat-20') {
+          playNat20Flourish();
+        } else if (outcome.tier === 'nat-1') {
+          playNat1TomatoSound();
+        }
+        d20DisposeTimer = setTimeout(() => {
+          d20DisposeTimer = null;
+          disposeActiveD20Roller();
+        }, reducedMotion ? 0 : 450);
+      }
+    });
+  }
 }
 
 function closePerformanceCheckModal() {
+  disposeActiveD20Roller();
   performanceCheckModal.classList.add('hidden');
 }
 
@@ -1899,6 +2875,7 @@ function evaluateStrikeZoneInput(midi) {
       n.lockedInWait = false;
     }
     playbackState.activeStrikeGroup = null;
+    recordMeasureOutcome(group.anchorTime, { missed: Math.max(1, group.notes.length) });
     recordSpellChainBreak('✗ Missed Note (Arcade)');
     group = getNextUnsatisfiedStrikeGroup();
     if (!group) return false;
@@ -2006,6 +2983,7 @@ function evaluateStrikeZoneInput(midi) {
   } else {
     // Wrong key pressed inside the active strike window (Wait Mode or Arcade Mode) -> breaks Spell Chain! (Issue #11)
     group.wrongKeyDuringRoll = true;
+    recordMeasureOutcome(group.anchorTime, { missed: 1 });
     recordSpellChainBreak(`✗ Chain Broken! (${midiToNoteName(midi)})`);
     spawnKeyParticleBurst(midi, 'fumble', 10, false);
     const missingNames = Array.from(group.requiredPitches)
@@ -2048,13 +3026,7 @@ function resetPlaybackToStart() {
   playbackState.currentTime = -playbackState.leadInSeconds;
   resetSongProgressFlags(-playbackState.leadInSeconds);
   resetSongSessionStats();
-  if (currentSong?.backingAudioEl) {
-    try {
-      currentSong.backingAudioEl.currentTime = 0;
-    } catch {
-      // Ignore seek errors before audio metadata is ready
-    }
-  }
+  seekBackingAudioToSongTime(playbackState.currentTime);
   if (!currentSong) {
     setStrikeStatusBadge('idle', 'Highway Clear — Open Grimoire to Choose a Spell');
   } else {
@@ -2072,12 +3044,14 @@ function resetPlaybackToStart() {
 
 async function startPlayback() {
   if (!currentSong) return;
+  stopAudioAudition();
   await ensureAudioReady();
 
   if (playbackState.currentTime >= currentSong.duration) {
     playbackState.currentTime = -playbackState.leadInSeconds;
     resetSongProgressFlags(-playbackState.leadInSeconds);
     resetSongSessionStats();
+    seekBackingAudioToSongTime(playbackState.currentTime);
   }
 
   playbackState.isPlaying = true;
@@ -2131,29 +3105,525 @@ function updateTimelineUI() {
 }
 
 /**
- * Synchronize paired .wav / .mp3 backing audio element (Issue #31).
+ * Issue #63 & #76: Centralized Practice Tempo setter — syncs highway, MIDI accompaniment,
+ * pitch-preserved backing audio (including per-song drift ratio), UI stepper state, and persistence.
+ */
+function setPracticeTempo(rawSpeed, { persist = true, toast = false } = {}) {
+  const num = Number(rawSpeed);
+  const clamped = Number.isFinite(num) ? Math.max(0.5, Math.min(1.25, num)) : 1.0;
+  // Snap to nearest preset in REHEARSAL_SPEED_PRESETS so the dropdown always reflects the active speed
+  let speed = REHEARSAL_SPEED_PRESETS[0];
+  let bestDiff = Infinity;
+  for (const preset of REHEARSAL_SPEED_PRESETS) {
+    const diff = Math.abs(preset - clamped);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      speed = preset;
+    }
+  }
+
+  playbackState.playbackSpeed = speed;
+
+  if (playbackSpeedSelect) {
+    playbackSpeedSelect.value = String(speed);
+  }
+  if (tempoControlGroup) {
+    tempoControlGroup.classList.toggle('tempo-modified', Math.abs(speed - 1.0) > 0.001);
+  }
+  if (btnTempoDown) {
+    btnTempoDown.disabled = speed <= REHEARSAL_SPEED_PRESETS[0] + 0.001;
+  }
+  if (btnTempoUp) {
+    btnTempoUp.disabled = speed >= REHEARSAL_SPEED_PRESETS[REHEARSAL_SPEED_PRESETS.length - 1] - 0.001;
+  }
+
+  if (currentSong?.backingAudioEl) {
+    currentSong.backingAudioEl.preservesPitch = true;
+    currentSong.backingAudioEl.webkitPreservesPitch = true;
+    currentSong.backingAudioEl.playbackRate = getEffectiveBackingPlaybackRate(
+      speed,
+      currentSong.audioTempoRatio
+    );
+  }
+
+  if (persist && currentSong) {
+    const key = currentSong.songId || (currentSong.filePath || currentSong.title || 'Demo Spell').toLowerCase();
+    const existing = songPlayHistory[key] || {
+      songId: currentSong.songId || key,
+      title: currentSong.title || 'Untitled Scroll',
+      filePath: currentSong.filePath || null,
+      plays: 0,
+      bestAccuracy: 0,
+      lastAccuracy: 0,
+      bestChain: 0,
+      totalXpEarned: 0,
+      lastPlayed: null,
+      firstPlayed: new Date().toISOString()
+    };
+    existing.preferredTempo = speed;
+    songPlayHistory[key] = existing;
+    saveSongStats();
+  }
+
+  if (toast) {
+    showGrimoireToast(`\u23F1\uFE0F Practice Tempo: ${speed}x`);
+  }
+}
+
+function stepPracticeTempo(delta) {
+  const cur = playbackState.playbackSpeed || 1.0;
+  let idx = REHEARSAL_SPEED_PRESETS.findIndex((s) => Math.abs(s - cur) < 0.001);
+  if (idx === -1) {
+    idx = REHEARSAL_SPEED_PRESETS.findIndex((s) => s >= cur);
+    if (idx === -1) idx = REHEARSAL_SPEED_PRESETS.length - 1;
+  }
+  const nextIdx = Math.max(0, Math.min(REHEARSAL_SPEED_PRESETS.length - 1, idx + delta));
+  const nextSpeed = REHEARSAL_SPEED_PRESETS[nextIdx];
+  if (Math.abs(nextSpeed - cur) > 0.001) {
+    setPracticeTempo(nextSpeed, { persist: true, toast: true });
+  }
+}
+
+/**
+ * Issue #76: Seek Backing Audio using calibrated Start Offset & Audio Drift Match
+ */
+function seekBackingAudioToSongTime(songTime = playbackState.currentTime) {
+  if (!currentSong?.backingAudioEl) return;
+  const audioEl = currentSong.backingAudioEl;
+  const mapped = getMappedBackingAudioTime(songTime, {
+    audioOffsetSec: currentSong.audioOffsetSec,
+    audioTempoRatio: currentSong.audioTempoRatio
+  });
+  let targetTime = mapped.clampedAudioTime;
+  const audioDur = audioEl.duration;
+  if (Number.isFinite(audioDur) && audioDur > 0) {
+    targetTime = Math.min(targetTime, Math.max(0, audioDur - 0.02));
+  }
+  try {
+    audioEl.currentTime = targetTime;
+  } catch {
+    // Ignore seek errors before audio metadata is ready
+  }
+}
+
+function getFirstPlayableNoteSec(song = currentSong) {
+  if (!song) return 0;
+  let minTime = Infinity;
+  for (const n of song.track1Notes || []) {
+    if (Number.isFinite(n.time) && n.time < minTime) minTime = n.time;
+  }
+  for (const n of song.track2Notes || []) {
+    if (Number.isFinite(n.time) && n.time < minTime) minTime = n.time;
+  }
+  if (!Number.isFinite(minTime)) {
+    for (const tr of song.rawTracks || []) {
+      if (tr.isPercussion) continue;
+      for (const n of tr.notes || []) {
+        if (Number.isFinite(n.time) && n.time < minTime) minTime = n.time;
+      }
+    }
+  }
+  return Number.isFinite(minTime) ? Math.max(0, minTime) : 0;
+}
+
+function persistCurrentSongCalibration() {
+  if (!currentSong) return;
+  try {
+    saveBundleRecord({
+      storePath: BUNDLE_STORE_PATH,
+      projectRoot: __dirname,
+      importsDir: IMPORTS_DIR,
+      record: {
+        id: currentSong.songId,
+        songId: currentSong.songId,
+        title: currentSong.title,
+        fileName: currentSong.fileName,
+        notesPath: currentSong.filePath || 'BUILTIN_DEMO',
+        sheetMusicPath: currentSong.sheetMusicPath || undefined,
+        backingAudioPath: currentSong.backingAudioPath || undefined,
+        youtubeUrl: currentSong.youtubeUrl || undefined,
+        spotifyUrl: currentSong.spotifyUrl || undefined,
+        audioOffsetSec: currentSong.audioOffsetSec ?? 0,
+        audioTempoRatio: currentSong.audioTempoRatio ?? 1.0,
+        midiCleanupEnabled: typeof currentSong.midiCleanupOverride === 'boolean'
+          ? currentSong.midiCleanupOverride
+          : null
+      }
+    });
+  } catch {
+    // Ignore store save errors for unsaved in-memory imports
+  }
+
+  for (const entry of grimoireSpells.values()) {
+    const isBothDemo = currentSong.filePath === 'BUILTIN_DEMO' && entry.filePath === 'BUILTIN_DEMO';
+    const samePath = Boolean(
+      currentSong.filePath &&
+      currentSong.filePath !== 'BUILTIN_DEMO' &&
+      entry.filePath &&
+      entry.filePath !== 'BUILTIN_DEMO' &&
+      isSameFilePath(currentSong.filePath, entry.filePath)
+    );
+    const sameIdUnbacked = Boolean(
+      !currentSong.filePath &&
+      currentSong.songId &&
+      entry.songId &&
+      entry.songId === currentSong.songId &&
+      entry.filePath !== 'BUILTIN_DEMO'
+    );
+    if (isBothDemo || samePath || sameIdUnbacked) {
+      entry.audioOffsetSec = currentSong.audioOffsetSec ?? 0;
+      entry.audioTempoRatio = currentSong.audioTempoRatio ?? 1.0;
+      entry.midiCleanupEnabled = currentSong.midiCleanupOverride;
+      entry.hasCustomBundle = Boolean(
+        entry.sheetMusicPath ||
+        entry.backingAudioPath ||
+        entry.youtubeUrl ||
+        entry.spotifyUrl ||
+        Math.abs(entry.audioOffsetSec) > 0.0001 ||
+        Math.abs((entry.audioTempoRatio ?? 1.0) - 1.0) > 0.0001 ||
+        typeof entry.midiCleanupEnabled === 'boolean'
+      );
+    }
+  }
+  if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+    renderSpellbookSpread();
+  }
+}
+
+function applyLiveAudioSyncCalibration({ nextOffsetSec, nextTempoRatio, statusMessage = null } = {}) {
+  if (!currentSong) return;
+  if (nextOffsetSec !== undefined) {
+    currentSong.audioOffsetSec = clampAudioOffsetSec(nextOffsetSec);
+  }
+  if (nextTempoRatio !== undefined) {
+    currentSong.audioTempoRatio = clampAudioTempoRatio(nextTempoRatio);
+  }
+  currentSong.hasCustomBundle = Boolean(
+    currentSong.sheetMusicPath ||
+    currentSong.backingAudioPath ||
+    currentSong.youtubeUrl ||
+    currentSong.spotifyUrl ||
+    Math.abs(currentSong.audioOffsetSec || 0) > 0.0001 ||
+    Math.abs((currentSong.audioTempoRatio ?? 1.0) - 1.0) > 0.0001 ||
+    typeof currentSong.midiCleanupOverride === 'boolean'
+  );
+
+  if (currentSong.backingAudioEl) {
+    currentSong.backingAudioEl.preservesPitch = true;
+    currentSong.backingAudioEl.webkitPreservesPitch = true;
+    currentSong.backingAudioEl.playbackRate = getEffectiveBackingPlaybackRate(
+      playbackState.playbackSpeed,
+      currentSong.audioTempoRatio
+    );
+    seekBackingAudioToSongTime(playbackState.currentTime);
+  }
+
+  persistCurrentSongCalibration();
+  updateAudioSyncUI(statusMessage);
+  syncBackingAudioElement(playbackState.currentTime);
+}
+
+function updateAudioSyncUI(customHint = null) {
+  const hasAudio = Boolean(currentSong?.backingAudioPath && currentSong?.backingAudioEl);
+  if (audioSyncAnchor) {
+    audioSyncAnchor.classList.toggle('hidden', !hasAudio);
+  }
+  if (settingsSyncRow) {
+    settingsSyncRow.classList.toggle('hidden', !hasAudio);
+  }
+  if (!hasAudio) {
+    stopAudioAudition();
+    if (audioSyncPopover) audioSyncPopover.classList.add('hidden');
+    if (btnAudioSync) {
+      btnAudioSync.classList.remove('active', 'sync-non-zero');
+      btnAudioSync.setAttribute('aria-expanded', 'false');
+    }
+    return;
+  }
+
+  const off = clampAudioOffsetSec(currentSong.audioOffsetSec || 0);
+  const ratio = clampAudioTempoRatio(currentSong.audioTempoRatio ?? 1.0);
+  const offsetText = `${off >= 0 ? '+' : ''}${off.toFixed(2)}s`;
+  const driftText = `${(ratio * 100).toFixed(1)}%`;
+  const isNonZero = Math.abs(off) >= 0.005 || Math.abs(ratio - 1.0) >= 0.0005;
+
+  if (syncBadgePill) syncBadgePill.textContent = offsetText;
+  if (syncOffsetReadout) syncOffsetReadout.textContent = offsetText;
+  if (syncDriftReadout) syncDriftReadout.textContent = driftText;
+  if (btnAudioSync) btnAudioSync.classList.toggle('sync-non-zero', isNonZero);
+
+  if (syncStatusHint) {
+    if (customHint) {
+      syncStatusHint.textContent = customHint;
+    } else if (!audioAuditionEl && !isAuditionPending) {
+      const firstNoteSec = getFirstPlayableNoteSec(currentSong);
+      syncStatusHint.textContent = `First note at ${firstNoteSec.toFixed(2)}s • Offset ${offsetText} • Drift ${driftText}. Saves automatically per song.`;
+    }
+  }
+}
+
+function stopAudioAudition() {
+  auditionRequestSeq += 1;
+  isAuditionPending = false;
+  if (audioAuditionTimer) {
+    clearInterval(audioAuditionTimer);
+    audioAuditionTimer = null;
+  }
+  audioAuditionStartedAtMs = null;
+  if (audioAuditionEl) {
+    try {
+      audioAuditionEl._disposed = true;
+      audioAuditionEl.pause();
+      audioAuditionEl.removeAttribute('src');
+      audioAuditionEl.load();
+    } catch {
+      // Ignore audition cleanup error
+    }
+    audioAuditionEl = null;
+  }
+  if (btnSyncAudition) {
+    btnSyncAudition.textContent = '\uD83D\uDD0A Audition 0:00';
+  }
+  if (btnSyncMarkBeat1) {
+    btnSyncMarkBeat1.textContent = '\uD83C\uDFAF Mark Beat 1';
+  }
+}
+
+async function startAudioAudition() {
+  if (audioAuditionEl || isAuditionPending) {
+    stopAudioAudition();
+    updateAudioSyncUI('Audition stopped.');
+    return;
+  }
+  const targetSong = currentSong;
+  if (!targetSong?.backingAudioPath || !fs.existsSync(targetSong.backingAudioPath)) return;
+
+  const seq = ++auditionRequestSeq;
+  isAuditionPending = true;
+  pausePlayback();
+  if (btnSyncAudition) btnSyncAudition.textContent = '\u23F9 Stop Audition';
+  if (syncStatusHint) syncStatusHint.textContent = 'Starting audition from 0:00\u2026';
+
+  let el = null;
+  const disposeEl = (targetEl) => {
+    if (!targetEl) return;
+    try {
+      targetEl._disposed = true;
+      targetEl.pause();
+      targetEl.removeAttribute('src');
+      targetEl.load();
+    } catch {
+      // Ignore audition cleanup error
+    }
+  };
+
+  try {
+    await ensureAudioReady();
+    if (seq !== auditionRequestSeq || currentSong !== targetSong || !fs.existsSync(targetSong.backingAudioPath)) {
+      isAuditionPending = false;
+      if (!audioAuditionEl && btnSyncAudition) {
+        btnSyncAudition.textContent = '\uD83D\uDD0A Audition 0:00';
+      }
+      return;
+    }
+
+    el = new Audio(pathToFileURL(targetSong.backingAudioPath).href);
+    el.preload = 'auto';
+    el.volume = getBackingAudioVolumeFromSlider();
+    el.preservesPitch = true;
+    el.webkitPreservesPitch = true;
+    el.playbackRate = 1.0;
+
+    el.addEventListener('ended', () => {
+      if (el._disposed) return;
+      stopAudioAudition();
+      updateAudioSyncUI('Audition finished.');
+    });
+    el.addEventListener('error', () => {
+      if (el._disposed) return;
+      stopAudioAudition();
+      showGrimoireToast('Could not audition backing audio file.', 'warning');
+    });
+
+    audioAuditionEl = el;
+    audioAuditionStartedAtMs = performance.now();
+    if (btnSyncAudition) btnSyncAudition.textContent = '\u23F9 Stop Audition';
+    if (btnSyncMarkBeat1) btnSyncMarkBeat1.textContent = '\uD83C\uDFAF Tap Beat 1 Now!';
+    if (syncStatusHint) {
+      syncStatusHint.textContent = 'Listening from 0:00… click "🎯 Tap Beat 1 Now!" when Measure 1 / Beat 1 hits.';
+    }
+
+    await el.play();
+    if (seq !== auditionRequestSeq || el._disposed || currentSong !== targetSong) {
+      disposeEl(el);
+      if (audioAuditionEl === el) audioAuditionEl = null;
+      isAuditionPending = false;
+      return;
+    }
+
+    isAuditionPending = false;
+    audioAuditionTimer = setInterval(() => {
+      if (!audioAuditionEl || audioAuditionEl._disposed) return;
+      const elapsed = Number(audioAuditionEl.currentTime) || 0;
+      if (syncStatusHint) {
+        syncStatusHint.textContent = `Auditioning: ${elapsed.toFixed(2)}s — Tap "🎯 Tap Beat 1 Now!" on Beat 1`;
+      }
+    }, 80);
+  } catch (err) {
+    disposeEl(el);
+    if (seq === auditionRequestSeq) {
+      stopAudioAudition();
+      showGrimoireToast(`Could not play audition audio: ${err?.message || err}`, 'warning');
+    } else {
+      isAuditionPending = false;
+    }
+  }
+}
+
+function handleMarkBeat1Click() {
+  if (!currentSong?.backingAudioPath) return;
+  if (isAuditionPending) return;
+  if (!audioAuditionEl || audioAuditionEl.paused) {
+    startAudioAudition();
+    return;
+  }
+
+  const heardSec = Math.max(0, Number(audioAuditionEl.currentTime) || 0);
+  const firstNoteSec = getFirstPlayableNoteSec(currentSong);
+  const nextOffset = computeAudioOffsetForBeat1(heardSec, firstNoteSec, currentSong.audioTempoRatio);
+  stopAudioAudition();
+
+  applyLiveAudioSyncCalibration({
+    nextOffsetSec: nextOffset,
+    statusMessage: `Beat 1 locked at ${heardSec.toFixed(2)}s (Start Offset ${nextOffset >= 0 ? '+' : ''}${nextOffset.toFixed(2)}s).`
+  });
+  showGrimoireToast(`\uD83C\uDFAF Beat 1 locked (${heardSec.toFixed(2)}s \u2192 Offset ${nextOffset >= 0 ? '+' : ''}${nextOffset.toFixed(2)}s)`);
+}
+
+async function runAutoAlignFirstOnset() {
+  const targetSong = currentSong;
+  if (!targetSong?.backingAudioPath || !fs.existsSync(targetSong.backingAudioPath)) return;
+  pausePlayback();
+  stopAudioAudition();
+
+  if (btnSyncAutoAlign) {
+    btnSyncAutoAlign.disabled = true;
+    btnSyncAutoAlign.textContent = '\u23F3 Analyzing...';
+  }
+  updateAudioSyncUI('Scanning backing audio waveform for first musical onset...');
+
+  let audioCtx = null;
+  try {
+    const fileBuf = await fs.promises.readFile(targetSong.backingAudioPath);
+    if (currentSong !== targetSong) return;
+    const arrayBuf = fileBuf.buffer.slice(fileBuf.byteOffset, fileBuf.byteOffset + fileBuf.byteLength);
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) {
+      throw new Error('Web Audio API unavailable for decoding.');
+    }
+    audioCtx = new AudioCtx();
+    const decoded = await audioCtx.decodeAudioData(arrayBuf);
+    if (currentSong !== targetSong) return;
+
+    const numChannels = Math.max(1, decoded.numberOfChannels || 1);
+    const maxSamples = Math.min(decoded.length, Math.floor(decoded.sampleRate * 40));
+    const mono = new Float32Array(maxSamples);
+    for (let ch = 0; ch < numChannels; ch++) {
+      const chData = decoded.getChannelData(ch);
+      for (let i = 0; i < maxSamples; i++) {
+        mono[i] += chData[i] / numChannels;
+      }
+    }
+
+    const onsetSec = detectFirstAudioOnsetSec(mono, decoded.sampleRate, 35);
+    if (currentSong !== targetSong) return;
+    if (onsetSec === null) {
+      updateAudioSyncUI('No distinct onset detected automatically. Try Audition 0:00 + Mark Beat 1.');
+      showGrimoireToast('Could not detect Beat 1 automatically — tap Mark Beat 1 while auditioning.', 'warning');
+      return;
+    }
+
+    const firstNoteSec = getFirstPlayableNoteSec(targetSong);
+    const nextOffset = computeAudioOffsetForBeat1(onsetSec, firstNoteSec, targetSong.audioTempoRatio);
+    applyLiveAudioSyncCalibration({
+      nextOffsetSec: nextOffset,
+      statusMessage: `Auto-Aligned! First onset at ${onsetSec.toFixed(2)}s \u2192 Offset ${nextOffset >= 0 ? '+' : ''}${nextOffset.toFixed(2)}s.`
+    });
+    showGrimoireToast(`\u26A1 Auto-Aligned! Onset ${onsetSec.toFixed(2)}s \u2192 Offset ${nextOffset >= 0 ? '+' : ''}${nextOffset.toFixed(2)}s`);
+  } catch (err) {
+    if (currentSong === targetSong) {
+      updateAudioSyncUI(`Auto-Align failed: ${err?.message || err}`);
+      showGrimoireToast(`Auto-Align failed: ${err?.message || err}`, 'warning');
+    }
+  } finally {
+    if (audioCtx) {
+      audioCtx.close().catch(() => {});
+    }
+    if (btnSyncAutoAlign) {
+      btnSyncAutoAlign.disabled = false;
+      btnSyncAutoAlign.textContent = '\u26A1 Auto-Align';
+    }
+  }
+}
+
+/**
+ * Synchronize paired .wav / .mp3 backing audio element (Issue #31 & Issue #76).
  * Called independently of `audioTriggerEnd >= prevTime` so backing audio immediately
  * pauses when Wait Mode freezes at a chord or when Backing Band is toggled OFF.
  */
 function syncBackingAudioElement(currentTime = playbackState.currentTime) {
   if (!currentSong?.backingAudioEl) return;
   const audioEl = currentSong.backingAudioEl;
+  const mapped = getMappedBackingAudioTime(currentTime, {
+    audioOffsetSec: currentSong.audioOffsetSec,
+    audioTempoRatio: currentSong.audioTempoRatio
+  });
+  const audioDur = audioEl.duration;
+  const pastAudioEnd = Number.isFinite(audioDur) && audioDur > 0 && mapped.clampedAudioTime >= audioDur - 0.02;
+
   const shouldPlay =
     playbackState.isPlaying &&
     playbackState.backingBandEnabled &&
     !playbackState.isWaitingForStrike &&
-    currentTime >= 0 &&
+    !mapped.isBeforeAudioStart &&
+    !pastAudioEnd &&
     currentTime < currentSong.duration;
 
   if (shouldPlay) {
-    audioEl.playbackRate = playbackState.playbackSpeed;
+    audioEl.preservesPitch = true;
+    audioEl.webkitPreservesPitch = true;
+    audioEl.playbackRate = getEffectiveBackingPlaybackRate(
+      playbackState.playbackSpeed,
+      currentSong.audioTempoRatio
+    );
+    const targetAudioTime = Number.isFinite(audioDur) && audioDur > 0
+      ? Math.min(mapped.clampedAudioTime, Math.max(0, audioDur - 0.02))
+      : mapped.clampedAudioTime;
+
     if (audioEl.paused) {
-      audioEl.currentTime = Math.max(0, currentTime);
-      audioEl.play().catch(() => {});
-    } else if (Math.abs(audioEl.currentTime - currentTime) > 0.35) {
-      audioEl.currentTime = Math.max(0, currentTime);
+      if (!audioEl._playPending) {
+        if (Math.abs((Number(audioEl.currentTime) || 0) - targetAudioTime) > 0.05) {
+          try {
+            audioEl.currentTime = targetAudioTime;
+          } catch {
+            // Ignore seek errors before audio metadata is ready
+          }
+        }
+        audioEl._playPending = true;
+        Promise.resolve(audioEl.play())
+          .catch(() => {})
+          .finally(() => {
+            audioEl._playPending = false;
+          });
+      }
+    } else if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.28) {
+      try {
+        audioEl.currentTime = targetAudioTime;
+      } catch {
+        // Ignore seek errors
+      }
     }
-  } else if (!audioEl.paused) {
+  } else if (!audioEl.paused || audioEl._playPending) {
     audioEl.pause();
   }
 }
@@ -2214,6 +3684,245 @@ function processSongAudioTriggers(prevTime, newTime) {
 }
 
 /**
+ * Issue #30: Loop Practice Mode (Rehearsal) Helpers
+ */
+function hasValidRehearsalLoop() {
+  return Boolean(
+    currentSong &&
+    rehearsalLoopState.startTime !== null &&
+    rehearsalLoopState.endTime !== null &&
+    (rehearsalLoopState.endTime - rehearsalLoopState.startTime) >= MIN_REHEARSAL_LOOP_SPAN_SEC
+  );
+}
+
+function updateRehearsalUI() {
+  const hasSong = Boolean(currentSong && currentSong.duration > 0);
+  const valid = hasValidRehearsalLoop();
+  const active = Boolean(valid && rehearsalLoopState.enabled);
+
+  if (btnLoopA) {
+    btnLoopA.disabled = !hasSong;
+    btnLoopA.classList.toggle('marker-set', hasSong && rehearsalLoopState.startTime !== null);
+  }
+  if (btnLoopB) {
+    btnLoopB.disabled = !hasSong;
+    btnLoopB.classList.toggle('marker-set', hasSong && rehearsalLoopState.endTime !== null);
+  }
+  if (btnRehearsalToggle) {
+    btnRehearsalToggle.disabled = !hasSong;
+    btnRehearsalToggle.classList.toggle('loop-active', active);
+    btnRehearsalToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
+  }
+  if (btnRehearsalPopover) {
+    btnRehearsalPopover.disabled = !hasSong;
+  }
+  if (btnLoopClear) {
+    btnLoopClear.disabled = !hasSong || (rehearsalLoopState.startTime === null && rehearsalLoopState.endTime === null);
+  }
+
+  if (rehearsalATime) {
+    rehearsalATime.textContent = hasSong && rehearsalLoopState.startTime !== null
+      ? formatSeconds(rehearsalLoopState.startTime)
+      : '\u2014';
+  }
+  if (rehearsalBTime) {
+    rehearsalBTime.textContent = hasSong && rehearsalLoopState.endTime !== null
+      ? formatSeconds(rehearsalLoopState.endTime)
+      : '\u2014';
+  }
+
+  if (rehearsalPassStatus) {
+    if (!hasSong) {
+      rehearsalPassStatus.textContent = 'Load a spell to use Rehearsal Loop';
+    } else if (!valid) {
+      rehearsalPassStatus.textContent = 'Set A ([) and B (]) to loop a passage';
+    } else if (!active) {
+      rehearsalPassStatus.textContent = `Loop paused (${formatSeconds(rehearsalLoopState.startTime)} \u2192 ${formatSeconds(rehearsalLoopState.endTime)})`;
+    } else if (rehearsalLoopState.autoRamp) {
+      rehearsalPassStatus.textContent = `Active \u2022 ${playbackState.playbackSpeed}x \u2192 ${rehearsalLoopState.targetSpeed}x (${rehearsalLoopState.cleanPasses} clean)`;
+    } else {
+      rehearsalPassStatus.textContent = `Active \u2022 ${rehearsalLoopState.cleanPasses} clean / ${rehearsalLoopState.totalPasses} passes`;
+    }
+  }
+
+  // Update Timeline Scrubber Overlays
+  const dur = hasSong ? currentSong.duration : 1;
+  if (loopMarkerA) {
+    if (hasSong && rehearsalLoopState.startTime !== null) {
+      const pctA = Math.max(0, Math.min(100, (rehearsalLoopState.startTime / dur) * 100));
+      loopMarkerA.style.left = `${pctA}%`;
+      loopMarkerA.title = `Loop Start (A): ${formatSeconds(rehearsalLoopState.startTime)}`;
+      loopMarkerA.classList.remove('hidden');
+    } else {
+      loopMarkerA.classList.add('hidden');
+    }
+  }
+
+  if (loopMarkerB) {
+    if (hasSong && rehearsalLoopState.endTime !== null) {
+      const pctB = Math.max(0, Math.min(100, (rehearsalLoopState.endTime / dur) * 100));
+      loopMarkerB.style.left = `${pctB}%`;
+      loopMarkerB.title = `Loop End (B): ${formatSeconds(rehearsalLoopState.endTime)}`;
+      loopMarkerB.classList.remove('hidden');
+    } else {
+      loopMarkerB.classList.add('hidden');
+    }
+  }
+
+  if (loopRangeFill) {
+    if (valid) {
+      const leftPct = Math.max(0, Math.min(100, (rehearsalLoopState.startTime / dur) * 100));
+      const rightPct = Math.max(0, Math.min(100, (rehearsalLoopState.endTime / dur) * 100));
+      loopRangeFill.style.left = `${leftPct}%`;
+      loopRangeFill.style.width = `${Math.max(0.5, rightPct - leftPct)}%`;
+      loopRangeFill.classList.toggle('inactive', !active);
+      loopRangeFill.classList.remove('hidden');
+    } else {
+      loopRangeFill.classList.add('hidden');
+    }
+  }
+}
+
+function setRehearsalMarkerA(rawTime = playbackState.currentTime) {
+  if (!currentSong || !currentSong.duration) return;
+  const clamped = Math.max(0, Math.min(currentSong.duration, rawTime));
+  rehearsalLoopState.startTime = clamped;
+
+  if (rehearsalLoopState.endTime !== null) {
+    if (rehearsalLoopState.startTime > rehearsalLoopState.endTime) {
+      const tmp = rehearsalLoopState.endTime;
+      rehearsalLoopState.endTime = rehearsalLoopState.startTime;
+      rehearsalLoopState.startTime = tmp;
+    }
+    if ((rehearsalLoopState.endTime - rehearsalLoopState.startTime) >= MIN_REHEARSAL_LOOP_SPAN_SEC) {
+      rehearsalLoopState.enabled = true;
+      rehearsalLoopState.passMistakes = 0;
+    }
+  }
+
+  updateRehearsalUI();
+  showGrimoireToast(`\uD83D\uDD01 Loop Start [A] set to ${formatSeconds(rehearsalLoopState.startTime)}`);
+}
+
+function setRehearsalMarkerB(rawTime = playbackState.currentTime) {
+  if (!currentSong || !currentSong.duration) return;
+  const clamped = Math.max(0, Math.min(currentSong.duration, rawTime));
+  rehearsalLoopState.endTime = clamped;
+
+  if (rehearsalLoopState.startTime === null) {
+    rehearsalLoopState.startTime = 0;
+  }
+  if (rehearsalLoopState.endTime < rehearsalLoopState.startTime) {
+    const tmp = rehearsalLoopState.startTime;
+    rehearsalLoopState.startTime = rehearsalLoopState.endTime;
+    rehearsalLoopState.endTime = tmp;
+  }
+
+  if ((rehearsalLoopState.endTime - rehearsalLoopState.startTime) >= MIN_REHEARSAL_LOOP_SPAN_SEC) {
+    rehearsalLoopState.enabled = true;
+    rehearsalLoopState.passMistakes = 0;
+
+    if (playbackState.isPlaying || playbackState.currentTime >= rehearsalLoopState.endTime - 0.05) {
+      const jumpTime = Math.max(0, rehearsalLoopState.startTime - REHEARSAL_PREROLL_SEC);
+      playbackState.currentTime = jumpTime;
+      playbackState.isWaitingForStrike = false;
+      playbackState.waitStartedAtMs = null;
+      playbackState.activeStrikeGroup = null;
+      resetSongProgressFlags(jumpTime);
+      seekBackingAudioToSongTime(jumpTime);
+      syncBackingAudioElement(jumpTime);
+      updateTimelineUI();
+    }
+
+    showGrimoireToast(
+      `\uD83D\uDD01 Rehearsal Loop Active: ${formatSeconds(rehearsalLoopState.startTime)} \u2192 ${formatSeconds(rehearsalLoopState.endTime)}`
+    );
+  } else {
+    showGrimoireToast(`\uD83D\uDD01 Loop End [B] must be at least ${MIN_REHEARSAL_LOOP_SPAN_SEC}s after [A]`);
+  }
+
+  updateRehearsalUI();
+}
+
+function toggleRehearsalLoop() {
+  if (!currentSong) return;
+  if (!hasValidRehearsalLoop()) {
+    showGrimoireToast('\uD83D\uDD01 Set Loop Start [A] and End [B] first (shortcuts: [ and ])');
+    return;
+  }
+
+  rehearsalLoopState.enabled = !rehearsalLoopState.enabled;
+  rehearsalLoopState.passMistakes = 0;
+
+  if (rehearsalLoopState.enabled && playbackState.currentTime >= rehearsalLoopState.endTime) {
+    const jumpTime = Math.max(0, rehearsalLoopState.startTime - REHEARSAL_PREROLL_SEC);
+    playbackState.currentTime = jumpTime;
+    resetSongProgressFlags(jumpTime);
+    seekBackingAudioToSongTime(jumpTime);
+    syncBackingAudioElement(jumpTime);
+    updateTimelineUI();
+  }
+
+  updateRehearsalUI();
+  showGrimoireToast(
+    rehearsalLoopState.enabled
+      ? `\uD83D\uDD01 Rehearsal Loop ON (${formatSeconds(rehearsalLoopState.startTime)} \u2192 ${formatSeconds(rehearsalLoopState.endTime)})`
+      : '\uD83D\uDD01 Rehearsal Loop OFF'
+  );
+}
+
+function clearRehearsalLoop() {
+  rehearsalLoopState.enabled = false;
+  rehearsalLoopState.startTime = null;
+  rehearsalLoopState.endTime = null;
+  rehearsalLoopState.cleanPasses = 0;
+  rehearsalLoopState.totalPasses = 0;
+  rehearsalLoopState.passMistakes = 0;
+  updateRehearsalUI();
+}
+
+function handleRehearsalLoopWrap() {
+  if (!currentSong || !hasValidRehearsalLoop()) return;
+
+  rehearsalLoopState.totalPasses++;
+  const isClean = rehearsalLoopState.passMistakes === 0;
+  if (isClean) {
+    rehearsalLoopState.cleanPasses++;
+  }
+
+  if (rehearsalLoopState.autoRamp && isClean && playbackState.playbackSpeed < rehearsalLoopState.targetSpeed) {
+    const nextPreset = REHEARSAL_SPEED_PRESETS.find(
+      (s) => s > playbackState.playbackSpeed + 0.001 && s <= rehearsalLoopState.targetSpeed + 0.001
+    );
+    if (nextPreset) {
+      setPracticeTempo(nextPreset, { persist: true, toast: false });
+      showGrimoireToast(`\u2728 Clean Pass! Tempo ramped to ${nextPreset}x`);
+    } else {
+      showGrimoireToast(`\uD83C\uDFC6 Clean Pass #${rehearsalLoopState.cleanPasses} at target ${playbackState.playbackSpeed}x!`);
+    }
+  } else if (isClean) {
+    showGrimoireToast(`\uD83D\uDD01 Clean Pass #${rehearsalLoopState.cleanPasses} (${playbackState.playbackSpeed}x)`);
+  } else {
+    const m = rehearsalLoopState.passMistakes;
+    showGrimoireToast(`\uD83D\uDD01 Repeat at ${playbackState.playbackSpeed}x (${m} miss${m === 1 ? '' : 'es'})`);
+  }
+
+  rehearsalLoopState.passMistakes = 0;
+
+  const jumpTime = Math.max(0, rehearsalLoopState.startTime - REHEARSAL_PREROLL_SEC);
+  playbackState.currentTime = jumpTime;
+  playbackState.isWaitingForStrike = false;
+  playbackState.waitStartedAtMs = null;
+  playbackState.activeStrikeGroup = null;
+  resetSongProgressFlags(jumpTime);
+
+  seekBackingAudioToSongTime(jumpTime);
+  syncBackingAudioElement(jumpTime);
+  updateTimelineUI();
+  updateRehearsalUI();
+}
+
+/**
  * 60 FPS Master Animation Loop (The Spell Highway + Phase 4 Wait Mode Gating)
  */
 function animationLoop(timestamp) {
@@ -2227,6 +3936,21 @@ function animationLoop(timestamp) {
     const dt = Math.min(0.1, Math.max(0, rawDt));
     const prevTime = playbackState.currentTime;
     let proposedTime = prevTime + dt * playbackState.playbackSpeed;
+
+    if (!playbackState.isWaitingForStrike && songSessionStats.inspirationBurstRemainingSec > 0) {
+      songSessionStats.inspirationBurstRemainingSec = Math.max(0, songSessionStats.inspirationBurstRemainingSec - dt);
+      if (hudInspirationFill) {
+        const burstPct = (songSessionStats.inspirationBurstRemainingSec / INSPIRATION_BURST_DURATION_SEC) * 100;
+        hudInspirationFill.style.width = `${Math.max(0, Math.min(100, burstPct)).toFixed(1)}%`;
+      }
+      if (
+        songSessionStats.inspirationBurstRemainingSec === 0 ||
+        timestamp - songSessionStats.lastBurstHudSyncMs >= 200
+      ) {
+        songSessionStats.lastBurstHudSyncMs = timestamp;
+        updateLitrpgHUD();
+      }
+    }
 
     // Phase 4: Wait Mode Strike-Zone Gating
     if (playbackState.waitMode && playbackState.accompanimentMode !== 'auto-both') {
@@ -2345,6 +4069,7 @@ function animationLoop(timestamp) {
             n.lockedInWait = false;
           }
           playbackState.activeStrikeGroup = null;
+          recordMeasureOutcome(nextArcadeGroup.anchorTime, { missed: Math.max(1, nextArcadeGroup.notes.length) });
           missedPlayerChord = true;
           nextArcadeGroup = getNextUnsatisfiedStrikeGroup();
         }
@@ -2369,6 +4094,20 @@ function animationLoop(timestamp) {
     }
 
     playbackState.currentTime = proposedTime;
+
+    // Issue #30: Loop Practice Mode (Rehearsal) — wrap cleanly from B back to A - preRoll
+    if (
+      rehearsalLoopState.enabled &&
+      hasValidRehearsalLoop() &&
+      !playbackState.isWaitingForStrike &&
+      playbackState.currentTime >= rehearsalLoopState.endTime
+    ) {
+      handleRehearsalLoopWrap();
+      renderCanvas();
+      requestAnimationFrame(animationLoop);
+      return;
+    }
+
     // Hold accompaniment & backing band notes at anchorTime while frozen in Wait Mode until the player strikes (Issue #10, Fixes #56)
     const audioTriggerEnd = playbackState.isWaitingForStrike ? (proposedTime - 0.001) : proposedTime;
     if (audioTriggerEnd >= prevTime) {
@@ -2498,89 +4237,122 @@ function loadBuiltInDemoSpell() {
 /**
  * Show a temporary glowing toast banner when The Grimoire ingests or saves a spell
  */
-function showGrimoireToast(message) {
+function showGrimoireToast(message, variant = 'success') {
   if (!grimoireToast || !grimoireToastText) return;
   grimoireToastText.textContent = message;
-  grimoireToast.classList.remove('hidden');
+  grimoireToast.classList.remove('hidden', 'toast-warning', 'toast-error');
+  if (variant === 'warning') {
+    grimoireToast.classList.add('toast-warning');
+  } else if (variant === 'error') {
+    grimoireToast.classList.add('toast-error');
+  }
 
   if (grimoireToastTimer) {
     clearTimeout(grimoireToastTimer);
   }
+  const durationMs = variant === 'success' ? 4200 : 5800;
   grimoireToastTimer = setTimeout(() => {
     grimoireToast.classList.add('hidden');
-  }, 4200);
+  }, durationMs);
 }
 
 /**
- * Extract lightweight Grimoire card metadata from a MIDI ArrayBuffer
+ * Extract lightweight Grimoire card metadata from a MIDI or MusicXML ArrayBuffer.
+ * Uses the exact same track selection, Smart MIDI Hygiene, octave folding, and bundle resolution
+ * as parseMidiBuffer()/assignSongTracksAndDifficulty() so Grimoire cards and the Spell Inspector HUD match 100%.
  */
-function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceTag) {
-  const midiData = new Midi(arrayBuffer);
+function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceTag, preloadedBundleStore = null) {
+  let effectiveBuffer = arrayBuffer;
+  let musicXmlMeta = null;
+  if (isMusicXmlFileName(fileName)) {
+    const converted = convertMusicXmlToMidiBuffer(arrayBuffer, fileName);
+    effectiveBuffer = converted.midiArrayBuffer;
+    musicXmlMeta = converted.metadata;
+  }
+
+  const effectiveRawBuf = Buffer.from(effectiveBuffer);
+  const midiData = new Midi(effectiveBuffer);
   const bpm = midiData.header.tempos.length > 0
     ? Math.round(midiData.header.tempos[0].bpm)
     : 120;
   const duration = Math.max(1, midiData.duration || 1);
-  const cleanTitle = midiData.name?.trim() || fileName.replace(/\.(mid|midi)$/i, '');
+  const rawTitle = (musicXmlMeta?.title && musicXmlMeta.title.trim())
+    || midiData.name?.trim()
+    || fileName.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
 
-  const nonPercTracks = midiData.tracks
-    .filter((t) => t.notes.length > 0 && !(t.instrument?.percussion || t.channel === 9))
-    .map((t) => {
-      const avgPitch = t.notes.reduce((sum, n) => sum + n.midi, 0) / t.notes.length;
-      const notes = t.notes.map((n) => ({
-        originalMidi: n.midi,
-        time: n.time,
-        duration: n.duration
-      }));
+  const isDemo = filePath === 'BUILTIN_DEMO';
+  const songId = isDemo
+    ? 'builtin::demo'
+    : crypto.createHash('sha1').update(effectiveRawBuf).digest('hex');
+
+  // Keep percussion tracks in rawTracks with normalized note durations/velocities so indices and
+  // Smart MIDI Hygiene behave identically to parseMidiBuffer() + assignSongTracksAndDifficulty().
+  const rawTracks = midiData.tracks
+    .map((t, idx) => {
+      const avgPitch = t.notes.length > 0
+        ? t.notes.reduce((sum, n) => sum + n.midi, 0) / t.notes.length
+        : 60;
       return {
-        name: t.name,
-        instrument: t.instrument,
-        avgPitch,
-        notes,
+        index: idx,
+        channel: t.channel ?? 0,
+        name: t.name?.trim() || t.instrument?.name || `Track ${idx + 1}`,
+        instrumentName: t.instrument?.name || 'Unknown Instrument',
+        instrumentFamily: t.instrument?.family || 'unknown',
+        programNumber: t.instrument?.number ?? 0,
+        isPercussion: Boolean(t.instrument?.percussion || t.channel === 9),
         isPianoCandidate: isPianoCandidateTrack(t),
-        isDuplicate: false
+        avgPitch,
+        isDuplicate: false,
+        duplicateOfIndex: null,
+        notes: t.notes.map((n, noteIdx) => ({
+          id: `${idx}-${noteIdx}`,
+          originalMidi: n.midi,
+          name: n.name,
+          time: n.time,
+          ticks: n.ticks,
+          duration: Math.max(0.05, n.duration),
+          durationTicks: n.durationTicks,
+          velocity: Math.round((n.velocity ?? 0.8) * 127)
+        }))
       };
-    });
+    })
+    .filter((t) => t.notes.length > 0);
 
-  for (let i = 0; i < nonPercTracks.length; i++) {
+  for (let i = 0; i < rawTracks.length; i++) {
     for (let j = 0; j < i; j++) {
-      if (areTracksDuplicates(nonPercTracks[i], nonPercTracks[j])) {
-        nonPercTracks[i].isDuplicate = true;
+      if (areTracksDuplicates(rawTracks[i], rawTracks[j])) {
+        rawTracks[i].isDuplicate = true;
+        rawTracks[i].duplicateOfIndex = j;
         break;
       }
     }
   }
 
-  let candidates = nonPercTracks.filter((t) => t.isPianoCandidate && !t.isDuplicate);
-  if (candidates.length === 0) {
-    candidates = nonPercTracks.filter((t) => !t.isDuplicate);
-  }
+  const bundleStore = preloadedBundleStore || loadBundlesStore(BUNDLE_STORE_PATH);
+  const bundle = resolveBundleForSong({
+    filePath,
+    fileName,
+    songId,
+    title: rawTitle,
+    store: bundleStore,
+    projectRoot: __dirname
+  });
+  const effectiveTitle = (bundle.title && bundle.title.trim()) || rawTitle;
+  const cleanupEnabled = typeof bundle.midiCleanupEnabled === 'boolean'
+    ? bundle.midiCleanupEnabled
+    : Boolean(midiCleanupGlobalEnabled);
 
   let track1Raw = [];
   let track2Raw = [];
-  if (candidates.length >= 2) {
-    const treble = candidates.filter((t) => t.avgPitch >= 62).sort((a, b) => b.notes.length - a.notes.length);
-    const bass = candidates.filter((t) => t.avgPitch < 62).sort((a, b) => b.notes.length - a.notes.length);
-    if (treble.length > 0 && bass.length > 0) {
-      track1Raw = treble[0].notes;
-      track2Raw = bass[0].notes;
-    } else {
-      const topTwo = candidates
-        .slice()
-        .sort((a, b) => b.notes.length - a.notes.length)
-        .slice(0, 2)
-        .sort((a, b) => b.avgPitch - a.avgPitch);
-      track1Raw = topTwo[0].notes;
-      track2Raw = topTwo[1].notes;
-    }
-  } else if (candidates.length === 1) {
-    for (const n of candidates[0].notes) {
-      const foldedCheck = foldMidiTo61Keys(n.originalMidi);
-      if (foldedCheck >= MIDDLE_C) {
-        track1Raw.push(n);
-      } else {
-        track2Raw.push(n);
-      }
-    }
+  if (rawTracks.length > 0) {
+    const sel = selectAutoPianoTracks(rawTracks, duration);
+    track1Raw = sel.track1Raw;
+    track2Raw = sel.track2Raw;
+  }
+
+  if (cleanupEnabled) {
+    track1Raw = cleanPlayableHandNotes(track1Raw, 1).notes;
+    track2Raw = cleanPlayableHandNotes(track2Raw, 2).notes;
   }
 
   const foldedT1 = foldAndDeduplicateHandNotes(track1Raw, 1);
@@ -2603,27 +4375,15 @@ function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceT
 
   const diff = calculateSpellDifficulty(playableNoteCount, activeDuration);
 
-  // Check if a paired backing audio file (.mp3 / .wav / .ogg / .m4a) exists in the same folder
-  let backingAudioPath = null;
-  if (filePath && filePath !== 'BUILTIN_DEMO') {
-    const dir = path.dirname(filePath);
-    const base = fileName.replace(/\.(mid|midi)$/i, '');
-    for (const ext of ['.mp3', '.wav', '.ogg', '.m4a']) {
-      const candidate = path.join(dir, `${base}${ext}`);
-      if (fs.existsSync(candidate)) {
-        backingAudioPath = candidate;
-        break;
-      }
-    }
-  }
-
   const id = filePath === 'BUILTIN_DEMO'
     ? 'builtin::demo'
     : `${sourceTag.toLowerCase()}::${fileName.toLowerCase()}`;
 
   return {
     id,
-    title: cleanTitle,
+    songId,
+    rawTitle,
+    title: effectiveTitle,
     fileName,
     filePath,
     sourceTag,
@@ -2634,9 +4394,125 @@ function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceT
     badgeClass: diff.badgeClass,
     xpMultiplier: diff.xpMultiplier,
     totalNotes: playableNoteCount,
-    backingAudioPath,
+    keySignature: musicXmlMeta?.keySignature || null,
+    backingAudioPath: bundle.backingAudioPath || null,
+    sheetMusicPath: bundle.sheetMusicPath || null,
+    youtubeUrl: bundle.youtubeUrl || null,
+    spotifyUrl: bundle.spotifyUrl || null,
+    audioOffsetSec: bundle.audioOffsetSec ?? 0,
+    audioTempoRatio: bundle.audioTempoRatio ?? 1.0,
+    midiCleanupEnabled: typeof bundle.midiCleanupEnabled === 'boolean' ? bundle.midiCleanupEnabled : null,
+    hasCustomBundle: Boolean(bundle.hasCustomBundle),
+    sidecarPath: bundle.sidecarPath || null,
+    _appliedCleanupEnabled: cleanupEnabled,
+    isFavorite: grimoireFavorites.has(id),
     newlyIngested: false
   };
+}
+
+/**
+ * Load persisted Grimoire Favorites from localStorage and grimoire_library.json (Issue #79)
+ */
+function loadGrimoireFavorites() {
+  grimoireFavorites.clear();
+
+  try {
+    const rawFavs = localStorage.getItem(GRIMOIRE_FAVORITES_STORAGE_KEY);
+    if (rawFavs) {
+      const parsed = JSON.parse(rawFavs);
+      if (Array.isArray(parsed)) {
+        for (const id of parsed) {
+          if (typeof id === 'string' && id) {
+            grimoireFavorites.add(id);
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore storage read errors
+  }
+
+  try {
+    const rawIndex = localStorage.getItem(GRIMOIRE_STORAGE_KEY);
+    if (rawIndex) {
+      const parsed = JSON.parse(rawIndex);
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (item && item.isFavorite && typeof item.id === 'string' && item.id) {
+            grimoireFavorites.add(item.id);
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore storage read errors
+  }
+
+  try {
+    if (fs.existsSync(GRIMOIRE_INDEX_FILE)) {
+      const rawFile = fs.readFileSync(GRIMOIRE_INDEX_FILE, 'utf8');
+      const parsed = JSON.parse(rawFile);
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (item && item.isFavorite && typeof item.id === 'string' && item.id) {
+            grimoireFavorites.add(item.id);
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore disk read errors
+  }
+
+  try {
+    spellbookFavoritesOnly = localStorage.getItem(GRIMOIRE_FAV_FILTER_STORAGE_KEY) === 'true';
+  } catch {
+    // Ignore storage read errors
+  }
+}
+
+function saveSpellbookFavoritesFilter() {
+  try {
+    localStorage.setItem(GRIMOIRE_FAV_FILTER_STORAGE_KEY, spellbookFavoritesOnly ? 'true' : 'false');
+  } catch {
+    // Ignore storage write errors
+  }
+}
+
+/**
+ * Save Grimoire Favorites to localStorage and sync grimoire_library.json (Issue #79)
+ */
+function saveGrimoireFavorites() {
+  try {
+    localStorage.setItem(GRIMOIRE_FAVORITES_STORAGE_KEY, JSON.stringify(Array.from(grimoireFavorites)));
+  } catch {
+    // Ignore storage quota errors
+  }
+  persistGrimoireIndex();
+}
+
+/**
+ * Toggle favorite status for a Grimoire spell without deleting or moving any files (Issue #79)
+ */
+function toggleGrimoireFavorite(entryId) {
+  if (!entryId) return;
+  const entry = grimoireSpells.get(entryId);
+  if (!entry) return;
+
+  const nextState = !Boolean(entry.isFavorite);
+  entry.isFavorite = nextState;
+
+  if (nextState) {
+    grimoireFavorites.add(entry.id);
+  } else {
+    grimoireFavorites.delete(entry.id);
+  }
+
+  saveGrimoireFavorites();
+
+  if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+    renderSpellbookSpread();
+  }
 }
 
 /**
@@ -2645,6 +4521,7 @@ function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceT
 function persistGrimoireIndex() {
   const serializable = Array.from(grimoireSpells.values()).map((entry) => ({
     id: entry.id,
+    songId: entry.songId || null,
     title: entry.title,
     fileName: entry.fileName,
     filePath: entry.filePath,
@@ -2656,7 +4533,16 @@ function persistGrimoireIndex() {
     badgeClass: entry.badgeClass,
     xpMultiplier: entry.xpMultiplier,
     totalNotes: entry.totalNotes,
-    backingAudioPath: entry.backingAudioPath
+    keySignature: entry.keySignature || null,
+    backingAudioPath: entry.backingAudioPath || null,
+    sheetMusicPath: entry.sheetMusicPath || null,
+    youtubeUrl: entry.youtubeUrl || null,
+    spotifyUrl: entry.spotifyUrl || null,
+    audioOffsetSec: entry.audioOffsetSec ?? 0,
+    audioTempoRatio: entry.audioTempoRatio ?? 1.0,
+    midiCleanupEnabled: typeof entry.midiCleanupEnabled === 'boolean' ? entry.midiCleanupEnabled : null,
+    hasCustomBundle: Boolean(entry.hasCustomBundle),
+    isFavorite: Boolean(entry.isFavorite)
   }));
 
   try {
@@ -2673,8 +4559,8 @@ function persistGrimoireIndex() {
 }
 
 /**
- * Scan ./Imports and ./Midi Test Files for any .mid / .midi files.
- * If notifyOnNew is true, triggers a real-time toast and highlights newly detected files!
+ * Scan ./Imports and ./Midi Test Files for any .mid / .midi / .musicxml / .xml / .mxl files.
+ * Resolves Song Bundle assets/calibration (grimoire_bundles.json + <Base>.bundle.json) and updates live!
  */
 function scanWatchedDirectories(notifyOnNew = false) {
   try {
@@ -2690,13 +4576,14 @@ function scanWatchedDirectories(notifyOnNew = false) {
     { dir: MIDI_TEST_DIR, sourceTag: 'Test Library' }
   ];
 
+  const bundleStore = loadBundlesStore(BUNDLE_STORE_PATH);
   let addedNewSpell = null;
   let changed = false;
 
   for (const { dir, sourceTag } of dirsToScan) {
     try {
       if (!fs.existsSync(dir)) continue;
-      const files = fs.readdirSync(dir).filter((f) => /\.(mid|midi)$/i.test(f));
+      const files = fs.readdirSync(dir).filter((f) => /\.(mid|midi|musicxml|xml|mxl)$/i.test(f));
 
       for (const file of files) {
         const key = `${sourceTag.toLowerCase()}::${file.toLowerCase()}`;
@@ -2705,33 +4592,85 @@ function scanWatchedDirectories(notifyOnNew = false) {
         if (!stat.isFile() || stat.size < 16) continue;
 
         const existing = grimoireSpells.get(key);
-        if (existing && existing.mtimeMs === stat.mtimeMs && existing.fileSize === stat.size) {
-          // If backing audio arrived slightly after the .mid file was indexed, attach it (Issue #13)
-          if (!existing.backingAudioPath) {
-            const base = file.replace(/\.(mid|midi)$/i, '');
-            for (const ext of ['.mp3', '.wav', '.ogg', '.m4a']) {
-              const candidate = path.join(dir, `${base}${ext}`);
-              if (fs.existsSync(candidate)) {
-                existing.backingAudioPath = candidate;
-                changed = true;
-                break;
-              }
+        const sameDiskFile = Boolean(existing && existing.mtimeMs === stat.mtimeMs && existing.fileSize === stat.size);
+
+        if (sameDiskFile) {
+          const bundle = resolveBundleForSong({
+            filePath: existing.filePath,
+            fileName: existing.fileName,
+            songId: existing.songId,
+            title: existing.rawTitle || existing.title,
+            store: bundleStore,
+            projectRoot: __dirname
+          });
+          const nextCleanupEnabled = typeof bundle.midiCleanupEnabled === 'boolean'
+            ? bundle.midiCleanupEnabled
+            : Boolean(midiCleanupGlobalEnabled);
+
+          // Only skip re-extraction when the effective MIDI hygiene state also matches
+          if (existing._appliedCleanupEnabled === nextCleanupEnabled) {
+            const nextTitle = (bundle.title && bundle.title.trim()) || existing.rawTitle || existing.title;
+            const nextAudio = bundle.backingAudioPath || null;
+            const nextSheet = bundle.sheetMusicPath || null;
+            const nextYt = bundle.youtubeUrl || null;
+            const nextSpotify = bundle.spotifyUrl || null;
+            const nextOffset = bundle.audioOffsetSec ?? 0;
+            const nextRatio = bundle.audioTempoRatio ?? 1.0;
+            const nextCleanupOverride = typeof bundle.midiCleanupEnabled === 'boolean' ? bundle.midiCleanupEnabled : null;
+            const nextHasCustom = Boolean(bundle.hasCustomBundle);
+            const nextSidecar = bundle.sidecarPath || null;
+
+            if (
+              existing.title !== nextTitle ||
+              existing.backingAudioPath !== nextAudio ||
+              existing.sheetMusicPath !== nextSheet ||
+              existing.youtubeUrl !== nextYt ||
+              existing.spotifyUrl !== nextSpotify ||
+              existing.audioOffsetSec !== nextOffset ||
+              existing.audioTempoRatio !== nextRatio ||
+              existing.midiCleanupEnabled !== nextCleanupOverride ||
+              existing.hasCustomBundle !== nextHasCustom ||
+              existing.sidecarPath !== nextSidecar
+            ) {
+              existing.title = nextTitle;
+              existing.backingAudioPath = nextAudio;
+              existing.sheetMusicPath = nextSheet;
+              existing.youtubeUrl = nextYt;
+              existing.spotifyUrl = nextSpotify;
+              existing.audioOffsetSec = nextOffset;
+              existing.audioTempoRatio = nextRatio;
+              existing.midiCleanupEnabled = nextCleanupOverride;
+              existing.hasCustomBundle = nextHasCustom;
+              existing.sidecarPath = nextSidecar;
+              changed = true;
             }
+            continue;
           }
-          continue;
         }
 
-        const buf = fs.readFileSync(fullPath);
-        const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-        const entry = extractGrimoireEntryFromBuffer(arrayBuf, file, fullPath, sourceTag);
-        entry.mtimeMs = stat.mtimeMs;
-        entry.fileSize = stat.size;
-        entry.newlyIngested = notifyOnNew;
+        try {
+          const buf = fs.readFileSync(fullPath);
+          const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+          const entry = extractGrimoireEntryFromBuffer(arrayBuf, file, fullPath, sourceTag, bundleStore);
+          entry.mtimeMs = stat.mtimeMs;
+          entry.fileSize = stat.size;
 
-        grimoireSpells.set(entry.id, entry);
-        changed = true;
-        if (notifyOnNew) {
-          addedNewSpell = { entry, arrayBuf };
+          const isTrulyNewDiskFile = !sameDiskFile;
+          entry.newlyIngested = Boolean(notifyOnNew && isTrulyNewDiskFile);
+
+          grimoireSpells.set(entry.id, entry);
+          changed = true;
+          if (notifyOnNew && isTrulyNewDiskFile) {
+            addedNewSpell = { entry, arrayBuf };
+          }
+        } catch (fileErr) {
+          if (fileErr?.code === 'NOT_MUSICXML') {
+            // Silently ignore non-MusicXML .xml files (e.g. metadata/config XMLs)
+            continue;
+          }
+          if (notifyOnNew) {
+            showGrimoireToast(`Failed to ingest "${file}": ${fileErr.message}`, 'error');
+          }
         }
       }
     } catch {
@@ -2757,17 +4696,37 @@ function scanWatchedDirectories(notifyOnNew = false) {
   if (addedNewSpell) {
     const { entry, arrayBuf } = addedNewSpell;
     showGrimoireToast(`📖 Folder Watcher Ingested: "${entry.title}" (${entry.spellLevel}) from ${entry.sourceTag}!`);
-    if (watcherStatusText) {
-      watcherStatusText.textContent = `Ingested: ${entry.fileName}`;
-    }
     if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+      spellbookFavoritesOnly = false;
+      saveSpellbookFavoritesFilter();
       currentSpellbookTierIndex = getSpellbookTierIndexForLevel(entry.spellLevel);
       selectedSpellbookEntryId = entry.id;
       renderSpellbookSpread();
     }
     if (!playbackState.isPlaying) {
-      parseMidiBuffer(arrayBuf, entry.fileName, entry.filePath);
+      try {
+        loadSongFromBuffer(arrayBuf, entry.fileName, entry.filePath, { quietSuccess: true });
+      } catch (err) {
+        showGrimoireToast(`Failed to load "${entry.fileName}": ${err.message}`, 'error');
+      }
     }
+  }
+}
+
+function seedBuiltInDemoInGrimoire(bundleStore = null) {
+  try {
+    const demo = buildDemoSpellMidiBytes();
+    const demoEntry = extractGrimoireEntryFromBuffer(
+      demo.arrayBuffer,
+      demo.fileName,
+      'BUILTIN_DEMO',
+      'Built-In',
+      bundleStore
+    );
+    grimoireSpells.set(demoEntry.id, demoEntry);
+    return demoEntry;
+  } catch {
+    return null;
   }
 }
 
@@ -2775,6 +4734,8 @@ function scanWatchedDirectories(notifyOnNew = false) {
  * Initialize The Grimoire Spell Library and start the active ./Imports folder watcher
  */
 function initGrimoireAndWatcher() {
+  loadGrimoireFavorites();
+
   try {
     if (!fs.existsSync(IMPORTS_DIR)) {
       fs.mkdirSync(IMPORTS_DIR, { recursive: true });
@@ -2784,31 +4745,21 @@ function initGrimoireAndWatcher() {
   }
 
   // Always seed the Built-In Demo Spell so The Grimoire is never empty
-  try {
-    const demo = buildDemoSpellMidiBytes();
-    const demoEntry = extractGrimoireEntryFromBuffer(
-      demo.arrayBuffer,
-      demo.fileName,
-      'BUILTIN_DEMO',
-      'Built-In'
-    );
-    grimoireSpells.set(demoEntry.id, demoEntry);
-  } catch {
-    // Ignore demo seed error
-  }
+  seedBuiltInDemoInGrimoire();
 
   // Initial scan of ./Imports and ./Midi Test Files
   scanWatchedDirectories(false);
   renderGrimoireSidebar();
 
-  // Start native fs.watch on ./Imports
+  // Start native fs.watch on ./Imports (tracks playable notes plus bundle sidecars & paired assets)
   try {
     if (grimoireWatcher) {
       grimoireWatcher.close();
     }
     grimoireWatcher = fs.watch(IMPORTS_DIR, { persistent: false }, (eventType, filename) => {
-      if (filename && /\.(mid|midi)$/i.test(filename)) {
-        setTimeout(() => scanWatchedDirectories(true), 180);
+      if (filename && /\.(mid|midi|musicxml|xml|mxl|bundle\.json|wav|mp3|ogg|m4a|flac|pdf)$/i.test(filename)) {
+        const isNotes = /\.(mid|midi|musicxml|xml|mxl)$/i.test(filename);
+        setTimeout(() => scanWatchedDirectories(isNotes), 180);
       }
     });
   } catch {
@@ -2833,6 +4784,7 @@ let currentSpellbookTierIndex = 0;
 let selectedSpellbookEntryId = null;
 let previousSpellbookOrigin = 'highway'; // 'tavern' or 'highway'
 let isSpellbookFlipping = false;
+let spellbookFavoritesOnly = false; // Issue #79: Favorites filter toggle
 
 function getSpellbookTierIndexForLevel(spellLevel) {
   if (!spellLevel) return 0;
@@ -2866,6 +4818,9 @@ function getSongHistoryRecord(entry) {
   if (entry.filePath === 'BUILTIN_DEMO') {
     return songPlayHistory['builtin::demo'] || null;
   }
+  if (entry.songId && songPlayHistory[entry.songId]) {
+    return songPlayHistory[entry.songId];
+  }
   if (entry.id && songPlayHistory[entry.id]) {
     return songPlayHistory[entry.id];
   }
@@ -2896,11 +4851,14 @@ function playSpellbookPageTurnSound() {
 function openGrimoireSpellbook(origin = 'highway') {
   pausePlayback();
   closeAllConservatoryPopovers();
+  closeStreakPopover();
   previousSpellbookOrigin = origin;
 
-  // Default to the currently loaded song's tier if active
+  // Default to the currently loaded song's tier if active (and not in Attuned filter)
   if (currentSong && currentSong.difficulty) {
-    currentSpellbookTierIndex = getSpellbookTierIndexForLevel(currentSong.difficulty.spellLevel);
+    if (!spellbookFavoritesOnly) {
+      currentSpellbookTierIndex = getSpellbookTierIndexForLevel(currentSong.difficulty.spellLevel);
+    }
     selectedSpellbookEntryId = currentSong.songId || null;
   }
 
@@ -2941,7 +4899,7 @@ function closeGrimoireSpellbook() {
 }
 
 function flipSpellbookPage(direction) {
-  if (isSpellbookFlipping) return;
+  if (isSpellbookFlipping || spellbookFavoritesOnly) return;
   const targetIndex = currentSpellbookTierIndex + direction;
   if (targetIndex < 0 || targetIndex >= SPELLBOOK_TIERS.length) return;
   navigateToSpellbookTier(targetIndex, direction > 0 ? 'forward' : 'backward');
@@ -2950,8 +4908,12 @@ function flipSpellbookPage(direction) {
 function navigateToSpellbookTier(targetIndex, animDirection = 'forward') {
   if (isSpellbookFlipping) return;
   if (targetIndex < 0 || targetIndex >= SPELLBOOK_TIERS.length) return;
-  if (targetIndex === currentSpellbookTierIndex) return;
+  if (targetIndex === currentSpellbookTierIndex && !spellbookFavoritesOnly) return;
 
+  if (spellbookFavoritesOnly) {
+    spellbookFavoritesOnly = false;
+    saveSpellbookFavoritesFilter();
+  }
   isSpellbookFlipping = true;
   playSpellbookPageTurnSound();
 
@@ -2976,13 +4938,14 @@ function renderSpellbookTierPips() {
   if (!spellbookTierPips) return;
   spellbookTierPips.innerHTML = '';
   SPELLBOOK_TIERS.forEach((tier, idx) => {
+    const isActive = !spellbookFavoritesOnly && idx === currentSpellbookTierIndex;
     const pip = document.createElement('button');
     pip.type = 'button';
-    pip.className = `tier-pip${idx === currentSpellbookTierIndex ? ' active' : ''}`;
+    pip.className = `tier-pip${isActive ? ' active' : ''}`;
     pip.textContent = tier.pipLabel;
     pip.title = `${tier.title} (${tier.xp}) \u2014 Click to view`;
     pip.setAttribute('role', 'tab');
-    pip.setAttribute('aria-selected', idx === currentSpellbookTierIndex ? 'true' : 'false');
+    pip.setAttribute('aria-selected', isActive ? 'true' : 'false');
     pip.addEventListener('click', (e) => {
       e.stopPropagation();
       navigateToSpellbookTier(idx, idx > currentSpellbookTierIndex ? 'forward' : 'backward');
@@ -2995,25 +4958,59 @@ function renderSpellbookSpread() {
   if (!grimoireSpellbookModal) return;
 
   const tier = SPELLBOOK_TIERS[currentSpellbookTierIndex] || SPELLBOOK_TIERS[0];
+  const allEntries = Array.from(grimoireSpells.values());
+  const favoriteEntries = allEntries.filter((e) => Boolean(e.isFavorite));
 
-  // Left Page: Tier Header
-  if (spellbookTierBadge) {
-    spellbookTierBadge.textContent = tier.title;
-    spellbookTierBadge.className = `tier-ribbon-badge ${tier.badgeClass}`;
+  // Update Favorites filter toggle button & count badge
+  if (btnSpellbookFavoritesFilter) {
+    btnSpellbookFavoritesFilter.classList.toggle('active', spellbookFavoritesOnly);
+    btnSpellbookFavoritesFilter.setAttribute('aria-pressed', spellbookFavoritesOnly ? 'true' : 'false');
+    const starEl = btnSpellbookFavoritesFilter.querySelector('.fav-filter-star');
+    if (starEl) {
+      starEl.textContent = spellbookFavoritesOnly ? '\u2605' : '\u2606';
+    }
   }
-  if (spellbookTierXp) spellbookTierXp.textContent = tier.xp;
-  if (spellbookTierName) spellbookTierName.textContent = tier.subtitle;
-  if (spellbookTierDesc) spellbookTierDesc.textContent = tier.desc;
-  if (spellbookPageNumLeft) spellbookPageNumLeft.textContent = `Page ${tier.roman} \u2022 ${tier.title}`;
-  if (spellbookPageNumRight) spellbookPageNumRight.textContent = `Page ${tier.roman}b \u2022 Details`;
+  if (spellbookFavCount) {
+    spellbookFavCount.textContent = String(favoriteEntries.length);
+  }
+  if (spellbookSearchInput) {
+    spellbookSearchInput.placeholder = spellbookFavoritesOnly
+      ? '\uD83D\uDD0D Search attuned...'
+      : '\uD83D\uDD0D Search tier...';
+  }
 
-  // Filter songs for this tier
+  // Left Page: Header (Attuned view vs Tier view)
+  if (spellbookFavoritesOnly) {
+    if (spellbookTierBadge) {
+      spellbookTierBadge.textContent = '\u2605 Attuned';
+      spellbookTierBadge.className = 'tier-ribbon-badge tier-favorites';
+    }
+    if (spellbookTierXp) {
+      spellbookTierXp.textContent = `${favoriteEntries.length} Attuned`;
+    }
+    if (spellbookTierName) spellbookTierName.textContent = 'Attuned Spells';
+    if (spellbookTierDesc) spellbookTierDesc.textContent = 'Spells bound to your bard across all tiers';
+    if (spellbookPageNumLeft) spellbookPageNumLeft.textContent = 'Attuned \u2022 All Tiers';
+    if (spellbookPageNumRight) spellbookPageNumRight.textContent = 'Attuned \u2022 Details';
+  } else {
+    if (spellbookTierBadge) {
+      spellbookTierBadge.textContent = tier.title;
+      spellbookTierBadge.className = `tier-ribbon-badge ${tier.badgeClass}`;
+    }
+    if (spellbookTierXp) spellbookTierXp.textContent = tier.xp;
+    if (spellbookTierName) spellbookTierName.textContent = tier.subtitle;
+    if (spellbookTierDesc) spellbookTierDesc.textContent = tier.desc;
+    if (spellbookPageNumLeft) spellbookPageNumLeft.textContent = `Page ${tier.roman} \u2022 ${tier.title}`;
+    if (spellbookPageNumRight) spellbookPageNumRight.textContent = `Page ${tier.roman}b \u2022 Details`;
+  }
+
+  // Filter songs for Attuned or current tier
   const query = (spellbookSearchInput?.value || '').trim().toLowerCase();
-  const allInTier = Array.from(grimoireSpells.values()).filter((e) => {
-    return getSpellbookTierIndexForLevel(e.spellLevel) === currentSpellbookTierIndex;
-  });
+  const basePool = spellbookFavoritesOnly
+    ? favoriteEntries
+    : allEntries.filter((e) => getSpellbookTierIndexForLevel(e.spellLevel) === currentSpellbookTierIndex);
 
-  const matchingSongs = allInTier.filter((e) => {
+  const matchingSongs = basePool.filter((e) => {
     if (!query) return true;
     return e.title.toLowerCase().includes(query) || e.fileName.toLowerCase().includes(query);
   });
@@ -3021,23 +5018,39 @@ function renderSpellbookSpread() {
   // Alphabetical sort by title
   matchingSongs.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
 
+  // Capture focused star button entry ID so keyboard focus survives re-render
+  const activeStarEntryId = document.activeElement?.classList?.contains('spellbook-card-star-btn')
+    ? document.activeElement.dataset.entryId || null
+    : null;
+
   // Render Left Page Song List or Empty State
   if (spellbookSongList) {
     spellbookSongList.innerHTML = '';
   }
 
   if (matchingSongs.length === 0) {
+    selectedSpellbookEntryId = null;
     if (spellbookEmptyState) {
       spellbookEmptyState.classList.remove('hidden');
       const emptyHeading = spellbookEmptyState.querySelector('.empty-tier-heading');
       if (emptyHeading) {
-        emptyHeading.textContent = query ? 'No Matching Spells in this Tier' : `No ${tier.title} Yet`;
+        if (spellbookFavoritesOnly) {
+          emptyHeading.textContent = query ? 'No Matching Attuned Spells' : 'No Attuned Spells Yet';
+        } else {
+          emptyHeading.textContent = query ? 'No Matching Spells in this Tier' : `No ${tier.title} Yet`;
+        }
       }
       const emptyText = spellbookEmptyState.querySelector('.empty-tier-text');
       if (emptyText) {
-        emptyText.textContent = query
-          ? `No songs matched "${query}". Clear the search box or check other tiers.`
-          : `No ${tier.title.toLowerCase()} cataloged in your grimoire yet. Visit the Quest Board to forge new spells!`;
+        if (spellbookFavoritesOnly) {
+          emptyText.textContent = query
+            ? `No attuned spells matched "${query}". Clear the search box to see all attuned spells.`
+            : 'Tap the \u2606 star on any spell card or detail panel to attune your focus songs here.';
+        } else {
+          emptyText.textContent = query
+            ? `No songs matched "${query}". Clear the search box or check other tiers.`
+            : `No ${tier.title.toLowerCase()} cataloged in your grimoire yet. Visit the Quest Board to forge new spells!`;
+        }
       }
     }
     renderSpellbookDetails(null);
@@ -3061,6 +5074,8 @@ function renderSpellbookSpread() {
     }
     selectedSpellbookEntryId = selectedEntry.id;
 
+    let starBtnToRefocus = null;
+
     for (const entry of matchingSongs) {
       const isSelected = entry.id === selectedSpellbookEntryId;
       const isActiveHighway = Boolean(
@@ -3080,11 +5095,11 @@ function renderSpellbookSpread() {
       titleWrap.title = entry.title;
 
       if (isActiveHighway) {
-        const star = document.createElement('span');
-        star.className = 'song-active-indicator';
-        star.title = 'Currently Loaded on Spell Highway';
-        star.textContent = '\u2605 ';
-        titleWrap.appendChild(star);
+        const activeIndicator = document.createElement('span');
+        activeIndicator.className = 'song-active-indicator';
+        activeIndicator.title = 'Currently Loaded on Spell Highway';
+        activeIndicator.textContent = '\u25B6 ';
+        titleWrap.appendChild(activeIndicator);
       }
 
       const titleText = document.createElement('span');
@@ -3093,11 +5108,31 @@ function renderSpellbookSpread() {
 
       const metaSpan = document.createElement('span');
       metaSpan.className = 'spellbook-song-item-meta';
-      metaSpan.title = `${entry.bpm} BPM \u2022 ${formatSeconds(entry.duration)}`;
-      metaSpan.textContent = `${entry.bpm} \u2022 ${formatSeconds(entry.duration)}`;
+      metaSpan.title = `${entry.spellLevel} \u2022 ${entry.bpm} BPM \u2022 ${formatSeconds(entry.duration)}`;
+      metaSpan.textContent = spellbookFavoritesOnly
+        ? `${entry.spellLevel} \u2022 ${formatSeconds(entry.duration)}`
+        : `${entry.bpm} \u2022 ${formatSeconds(entry.duration)}`;
+
+      const cardStarBtn = document.createElement('button');
+      cardStarBtn.type = 'button';
+      cardStarBtn.className = `spellbook-card-star-btn${entry.isFavorite ? ' is-favorite' : ''}`;
+      cardStarBtn.dataset.entryId = entry.id;
+      cardStarBtn.textContent = entry.isFavorite ? '\u2605' : '\u2606';
+      cardStarBtn.title = entry.isFavorite ? `Unattune "${entry.title}"` : `Attune "${entry.title}"`;
+      cardStarBtn.setAttribute('aria-label', entry.isFavorite ? `Unattune ${entry.title}` : `Attune ${entry.title}`);
+      cardStarBtn.setAttribute('aria-pressed', entry.isFavorite ? 'true' : 'false');
+      cardStarBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleGrimoireFavorite(entry.id);
+      });
+
+      if (activeStarEntryId && activeStarEntryId === entry.id) {
+        starBtnToRefocus = cardStarBtn;
+      }
 
       item.appendChild(titleWrap);
       item.appendChild(metaSpan);
+      item.appendChild(cardStarBtn);
 
       if (isGrimoireEntryDeletable(entry)) {
         const cardDeleteBtn = document.createElement('button');
@@ -3116,9 +5151,13 @@ function renderSpellbookSpread() {
       item.addEventListener('click', () => {
         entry.newlyIngested = false;
         selectedSpellbookEntryId = entry.id;
-        // Update selection UI
-        spellbookSongList.querySelectorAll('.spellbook-song-item').forEach((el) => el.classList.remove('selected'));
+        // Update selection UI & aria-selected
+        spellbookSongList.querySelectorAll('.spellbook-song-item').forEach((el) => {
+          el.classList.remove('selected');
+          el.setAttribute('aria-selected', 'false');
+        });
         item.classList.add('selected');
+        item.setAttribute('aria-selected', 'true');
         renderSpellbookDetails(entry);
       });
 
@@ -3140,15 +5179,19 @@ function renderSpellbookSpread() {
       spellbookSongList.appendChild(item);
     }
 
+    if (starBtnToRefocus) {
+      starBtnToRefocus.focus();
+    }
+
     renderSpellbookDetails(selectedEntry);
   }
 
   // Navigation button states & 10 Bookmark Tabs / Tier Pips
   if (btnSpellbookPrevPage) {
-    btnSpellbookPrevPage.disabled = currentSpellbookTierIndex <= 0;
+    btnSpellbookPrevPage.disabled = spellbookFavoritesOnly || currentSpellbookTierIndex <= 0;
   }
   if (btnSpellbookNextPage) {
-    btnSpellbookNextPage.disabled = currentSpellbookTierIndex >= SPELLBOOK_TIERS.length - 1;
+    btnSpellbookNextPage.disabled = spellbookFavoritesOnly || currentSpellbookTierIndex >= SPELLBOOK_TIERS.length - 1;
   }
 
   renderSpellbookTierPips();
@@ -3158,7 +5201,8 @@ function renderSpellbookDetails(entry) {
   const tier = SPELLBOOK_TIERS[currentSpellbookTierIndex] || SPELLBOOK_TIERS[0];
 
   if (!entry) {
-    if (spellbookDetailTierChip) spellbookDetailTierChip.textContent = tier.levelName;
+    if (spellbookDetailTierChip) spellbookDetailTierChip.textContent = spellbookFavoritesOnly ? 'Attuned' : tier.levelName;
+    if (spellbookDetailKeySig) spellbookDetailKeySig.classList.add('hidden');
     if (spellbookDetailSource) spellbookDetailSource.textContent = '\u2014';
     if (spellbookDetailTitle) spellbookDetailTitle.textContent = 'No Spell Selected';
     if (spellbookDetailFile) spellbookDetailFile.textContent = '\u2014';
@@ -3172,13 +5216,32 @@ function renderSpellbookDetails(entry) {
     if (spellbookDetailTotalXp) spellbookDetailTotalXp.textContent = '0 XP';
     if (spellbookDetailLastPlayed) spellbookDetailLastPlayed.textContent = 'Never performed on stage';
     if (spellbookDetailAudioBadge) spellbookDetailAudioBadge.classList.add('hidden');
+    if (spellbookBundleStrip) spellbookBundleStrip.classList.add('hidden');
+    if (spellbookBundleSheetChip) spellbookBundleSheetChip.classList.add('hidden');
+    if (spellbookBundleSpotifyLink) spellbookBundleSpotifyLink.classList.add('hidden');
+    if (btnSpellbookBundle) btnSpellbookBundle.disabled = true;
     if (btnSpellbookLoadSong) btnSpellbookLoadSong.disabled = true;
+    if (btnSpellbookFavoriteSong) {
+      btnSpellbookFavoriteSong.disabled = true;
+      btnSpellbookFavoriteSong.classList.remove('is-favorite');
+      btnSpellbookFavoriteSong.textContent = '\u2606';
+      btnSpellbookFavoriteSong.setAttribute('aria-pressed', 'false');
+      btnSpellbookFavoriteSong.title = 'Attune this spell';
+    }
     if (btnSpellbookDeleteSong) btnSpellbookDeleteSong.classList.add('hidden');
     return;
   }
 
   if (spellbookDetailTierChip) {
     spellbookDetailTierChip.textContent = `${entry.spellLevel} (${entry.xpMultiplier.toFixed(1)}x XP)`;
+  }
+  if (spellbookDetailKeySig) {
+    if (entry.keySignature) {
+      spellbookDetailKeySig.textContent = entry.keySignature;
+      spellbookDetailKeySig.classList.remove('hidden');
+    } else {
+      spellbookDetailKeySig.classList.add('hidden');
+    }
   }
   if (spellbookDetailSource) {
     spellbookDetailSource.textContent = entry.filePath === 'BUILTIN_DEMO' ? 'Built-In Conservatory Spell' : entry.sourceTag;
@@ -3200,6 +5263,72 @@ function renderSpellbookDetails(entry) {
   }
   if (spellbookDetailNotes) {
     spellbookDetailNotes.textContent = String(entry.totalNotes || '\u2014');
+  }
+
+  // Issue #76: Populate compact 1-row Grimoire Song Bundle strip
+  const hasSheet = Boolean(entry.sheetMusicPath && fs.existsSync(entry.sheetMusicPath));
+  const hasAudio = Boolean(entry.backingAudioPath && fs.existsSync(entry.backingAudioPath));
+  const validSpotify = Boolean(entry.spotifyUrl && /^https?:\/\/\S+$/i.test(entry.spotifyUrl));
+  const validYoutube = Boolean(entry.youtubeUrl && /^https?:\/\/\S+$/i.test(entry.youtubeUrl));
+  const isBuiltInDemo = entry.filePath === 'BUILTIN_DEMO';
+
+  if (spellbookBundleStrip) {
+    spellbookBundleStrip.classList.remove('hidden');
+  }
+  if (spellbookBundleNotesChip) {
+    const noteType = isMusicXmlFileName(entry.fileName || '') ? 'XML' : 'MIDI';
+    const isClean = entry._appliedCleanupEnabled !== undefined
+      ? Boolean(entry._appliedCleanupEnabled)
+      : Boolean(midiCleanupGlobalEnabled);
+    spellbookBundleNotesChip.textContent = isClean
+      ? `\uD83C\uDFB9 ${noteType} \u2022 Clean`
+      : `\uD83C\uDFB9 ${noteType}`;
+    spellbookBundleNotesChip.title = isClean
+      ? `${noteType} notes with Smart MIDI Hygiene ON`
+      : `${noteType} notes (Raw uncleaned)`;
+  }
+  if (spellbookBundleSheetChip) {
+    if (hasSheet) {
+      const sheetExt = (path.extname(entry.sheetMusicPath) || '.SHEET').replace(/^\./, '').toUpperCase();
+      spellbookBundleSheetChip.textContent = `\uD83D\uDCDC ${sheetExt}`;
+      spellbookBundleSheetChip.title = `Open sheet music ref: ${path.basename(entry.sheetMusicPath)}`;
+      spellbookBundleSheetChip.classList.remove('hidden');
+    } else {
+      spellbookBundleSheetChip.classList.add('hidden');
+    }
+  }
+  if (spellbookBundleAudioChip) {
+    spellbookBundleAudioChip.classList.toggle('chip-missing', !hasAudio);
+    if (hasAudio) {
+      const off = clampAudioOffsetSec(entry.audioOffsetSec || 0);
+      const offBadge = Math.abs(off) >= 0.005 ? ` (${off >= 0 ? '+' : ''}${off.toFixed(2)}s)` : '';
+      spellbookBundleAudioChip.textContent = `\uD83C\uDFB5 Audio${offBadge}`;
+      spellbookBundleAudioChip.title = `Backing audio: ${path.basename(entry.backingAudioPath)}${offBadge ? ` \u2022 Offset ${offBadge.trim()}` : ''}`;
+    } else {
+      spellbookBundleAudioChip.textContent = '\uD83D\uDD07 No Audio';
+      spellbookBundleAudioChip.title = 'No paired backing audio attached yet';
+    }
+  }
+  if (spellbookBundleSpotifyLink) {
+    if (validSpotify) {
+      spellbookBundleSpotifyLink.textContent = '\u2197 Spotify';
+      spellbookBundleSpotifyLink.title = entry.spotifyUrl;
+      spellbookBundleSpotifyLink.classList.remove('hidden');
+    } else if (validYoutube) {
+      spellbookBundleSpotifyLink.textContent = '\u2197 YouTube';
+      spellbookBundleSpotifyLink.title = entry.youtubeUrl;
+      spellbookBundleSpotifyLink.classList.remove('hidden');
+    } else {
+      spellbookBundleSpotifyLink.classList.add('hidden');
+    }
+  }
+  if (btnSpellbookBundle) {
+    btnSpellbookBundle.disabled = isBuiltInDemo;
+    const hasExtras = hasSheet || hasAudio || validSpotify || validYoutube;
+    btnSpellbookBundle.textContent = hasExtras ? '\u2699 Bundle' : '+ Bundle';
+    btnSpellbookBundle.title = isBuiltInDemo
+      ? 'Song Bundle editor is unavailable for the Built-In Demo Spell'
+      : 'Attach or manage Backing Audio, Sheet Music & Bundle Sync';
   }
 
   // Load rehearsal history from songPlayHistory store
@@ -3228,7 +5357,7 @@ function renderSpellbookDetails(entry) {
 
   // Backing audio badge
   if (spellbookDetailAudioBadge) {
-    if (entry.backingAudioPath) {
+    if (hasAudio) {
       spellbookDetailAudioBadge.classList.remove('hidden');
       spellbookDetailAudioBadge.textContent = '\uD83C\uDFB5 Backing Audio Synced';
     } else {
@@ -3238,6 +5367,16 @@ function renderSpellbookDetails(entry) {
 
   if (btnSpellbookLoadSong) {
     btnSpellbookLoadSong.disabled = false;
+  }
+
+  if (btnSpellbookFavoriteSong) {
+    btnSpellbookFavoriteSong.disabled = false;
+    const isFav = Boolean(entry.isFavorite);
+    btnSpellbookFavoriteSong.classList.toggle('is-favorite', isFav);
+    btnSpellbookFavoriteSong.textContent = isFav ? '\u2605' : '\u2606';
+    btnSpellbookFavoriteSong.setAttribute('aria-pressed', isFav ? 'true' : 'false');
+    btnSpellbookFavoriteSong.title = isFav ? `Unattune "${entry.title}"` : `Attune "${entry.title}"`;
+    btnSpellbookFavoriteSong.setAttribute('aria-label', isFav ? `Unattune ${entry.title}` : `Attune ${entry.title}`);
   }
 
   // Delete button available for all file-backed Grimoire entries (Imports/ & Test Library)
@@ -3253,10 +5392,7 @@ function renderSpellbookDetails(entry) {
 }
 
 function loadSelectedSpellbookSong() {
-  const allInTier = Array.from(grimoireSpells.values()).filter((e) => {
-    return getSpellbookTierIndexForLevel(e.spellLevel) === currentSpellbookTierIndex;
-  });
-  const entry = allInTier.find((e) => e.id === selectedSpellbookEntryId) || allInTier[0];
+  const entry = (selectedSpellbookEntryId && grimoireSpells.get(selectedSpellbookEntryId)) || null;
   if (!entry) return;
 
   loadGrimoireEntry(entry);
@@ -3267,10 +5403,7 @@ function loadSelectedSpellbookSong() {
 }
 
 function deleteSelectedSpellbookSong() {
-  const allInTier = Array.from(grimoireSpells.values()).filter((e) => {
-    return getSpellbookTierIndexForLevel(e.spellLevel) === currentSpellbookTierIndex;
-  });
-  const entry = allInTier.find((e) => e.id === selectedSpellbookEntryId);
+  const entry = (selectedSpellbookEntryId && grimoireSpells.get(selectedSpellbookEntryId)) || null;
   if (!entry || !isGrimoireEntryDeletable(entry)) return;
   openDeleteSpellConfirmModal(entry);
 }
@@ -3299,16 +5432,16 @@ function loadGrimoireEntry(entry) {
   }
   try {
     if (!fs.existsSync(entry.filePath)) {
-      alert(`File not found on disk: ${entry.filePath}`);
+      showGrimoireToast(`File not found on disk: ${entry.filePath}`, 'error');
       grimoireSpells.delete(entry.id);
       renderGrimoireSidebar();
       return;
     }
     const buf = fs.readFileSync(entry.filePath);
     const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-    parseMidiBuffer(arrayBuf, entry.fileName, entry.filePath);
+    loadSongFromBuffer(arrayBuf, entry.fileName, entry.filePath);
   } catch (err) {
-    alert(`Failed to load spell from Grimoire: ${err.message}`);
+    showGrimoireToast(`Failed to load spell from Grimoire: ${err.message}`, 'error');
   }
 }
 
@@ -3317,7 +5450,7 @@ function loadGrimoireEntry(entry) {
  */
 function saveActiveSpellToGrimoire() {
   if (!currentSong || !currentSong.rawBuffer) {
-    alert('Load a MIDI file or Demo Spell first!');
+    showGrimoireToast('Load a MIDI or MusicXML spell first!', 'error');
     return;
   }
 
@@ -3325,16 +5458,20 @@ function saveActiveSpellToGrimoire() {
     if (!fs.existsSync(IMPORTS_DIR)) {
       fs.mkdirSync(IMPORTS_DIR, { recursive: true });
     }
-    const safeName = currentSong.fileName.replace(/[^a-zA-Z0-9._ -]/g, '_');
+    let safeName = currentSong.fileName.replace(/[^a-zA-Z0-9._ -]/g, '_');
+    // currentSong.rawBuffer holds converted MIDI bytes when imported from MusicXML
+    if (isMusicXmlFileName(safeName)) {
+      safeName = `${safeName.replace(/\.(musicxml|xml|mxl)$/i, '')}.mid`;
+    }
+    const safeBase = safeName.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
     const destPath = path.join(IMPORTS_DIR, safeName);
 
-    // Copy paired backing audio track into ./Imports before writing .mid (Issue #48)
+    // Copy paired backing audio track into ./Imports before writing .mid (Issue #48 & #76)
     if (currentSong.backingAudioPath && fs.existsSync(currentSong.backingAudioPath)) {
       try {
         const ext = path.extname(currentSong.backingAudioPath);
-        const safeBase = safeName.replace(/\.(mid|midi)$/i, '');
         const destAudioPath = path.join(IMPORTS_DIR, `${safeBase}${ext}`);
-        if (path.resolve(currentSong.backingAudioPath) !== path.resolve(destAudioPath)) {
+        if (!isBundleSameFilePath(currentSong.backingAudioPath, destAudioPath)) {
           fs.copyFileSync(currentSong.backingAudioPath, destAudioPath);
         }
         currentSong.backingAudioPath = destAudioPath;
@@ -3343,13 +5480,70 @@ function saveActiveSpellToGrimoire() {
       }
     }
 
+    // Copy attached sheet music ref into ./Imports/Sheets before writing .mid (Issue #76)
+    if (currentSong.sheetMusicPath && fs.existsSync(currentSong.sheetMusicPath)) {
+      try {
+        if (!fs.existsSync(IMPORTS_SHEETS_DIR)) {
+          fs.mkdirSync(IMPORTS_SHEETS_DIR, { recursive: true });
+        }
+        const sheetExt = path.extname(currentSong.sheetMusicPath);
+        const destSheetPath = path.join(IMPORTS_SHEETS_DIR, `${safeBase}_sheet${sheetExt}`);
+        if (!isBundleSameFilePath(currentSong.sheetMusicPath, destSheetPath)) {
+          fs.copyFileSync(currentSong.sheetMusicPath, destSheetPath);
+        }
+        currentSong.sheetMusicPath = destSheetPath;
+      } catch {
+        // Ignore sheet copy errors
+      }
+    }
+
     fs.writeFileSync(destPath, currentSong.rawBuffer);
     currentSong.filePath = destPath;
+    currentSong.fileName = safeName;
+
+    const hasBundleMeta = Boolean(
+      currentSong.sheetMusicPath ||
+      currentSong.backingAudioPath ||
+      currentSong.youtubeUrl ||
+      currentSong.spotifyUrl ||
+      Math.abs(currentSong.audioOffsetSec || 0) > 0.0001 ||
+      Math.abs((currentSong.audioTempoRatio ?? 1.0) - 1.0) > 0.0001 ||
+      typeof currentSong.midiCleanupOverride === 'boolean'
+    );
+    if (hasBundleMeta) {
+      const savedSongId = currentSong.songId && currentSong.songId !== 'builtin::demo'
+        ? currentSong.songId
+        : crypto.createHash('sha1').update(currentSong.rawBuffer).digest('hex');
+      currentSong.songId = savedSongId;
+      saveBundleRecord({
+        storePath: BUNDLE_STORE_PATH,
+        projectRoot: __dirname,
+        importsDir: IMPORTS_DIR,
+        writeSidecar: true,
+        record: {
+          id: savedSongId,
+          songId: savedSongId,
+          title: currentSong.title,
+          fileName: safeName,
+          notesPath: destPath,
+          sheetMusicPath: currentSong.sheetMusicPath || null,
+          backingAudioPath: currentSong.backingAudioPath || null,
+          youtubeUrl: currentSong.youtubeUrl || null,
+          spotifyUrl: currentSong.spotifyUrl || null,
+          audioOffsetSec: currentSong.audioOffsetSec ?? 0,
+          audioTempoRatio: currentSong.audioTempoRatio ?? 1.0,
+          midiCleanupEnabled: typeof currentSong.midiCleanupOverride === 'boolean'
+            ? currentSong.midiCleanupOverride
+            : null
+        }
+      });
+    }
+
     scanWatchedDirectories(false);
     showGrimoireToast(`💾 Saved "${currentSong.title}" to The Grimoire (./Imports/${safeName})!`);
     renderGrimoireSidebar();
   } catch (err) {
-    alert(`Could not save spell to Imports/: ${err.message}`);
+    showGrimoireToast(`Could not save spell to Imports/: ${err.message}`, 'error');
   }
 }
 
@@ -3376,18 +5570,50 @@ function isGrimoireEntryDeletable(entry) {
 
 /**
  * Collect all source files associated with a Grimoire entry (MIDI, paired audio,
- * sheet music, and any future #76 bundle parts) so they trash together safely.
+ * sheet music, and bundle sidecar) while never moving files still referenced by another entry (Issue #77 & #76).
  */
 function collectGrimoireEntryFiles(entry) {
   const candidates = [];
   const seen = new Set();
+  const referencedByOtherEntries = new Set();
 
-  const pushCandidate = (filePath) => {
+  const normalizeKey = (filePath) => {
+    if (!filePath || typeof filePath !== 'string' || filePath === 'BUILTIN_DEMO') return null;
+    try {
+      const resolved = path.resolve(filePath);
+      return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+    } catch {
+      return null;
+    }
+  };
+
+  const trackOtherRef = (filePath) => {
+    const key = normalizeKey(filePath);
+    if (key) referencedByOtherEntries.add(key);
+  };
+
+  if (entry) {
+    for (const other of grimoireSpells.values()) {
+      if (!other || other === entry || isSameFilePath(other.filePath, entry.filePath)) continue;
+      trackOtherRef(other.filePath);
+      trackOtherRef(other.sidecarPath || getSidecarBundlePath(other.filePath));
+      trackOtherRef(getSidecarBundlePath(other.filePath));
+      trackOtherRef(other.backingAudioPath);
+      trackOtherRef(other.sheetMusicPath);
+      trackOtherRef(other.musicXmlPath);
+      if (Array.isArray(other.bundleFiles)) other.bundleFiles.forEach(trackOtherRef);
+      if (Array.isArray(other.stems)) other.stems.forEach(trackOtherRef);
+      else if (other.stems && typeof other.stems === 'object') Object.values(other.stems).forEach(trackOtherRef);
+    }
+  }
+
+  const pushCandidate = (filePath, { allowIfShared = false } = {}) => {
     if (!filePath || typeof filePath !== 'string' || filePath === 'BUILTIN_DEMO') return;
     try {
       const resolved = path.resolve(filePath);
       const dedupeKey = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
       if (seen.has(dedupeKey)) return;
+      if (!allowIfShared && referencedByOtherEntries.has(dedupeKey)) return;
       if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
         seen.add(dedupeKey);
         candidates.push(resolved);
@@ -3398,25 +5624,27 @@ function collectGrimoireEntryFiles(entry) {
   };
 
   if (entry) {
-    pushCandidate(entry.filePath);
+    pushCandidate(entry.filePath, { allowIfShared: true });
+    pushCandidate(getSidecarBundlePath(entry.filePath));
+    if (entry.sidecarPath) pushCandidate(entry.sidecarPath);
     pushCandidate(entry.backingAudioPath);
     pushCandidate(entry.sheetMusicPath);
     pushCandidate(entry.musicXmlPath);
 
     if (Array.isArray(entry.bundleFiles)) {
-      entry.bundleFiles.forEach(pushCandidate);
+      entry.bundleFiles.forEach((f) => pushCandidate(f));
     }
     if (Array.isArray(entry.stems)) {
-      entry.stems.forEach(pushCandidate);
+      entry.stems.forEach((f) => pushCandidate(f));
     } else if (entry.stems && typeof entry.stems === 'object') {
-      Object.values(entry.stems).forEach(pushCandidate);
+      Object.values(entry.stems).forEach((f) => pushCandidate(f));
     }
 
     // Sibling paired files sharing the same basename in the entry's directory
     if (entry.filePath && entry.filePath !== 'BUILTIN_DEMO') {
       try {
         const dir = path.dirname(entry.filePath);
-        const base = path.basename(entry.filePath).replace(/\.(mid|midi)$/i, '');
+        const base = path.basename(entry.filePath).replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
         const pairedExts = ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.musicxml', '.mxl', '.xml', '.pdf'];
         for (const ext of pairedExts) {
           pushCandidate(path.join(dir, `${base}${ext}`));
@@ -3456,9 +5684,11 @@ function isGrimoireEntryLoadedOnHighway(entry, associatedFiles = []) {
 function unloadCurrentSongToEmptyState() {
   pausePlayback();
   clearAllHeldInputNotes();
+  stopAudioAudition();
 
   if (currentSong?.backingAudioEl) {
     try {
+      currentSong.backingAudioEl._disposed = true;
       currentSong.backingAudioEl.pause();
       currentSong.backingAudioEl.removeAttribute('src');
       currentSong.backingAudioEl.load();
@@ -3492,6 +5722,8 @@ function unloadCurrentSongToEmptyState() {
   if (statT2Notes) statT2Notes.textContent = '0';
   if (statBandTracks) statBandTracks.textContent = '0';
   if (statFoldedNotes) statFoldedNotes.textContent = '0';
+  if (statKeySigChip) statKeySigChip.classList.add('hidden');
+  if (statCleanedChip) statCleanedChip.classList.add('hidden');
 
   if (playableTrackSelect) {
     playableTrackSelect.innerHTML = '<option value="auto-piano">No Spell Loaded</option>';
@@ -3508,7 +5740,13 @@ function unloadCurrentSongToEmptyState() {
     songProgressSlider.disabled = true;
   }
   if (songTimeReadout) songTimeReadout.textContent = '0:00 / 0:00';
+  clearRehearsalLoop();
 
+  notationRenderer.clearCache();
+  syncMidiCleanupCheckboxUI();
+  updateAudioSyncUI();
+  updateNotationQualityBanner();
+  syncNotationWaitOverlayPill(performance.now());
   setStrikeStatusBadge('idle', 'Highway Clear \u2014 Open Grimoire to Choose a Spell');
   updateLitrpgHUD();
 }
@@ -3642,6 +5880,7 @@ function removeGrimoireEntry(entry) {
   ) {
     if (currentSong.backingAudioEl) {
       try {
+        currentSong.backingAudioEl._disposed = true;
         currentSong.backingAudioEl.pause();
         currentSong.backingAudioEl.removeAttribute('src');
         currentSong.backingAudioEl.load();
@@ -3651,6 +5890,7 @@ function removeGrimoireEntry(entry) {
       currentSong.backingAudioEl = null;
     }
     currentSong.backingAudioPath = null;
+    updateAudioSyncUI();
   }
 
   const archived = [];
@@ -3673,6 +5913,14 @@ function removeGrimoireEntry(entry) {
     const errReason = failed[0]?.error || 'File could not be moved to the ./Archive folder.';
     throw new Error(errReason);
   }
+
+  removeBundleRecordForSong({
+    storePath: BUNDLE_STORE_PATH,
+    projectRoot: __dirname,
+    filePath: entry.filePath,
+    songId: entry.songId,
+    fileName: entry.fileName
+  });
 
   if (matchedLastSong) {
     bardProfile.lastSongPath = null;
@@ -3724,7 +5972,7 @@ function confirmPendingSpellDeletion() {
       btnDeleteConfirmAccept.disabled = false;
       btnDeleteConfirmAccept.innerHTML = '&#128230; Move to Archive';
     }
-    alert(`Could not move "${targetEntry.title}" to ./Archive: ${err.message}`);
+    showGrimoireToast(`Could not move "${targetEntry.title}" to ./Archive: ${err.message}`, 'error');
   }
 }
 
@@ -3860,7 +6108,7 @@ function dropTestMidiIntoImports() {
     // Trigger watcher scan shortly after file write
     setTimeout(() => scanWatchedDirectories(true), 120);
   } catch (err) {
-    alert(`Failed to drop test MIDI into ./Imports: ${err.message}`);
+    showGrimoireToast(`Failed to drop test MIDI into ./Imports: ${err.message}`, 'error');
   }
 }
 
@@ -3877,13 +6125,16 @@ function tryAutoLoadWorkspaceMidi() {
   for (const dir of searchDirs) {
     try {
       if (!fs.existsSync(dir)) continue;
-      const files = fs.readdirSync(dir);
-      const midiFile = files.find((f) => /\.(mid|midi)$/i.test(f));
-      if (midiFile) {
-        const fullPath = path.join(dir, midiFile);
-        const buf = fs.readFileSync(fullPath);
-        parseMidiBuffer(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), midiFile, fullPath);
-        return;
+      const files = fs.readdirSync(dir).filter((f) => /\.(mid|midi|musicxml|xml|mxl)$/i.test(f));
+      for (const spellFile of files) {
+        try {
+          const fullPath = path.join(dir, spellFile);
+          const buf = fs.readFileSync(fullPath);
+          loadSongFromBuffer(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), spellFile, fullPath);
+          return;
+        } catch {
+          // Skip invalid or non-MusicXML .xml files and try next candidate
+        }
       }
     } catch {
       // Ignore directory read errors
@@ -3904,17 +6155,41 @@ let cachedKeyGradients = null;
 function computeKeyGeometry() {
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
-  canvas.width = Math.floor(rect.width * dpr);
-  canvas.height = Math.floor(rect.height * dpr);
+  canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+  canvas.height = Math.max(1, Math.floor(rect.height * dpr));
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  const width = rect.width;
-  const height = rect.height;
+  const width = Math.max(1, rect.width);
+  const height = Math.max(1, rect.height);
   cachedCanvasWidth = width;
   cachedCanvasHeight = height;
 
   const keyboardHeight = Math.max(145, Math.min(210, Math.round(height * 0.22)));
-  const keyboardY = height - keyboardHeight;
+  const keyboardY = Math.max(1, height - keyboardHeight);
+
+  let notationHeight = 0;
+  let highwayTopY = 0;
+  if (stageViewMode === 'score') {
+    notationHeight = Math.max(0, keyboardY);
+    highwayTopY = keyboardY;
+  } else if (stageViewMode === 'split') {
+    const maxSplitNotation = Math.max(120, keyboardY - 90);
+    notationHeight = Math.max(
+      0,
+      Math.min(
+        keyboardY,
+        Math.max(Math.min(175, maxSplitNotation), Math.min(maxSplitNotation, Math.round(keyboardY * 0.52)))
+      )
+    );
+    highwayTopY = notationHeight;
+  }
+  cachedNotationPaneHeight = notationHeight;
+  cachedHighwayTopY = highwayTopY;
+
+  if (stageContainer) {
+    stageContainer.style.setProperty('--notation-pane-height', `${notationHeight}px`);
+    stageContainer.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
+  }
 
   whiteKeys.length = 0;
   blackKeys.length = 0;
@@ -3996,62 +6271,59 @@ function computeKeyGeometry() {
  * Track 1 = Radiant Gold (#ffd700), Track 2 = Eldritch Blue (#00e5ff)
  * Also collects active strike-line notes so the 61-key piano can show guide highlights.
  */
-function drawFallingSpellHighway(strikeLineY, width) {
+function drawFallingSpellHighway(strikeLineY, width, highwayTopY = 0, collectOnly = false) {
   const strikeLineGuides = new Map(); // midi -> { handTrack, lockedInWait }
   if (!currentSong) return strikeLineGuides;
 
+  const laneTopY = Math.max(0, highwayTopY);
+  const laneHeight = Math.max(0, strikeLineY - laneTopY);
   const curTime = playbackState.currentTime;
   const fallSpeed = playbackState.fallSpeedPxPerSec;
-  const visibleTimeWindow = (strikeLineY + 40) / fallSpeed;
+  const visibleTimeWindow = collectOnly
+    ? 0.5
+    : Math.max(0.25, (laneHeight + 40) / fallSpeed);
 
   // 1. Draw scrolling horizontal beat/measure grid lines (honoring compound time signatures, Issue #37, Fixes #59)
-  const denominator = Math.max(1, currentSong.timeSigDenominator || 4);
-  const beatDur = (60 / Math.max(30, currentSong.bpm)) * (4 / denominator);
-  const beatsPerMeasure = Math.max(1, currentSong.beatsPerMeasure || currentSong.timeSigNumerator || 4);
-  const firstBeatIdx = Math.max(0, Math.floor(curTime / beatDur));
-  const lastBeatIdx = Math.ceil((curTime + visibleTimeWindow) / beatDur);
+  if (!collectOnly && laneHeight > 0) {
+    const denominator = Math.max(1, currentSong.timeSigDenominator || 4);
+    const beatDur = (60 / Math.max(30, currentSong.bpm)) * (4 / denominator);
+    const beatsPerMeasure = Math.max(1, currentSong.beatsPerMeasure || currentSong.timeSigNumerator || 4);
+    const firstBeatIdx = Math.max(0, Math.floor(curTime / beatDur));
+    const lastBeatIdx = Math.ceil((curTime + visibleTimeWindow) / beatDur);
 
-  ctx.save();
-  for (let b = firstBeatIdx; b <= lastBeatIdx; b++) {
-    const beatTime = b * beatDur;
-    const y = strikeLineY - (beatTime - curTime) * fallSpeed;
-    if (y < 0 || y > strikeLineY) continue;
+    ctx.save();
+    for (let b = firstBeatIdx; b <= lastBeatIdx; b++) {
+      const beatTime = b * beatDur;
+      const y = strikeLineY - (beatTime - curTime) * fallSpeed;
+      if (y < laneTopY || y > strikeLineY) continue;
 
-    const isMeasureLine = b % beatsPerMeasure === 0;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(width, y);
-    ctx.strokeStyle = isMeasureLine
-      ? 'rgba(212, 175, 55, 0.22)'
-      : 'rgba(186, 171, 147, 0.07)';
-    ctx.lineWidth = isMeasureLine ? 1.5 : 1;
-    ctx.stroke();
+      const isMeasureLine = b % beatsPerMeasure === 0;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.strokeStyle = isMeasureLine
+        ? 'rgba(212, 175, 55, 0.22)'
+        : 'rgba(186, 171, 147, 0.07)';
+      ctx.lineWidth = isMeasureLine ? 1.5 : 1;
+      ctx.stroke();
+    }
+    ctx.restore();
   }
-  ctx.restore();
 
-  // 2. Helper to draw a track's falling notes
+  // 2. Helper to draw (or collect strike-line guides for) a track's falling notes
   const drawTrackNotes = (notes, handTrack, primaryHex, topHex, borderHex, glowRgba) => {
     const opacity = getHandVisualOpacity(handTrack);
     if (opacity <= 0.05) return;
 
-    ctx.save();
-    ctx.globalAlpha = opacity;
+    if (!collectOnly) {
+      ctx.save();
+      ctx.globalAlpha = opacity;
+    }
 
     for (const note of notes) {
       const noteEnd = note.time + note.duration;
       if (noteEnd < curTime) continue;
       if (note.time > curTime + visibleTimeWindow) break;
-
-      const geom = keyGeometry[note.midi];
-      if (!geom) continue;
-
-      const rawBottomY = strikeLineY - (note.time - curTime) * fallSpeed;
-      const rawTopY = strikeLineY - (noteEnd - curTime) * fallSpeed;
-
-      const bottomY = Math.min(strikeLineY, rawBottomY);
-      const topY = Math.max(-20, rawTopY);
-      const rectH = Math.max(7, bottomY - topY - 2);
-      if (bottomY <= 0 || topY >= strikeLineY) continue;
 
       const isAtStrikeLine = (note.time <= curTime + 0.02 && noteEnd >= curTime) ||
         (playbackState.isWaitingForStrike && Math.abs(note.time - curTime) <= CHORD_CLUSTER_WINDOW_SEC && !note.satisfied);
@@ -4062,6 +6334,19 @@ function drawFallingSpellHighway(strikeLineY, width) {
           lockedInWait: Boolean(note.lockedInWait)
         });
       }
+
+      if (collectOnly) continue;
+
+      const geom = keyGeometry[note.midi];
+      if (!geom) continue;
+
+      const rawBottomY = strikeLineY - (note.time - curTime) * fallSpeed;
+      const rawTopY = strikeLineY - (noteEnd - curTime) * fallSpeed;
+
+      const bottomY = Math.min(strikeLineY, rawBottomY);
+      const topY = Math.max(laneTopY - 20, rawTopY);
+      const rectH = Math.max(7, bottomY - topY - 2);
+      if (bottomY <= laneTopY || topY >= strikeLineY) continue;
 
       const padX = geom.isBlack ? 1 : 2;
       const x = geom.x + padX;
@@ -4101,7 +6386,9 @@ function drawFallingSpellHighway(strikeLineY, width) {
       }
     }
 
-    ctx.restore();
+    if (!collectOnly) {
+      ctx.restore();
+    }
   };
 
   // Draw Track 2 (Left Hand / Accompaniment — Eldritch Blue)
@@ -4220,13 +6507,15 @@ function spawnFloatingCanvasRune(midi, text, color = '#ffd700') {
 /**
  * Render subtle drifting Tavern Arcane Dust Motes in the Spell Highway background
  */
-function updateAndDrawAmbientMotes(dt, width, strikeLineY) {
-  if (width <= 0 || strikeLineY <= 0) return;
+function updateAndDrawAmbientMotes(dt, width, strikeLineY, topY = 0) {
+  const minY = Math.max(0, topY);
+  const span = strikeLineY - minY;
+  if (width <= 0 || span <= 8) return;
 
   while (ambientMotes.length < 28) {
     ambientMotes.push({
       x: Math.random() * width,
-      y: Math.random() * strikeLineY,
+      y: minY + Math.random() * span,
       vx: (Math.random() - 0.5) * 12,
       vy: -(8 + Math.random() * 16),
       radius: 1.0 + Math.random() * 2.0,
@@ -4242,8 +6531,8 @@ function updateAndDrawAmbientMotes(dt, width, strikeLineY) {
     m.x += (m.vx + Math.sin(m.phase) * 6) * dt;
     m.y += m.vy * dt;
 
-    if (m.y < -10) {
-      m.y = strikeLineY - 4;
+    if (m.y < minY - 10 || m.y > strikeLineY) {
+      m.y = strikeLineY - 4 - Math.random() * Math.min(24, span * 0.2);
       m.x = Math.random() * width;
     }
     if (m.x < 0) m.x = width;
@@ -4387,40 +6676,139 @@ function renderCanvas() {
 
   const width = cachedCanvasWidth;
   const height = cachedCanvasHeight;
+  const dpr = window.devicePixelRatio || 1;
 
   ctx.clearRect(0, 0, width, height);
 
-  if (whiteKeys.length === 0 || !cachedKeyGradients) return;
-  const strikeLineY = whiteKeys[0].y;
-
-  // Phase 7: Ambient drifting arcane dust motes in the Spell Highway background
-  updateAndDrawAmbientMotes(particleDt, width, strikeLineY);
-
-  // 1. Draw vertical octave lane guides in the Spell Highway area
-  ctx.save();
-  for (const wk of whiteKeys) {
-    const semitone = wk.midi % 12;
-    if (semitone === 0 || semitone === 5) {
-      ctx.beginPath();
-      ctx.moveTo(wk.x, 0);
-      ctx.lineTo(wk.x, strikeLineY);
-      ctx.strokeStyle = semitone === 0
-        ? 'rgba(212, 175, 55, 0.16)'
-        : 'rgba(186, 171, 147, 0.07)';
-      ctx.lineWidth = semitone === 0 ? 1.5 : 1;
-      ctx.stroke();
-    }
+  if (whiteKeys.length === 0 || !cachedKeyGradients) {
+    syncNotationWaitOverlayPill(nowMs);
+    return;
   }
-  ctx.restore();
+  const strikeLineY = whiteKeys[0].y;
+  const inNotationView = stageViewMode === 'split' || stageViewMode === 'score';
+  const highwayTopY = stageViewMode === 'highway'
+    ? 0
+    : Math.min(strikeLineY, Math.max(0, cachedHighwayTopY));
+  const highwayHeight = Math.max(0, strikeLineY - highwayTopY);
 
-  // 2. Draw 60 FPS Falling Spell Highway Notes
-  const strikeLineGuides = drawFallingSpellHighway(strikeLineY, width);
+  let strikeLineGuides;
+
+  if (stageViewMode !== 'score' && highwayHeight > 0) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, highwayTopY, width, highwayHeight);
+    ctx.clip();
+
+    // Phase 7: Ambient drifting arcane dust motes in the Spell Highway background
+    updateAndDrawAmbientMotes(particleDt, width, strikeLineY, highwayTopY);
+
+    // 1. Draw vertical octave lane guides in the Spell Highway area
+    ctx.save();
+    for (const wk of whiteKeys) {
+      const semitone = wk.midi % 12;
+      if (semitone === 0 || semitone === 5) {
+        ctx.beginPath();
+        ctx.moveTo(wk.x, highwayTopY);
+        ctx.lineTo(wk.x, strikeLineY);
+        ctx.strokeStyle = semitone === 0
+          ? 'rgba(212, 175, 55, 0.16)'
+          : 'rgba(186, 171, 147, 0.07)';
+        ctx.lineWidth = semitone === 0 ? 1.5 : 1;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+
+    // 2. Draw 60 FPS Falling Spell Highway Notes
+    strikeLineGuides = drawFallingSpellHighway(strikeLineY, width, highwayTopY, false);
+
+    // 2b. Issue #30: Draw Rehearsal Loop A/B boundary lines on the Spell Highway
+    if (currentSong && rehearsalLoopState.enabled && hasValidRehearsalLoop()) {
+      const pxPerSec = playbackState.fallSpeedPxPerSec;
+      const markers = [
+        { t: rehearsalLoopState.startTime, label: 'LOOP A', color: 'rgba(255, 215, 0, 0.78)' },
+        { t: rehearsalLoopState.endTime, label: 'LOOP B', color: 'rgba(245, 158, 11, 0.88)' }
+      ];
+      for (const m of markers) {
+        const y = strikeLineY - (m.t - playbackState.currentTime) * pxPerSec;
+        if (y >= highwayTopY + 4 && y <= strikeLineY) {
+          ctx.save();
+          ctx.strokeStyle = m.color;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([6, 4]);
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(width, y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = m.color;
+          ctx.font = 'bold 10px "Consolas", monospace';
+          ctx.textAlign = 'right';
+          ctx.fillText(m.label, width - 8, Math.max(highwayTopY + 12, y - 4));
+          ctx.restore();
+        }
+      }
+    }
+
+    if (songSessionStats.inspirationBurstRemainingSec > 0) {
+      const pulse = 0.22 + 0.12 * Math.sin(nowMs * 0.008);
+      ctx.save();
+      ctx.strokeStyle = `rgba(255, 215, 0, ${pulse.toFixed(2)})`;
+      ctx.lineWidth = 6;
+      ctx.strokeRect(3, highwayTopY + 3, Math.max(4, width - 6), Math.max(4, highwayHeight - 6));
+      ctx.restore();
+    }
+
+    ctx.restore();
+  } else {
+    // Score Mode: Still collect active strike-line piano key guides while sheet music fills the stage
+    strikeLineGuides = drawFallingSpellHighway(strikeLineY, width, strikeLineY, true);
+  }
+
+  // 2c. Issue #39: Draw Scrolling Grand-Staff Sheet Music Viewport in Split & Score modes
+  if (inNotationView && cachedNotationPaneHeight > 40) {
+    const waitDurationSec = playbackState.isWaitingForStrike && playbackState.waitStartedAtMs !== null
+      ? Math.max(0, (nowMs - playbackState.waitStartedAtMs) / 1000)
+      : 0;
+    activeWaitNoteIdSet.clear();
+    if (playbackState.isWaitingForStrike && playbackState.activeStrikeGroup?.notes) {
+      for (const wn of playbackState.activeStrikeGroup.notes) {
+        activeWaitNoteIdSet.add(wn.id);
+      }
+    }
+    notationRenderer.renderNotationViewport(
+      ctx,
+      { x: 0, y: 0, width, height: cachedNotationPaneHeight },
+      {
+        scoreData: currentSong?.notationScore || null,
+        currentTime: playbackState.currentTime,
+        isWaitingForStrike: playbackState.isWaitingForStrike,
+        waitDurationSec,
+        waitMode: playbackState.waitMode,
+        rehearsalLoop: currentSong && rehearsalLoopState.enabled && hasValidRehearsalLoop()
+          ? {
+              enabled: true,
+              startTime: rehearsalLoopState.startTime,
+              endTime: rehearsalLoopState.endTime
+            }
+          : null,
+        rhOpacity: getHandVisualOpacity(1),
+        lhOpacity: getHandVisualOpacity(2),
+        noteLookup: currentSong?.noteIdMap || null,
+        activeWaitNoteIds: activeWaitNoteIdSet.size > 0 ? activeWaitNoteIdSet : null,
+        dpr,
+        showSplitDivider: stageViewMode === 'split'
+      }
+    );
+  }
 
   // 3. Draw glowing Strike Zone Line above the 61-key keyboard (with Bardic Inspiration glow at 50+ combo)
   ctx.save();
   const isWaiting = playbackState.isWaitingForStrike;
-  const isInspired = songSessionStats.spellChain >= BARDIC_INSPIRATION_STREAK;
-  const lineH = isInspired ? 16 : (isWaiting ? 14 : 9);
+  const isInspired = isBardicInspirationActive();
+  const lineH = stageViewMode === 'score'
+    ? (isInspired || isWaiting ? 8 : 5)
+    : (isInspired ? 16 : (isWaiting ? 14 : 9));
   const strikeGrad = ctx.createLinearGradient(0, strikeLineY - lineH + 2, 0, strikeLineY + 4);
   if (isInspired) {
     strikeGrad.addColorStop(0, 'rgba(255, 170, 0, 0)');
@@ -4529,6 +6917,7 @@ function renderCanvas() {
 
   // 6. Phase 7: Render Strike-Line Shockwaves, Arcane Particle Bursts & Floating XP Runes on top!
   updateAndDrawStrikeParticles(particleDt);
+  syncNotationWaitOverlayPill(nowMs);
 }
 
 /**
@@ -4700,17 +7089,38 @@ function shiftQwertyOctave(semitoneDelta) {
   updateQwertyOctaveLabel(true);
 }
 
-function closeAllConservatoryPopovers() {
-  if (settingsPopover) settingsPopover.classList.add('hidden');
-  if (btnToggleSettings) {
-    btnToggleSettings.classList.remove('active');
-    btnToggleSettings.setAttribute('aria-expanded', 'false');
+function closeAllConservatoryPopovers({ returnFocus = false } = {}) {
+  const pairs = [
+    [settingsPopover, btnToggleSettings],
+    [spellDetailsPopover, btnSpellDetails],
+    [rehearsalPopover, btnRehearsalPopover],
+    [audioSyncPopover, btnAudioSync]
+  ];
+  let anyWasOpen = false;
+  let focusTarget = null;
+  for (const [popoverEl, triggerBtn] of pairs) {
+    const isOpen = Boolean(popoverEl && !popoverEl.classList.contains('hidden'));
+    if (isOpen) {
+      anyWasOpen = true;
+      if (
+        returnFocus &&
+        triggerBtn &&
+        (popoverEl.contains(document.activeElement) || document.activeElement === document.body)
+      ) {
+        focusTarget = triggerBtn;
+      }
+      popoverEl.classList.add('hidden');
+    }
+    if (triggerBtn) {
+      triggerBtn.classList.remove('active');
+      triggerBtn.setAttribute('aria-expanded', 'false');
+    }
   }
-  if (spellDetailsPopover) spellDetailsPopover.classList.add('hidden');
-  if (btnSpellDetails) {
-    btnSpellDetails.classList.remove('active');
-    btnSpellDetails.setAttribute('aria-expanded', 'false');
+  stopAudioAudition();
+  if (focusTarget && typeof focusTarget.focus === 'function' && !focusTarget.closest('.hidden')) {
+    focusTarget.focus();
   }
+  return anyWasOpen;
 }
 
 function isAnyModalOpen() {
@@ -4724,17 +7134,20 @@ function isAnyModalOpen() {
 }
 
 window.addEventListener('keydown', (e) => {
-  // Close open popovers and modals on Escape (Issue #33)
+  // Close open popovers and modals on Escape (Issue #33, #76, #77)
   if (e.key === 'Escape') {
-    closeAllConservatoryPopovers();
-    if (tavernStreakPopover && !tavernStreakPopover.classList.contains('hidden')) {
+    if (closeAllConservatoryPopovers({ returnFocus: true })) {
       e.preventDefault();
-      closeStreakPopover({ returnFocus: true });
       return;
     }
     if (deleteSpellConfirmModal && !deleteSpellConfirmModal.classList.contains('hidden')) {
       e.preventDefault();
       closeDeleteSpellConfirmModal();
+      return;
+    }
+    if (questBoardModal && !questBoardModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeQuestBoardModal();
       return;
     }
     if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
@@ -4757,16 +7170,17 @@ window.addEventListener('keydown', (e) => {
       closePerformanceCheckModal();
       return;
     }
-    if (questBoardModal && !questBoardModal.classList.contains('hidden')) {
+    if (tavernStreakPopover && !tavernStreakPopover.classList.contains('hidden')) {
       e.preventDefault();
-      closeQuestBoardModal();
+      closeStreakPopover({ returnFocus: true });
       return;
     }
   }
 
-  // Keyboard navigation for open Grimoire Spellbook (ArrowLeft/A, ArrowRight/D) (Issue #69)
+  // Keyboard navigation for open Grimoire Spellbook (ArrowLeft/A, ArrowRight/D) (Issue #69, #76)
   const deleteConfirmVisible = deleteSpellConfirmModal && !deleteSpellConfirmModal.classList.contains('hidden');
-  if (!deleteConfirmVisible && grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+  const questBoardVisible = questBoardModal && !questBoardModal.classList.contains('hidden');
+  if (!deleteConfirmVisible && !questBoardVisible && grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
     if (e.target !== spellbookSearchInput) {
       if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
         e.preventDefault();
@@ -4793,6 +7207,11 @@ window.addEventListener('keydown', (e) => {
 
   // Block Spacebar playback and QWERTY piano keys while the Tavern Main Menu or any modal dialog is open (Issue #33, Issue #52, Issue #71)
   if (isTavernMenuVisible || isAnyModalOpen()) {
+    if (activeD20Roller && !activeD20Roller.isSettled() && (e.code === 'Space' || e.key === 'Enter')) {
+      e.preventDefault();
+      activeD20Roller.fastSettle();
+      return;
+    }
     if (isTavernMenuVisible && !hasEnteredTavernSession) {
       enterTavernFromSplash();
       e.preventDefault();
@@ -4806,8 +7225,60 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  if (e.key === 'Enter' && !e.repeat) {
+    if (activateBardicInspirationBurst()) {
+      e.preventDefault();
+      return;
+    }
+  }
+
   if (e.repeat) return;
+
+  if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && tag !== 'SELECT' && !e.target?.isContentEditable) {
+    if (e.code === 'Digit1') {
+      e.preventDefault();
+      setStageViewMode('highway', { announceToast: true });
+      return;
+    }
+    if (e.code === 'Digit2') {
+      e.preventDefault();
+      setStageViewMode('split', { announceToast: true });
+      return;
+    }
+    if (e.code === 'Digit3') {
+      e.preventDefault();
+      setStageViewMode('score', { announceToast: true });
+      return;
+    }
+  }
+
   const key = (e.key || '').toLowerCase();
+
+  if (key === '[') {
+    e.preventDefault();
+    setRehearsalMarkerA();
+    return;
+  }
+  if (key === ']') {
+    e.preventDefault();
+    setRehearsalMarkerB();
+    return;
+  }
+  if (key === '\\') {
+    e.preventDefault();
+    toggleRehearsalLoop();
+    return;
+  }
+  if (key === '-' || key === '_') {
+    e.preventDefault();
+    stepPracticeTempo(-1);
+    return;
+  }
+  if (key === '=' || key === '+') {
+    e.preventDefault();
+    stepPracticeTempo(1);
+    return;
+  }
 
   if (key === 'z' || e.code === 'KeyZ') {
     e.preventDefault();
@@ -4888,8 +7359,12 @@ synthPresetSelect.addEventListener('change', (e) => {
 masterVolumeSlider.addEventListener('input', (e) => {
   if (!masterVol) initAudioEngine();
   masterVol.volume.value = Number(e.target.value);
+  const backingVol = getBackingAudioVolumeFromSlider();
   if (currentSong?.backingAudioEl) {
-    currentSong.backingAudioEl.volume = getBackingAudioVolumeFromSlider();
+    currentSong.backingAudioEl.volume = backingVol;
+  }
+  if (audioAuditionEl) {
+    audioAuditionEl.volume = backingVol;
   }
 });
 
@@ -4905,14 +7380,20 @@ btnLoadMidi.addEventListener('click', () => {
   midiFileInput.click();
 });
 
+if (btnSpellbookImportFile) {
+  btnSpellbookImportFile.addEventListener('click', () => {
+    midiFileInput.click();
+  });
+}
+
 midiFileInput.addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
   try {
     const buffer = await file.arrayBuffer();
-    parseMidiBuffer(buffer, file.name, file.path || null);
+    loadSongFromBuffer(buffer, file.name, file.path || null);
   } catch (err) {
-    alert(`Failed to parse MIDI file: ${err.message}`);
+    showGrimoireToast(`Failed to import "${file.name}": ${err.message}`, 'error');
   }
   midiFileInput.value = '';
 });
@@ -5041,13 +7522,8 @@ songProgressSlider.addEventListener('input', (e) => {
     songSessionStats.hasShownEndModal = false;
   }
   resetSongProgressFlags(playbackState.currentTime);
-  if (currentSong.backingAudioEl) {
-    try {
-      currentSong.backingAudioEl.currentTime = Math.max(0, Math.min(currentSong.duration, playbackState.currentTime));
-    } catch {
-      // Ignore seek errors before audio metadata is loaded
-    }
-  }
+  seekBackingAudioToSongTime(playbackState.currentTime);
+  syncBackingAudioElement(playbackState.currentTime);
   updateTimelineUI();
 });
 
@@ -5055,6 +7531,71 @@ songProgressSlider.addEventListener('mouseup', () => {
   playbackState.isScrubbing = false;
   songProgressSlider.blur();
 });
+
+// Issue #30: Rehearsal Loop Event Listeners
+if (btnLoopA) {
+  btnLoopA.addEventListener('click', () => {
+    setRehearsalMarkerA();
+    btnLoopA.blur();
+  });
+}
+
+if (btnLoopB) {
+  btnLoopB.addEventListener('click', () => {
+    setRehearsalMarkerB();
+    btnLoopB.blur();
+  });
+}
+
+if (btnRehearsalToggle) {
+  btnRehearsalToggle.addEventListener('click', () => {
+    toggleRehearsalLoop();
+    btnRehearsalToggle.blur();
+  });
+}
+
+if (btnRehearsalPopover && rehearsalPopover) {
+  btnRehearsalPopover.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willOpen = rehearsalPopover.classList.contains('hidden');
+    closeAllConservatoryPopovers();
+    if (willOpen) {
+      updateRehearsalUI();
+      rehearsalPopover.classList.remove('hidden');
+      btnRehearsalPopover.classList.add('active');
+      btnRehearsalPopover.setAttribute('aria-expanded', 'true');
+    }
+  });
+}
+
+if (btnCloseRehearsalPopover) {
+  btnCloseRehearsalPopover.addEventListener('click', () => {
+    closeAllConservatoryPopovers({ returnFocus: true });
+  });
+}
+
+if (btnLoopClear) {
+  btnLoopClear.addEventListener('click', () => {
+    clearRehearsalLoop();
+    showGrimoireToast('\uD83D\uDD01 Rehearsal Loop cleared');
+  });
+}
+
+if (chkRehearsalAutoramp) {
+  chkRehearsalAutoramp.addEventListener('change', (e) => {
+    rehearsalLoopState.autoRamp = Boolean(e.target.checked);
+    updateRehearsalUI();
+    e.target.blur();
+  });
+}
+
+if (rehearsalTargetSpeedSelect) {
+  rehearsalTargetSpeedSelect.addEventListener('change', (e) => {
+    rehearsalLoopState.targetSpeed = Number(e.target.value) || 1.0;
+    updateRehearsalUI();
+    e.target.blur();
+  });
+}
 
 playableTrackSelect.addEventListener('change', (e) => {
   assignSongTracksAndDifficulty(e.target.value);
@@ -5082,12 +7623,248 @@ accompanimentSelect.addEventListener('change', (e) => {
   e.target.blur();
 });
 
-// Phase 10 Popovers & QWERTY Key Label Toggle (Issues #18 & #21)
+// Phase 10 Popovers & QWERTY Key Label Toggle (Issues #18 & #21 & #76)
 if (toggleQwertyLabelsCheckbox) {
   toggleQwertyLabelsCheckbox.addEventListener('change', (e) => {
     userManuallyToggledQwertyLabels = true;
     showQwertyKeyLabels = Boolean(e.target.checked);
     e.target.blur();
+  });
+}
+
+if (toggleMidiCleanupCheckbox) {
+  toggleMidiCleanupCheckbox.addEventListener('change', (e) => {
+    const enabled = Boolean(e.target.checked);
+    midiCleanupGlobalEnabled = enabled;
+    saveMidiCleanupPreference(enabled);
+
+    if (currentSong) {
+      const hadOverride = typeof currentSong.midiCleanupOverride === 'boolean';
+      currentSong.midiCleanupOverride = null;
+      currentSong.hasCustomBundle = Boolean(
+        currentSong.sheetMusicPath ||
+        currentSong.backingAudioPath ||
+        currentSong.youtubeUrl ||
+        currentSong.spotifyUrl ||
+        Math.abs(currentSong.audioOffsetSec || 0) > 0.0001 ||
+        Math.abs((currentSong.audioTempoRatio ?? 1.0) - 1.0) > 0.0001
+      );
+      assignSongTracksAndDifficulty(currentSong.selectedTrackMode || 'auto-piano');
+      if (hadOverride) {
+        persistCurrentSongCalibration();
+      }
+      seedBuiltInDemoInGrimoire();
+      scanWatchedDirectories(false);
+      renderGrimoireSidebar();
+      const st = currentSong.midiCleanStats || { snapped: 0, removed: 0, trimmed: 0 };
+      const fixes = st.snapped + st.removed + st.trimmed;
+      showGrimoireToast(
+        enabled
+          ? `\u2728 Smart MIDI Hygiene ON (${fixes} fix${fixes === 1 ? '' : 'es'} applied)`
+          : '\uD83C\uDFBC Smart MIDI Hygiene OFF (Raw MIDI notes restored)'
+      );
+    } else {
+      seedBuiltInDemoInGrimoire();
+      scanWatchedDirectories(false);
+      renderGrimoireSidebar();
+      showGrimoireToast(enabled ? '\u2728 Smart MIDI Hygiene ON' : '\uD83C\uDFBC Smart MIDI Hygiene OFF (Raw MIDI)');
+    }
+    e.target.blur();
+  });
+}
+
+// Issue #39: Stage View Mode Segmented Switch & Quality Banner Controls
+if (viewModeSegmented && viewModeButtons.length > 0) {
+  for (const btn of viewModeButtons) {
+    btn.addEventListener('click', (e) => {
+      const targetMode = btn.dataset.viewMode;
+      if (targetMode) {
+        setStageViewMode(targetMode);
+      }
+      if (e.detail > 0) {
+        btn.blur();
+      }
+    });
+  }
+
+  viewModeSegmented.addEventListener('keydown', (e) => {
+    const curIndex = viewModeButtons.findIndex((b) => b.dataset.viewMode === stageViewMode);
+    if (curIndex < 0) return;
+    let nextIndex = -1;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      nextIndex = (curIndex + 1) % viewModeButtons.length;
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      nextIndex = (curIndex - 1 + viewModeButtons.length) % viewModeButtons.length;
+    }
+    if (nextIndex >= 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      const targetBtn = viewModeButtons[nextIndex];
+      const nextMode = targetBtn?.dataset.viewMode;
+      if (nextMode) {
+        setStageViewMode(nextMode);
+        targetBtn.focus();
+      }
+    }
+  });
+}
+
+if (btnNotationEnableCleanup) {
+  btnNotationEnableCleanup.addEventListener('click', (e) => {
+    midiCleanupGlobalEnabled = true;
+    saveMidiCleanupPreference(true);
+    if (toggleMidiCleanupCheckbox) {
+      toggleMidiCleanupCheckbox.checked = true;
+    }
+
+    if (currentSong) {
+      const hadOverride = typeof currentSong.midiCleanupOverride === 'boolean';
+      currentSong.midiCleanupOverride = null;
+      currentSong.hasCustomBundle = Boolean(
+        currentSong.sheetMusicPath ||
+        currentSong.backingAudioPath ||
+        currentSong.youtubeUrl ||
+        currentSong.spotifyUrl ||
+        Math.abs(currentSong.audioOffsetSec || 0) > 0.0001 ||
+        Math.abs((currentSong.audioTempoRatio ?? 1.0) - 1.0) > 0.0001
+      );
+      assignSongTracksAndDifficulty(currentSong.selectedTrackMode || 'auto-piano');
+      if (hadOverride) {
+        persistCurrentSongCalibration();
+      }
+      seedBuiltInDemoInGrimoire();
+      scanWatchedDirectories(false);
+      renderGrimoireSidebar();
+      const st = currentSong.midiCleanStats || { snapped: 0, removed: 0, trimmed: 0 };
+      const fixes = st.snapped + st.removed + st.trimmed;
+      showGrimoireToast(`\u2728 Smart MIDI Hygiene ON (${fixes} fix${fixes === 1 ? '' : 'es'} applied)`);
+    } else {
+      seedBuiltInDemoInGrimoire();
+      scanWatchedDirectories(false);
+      renderGrimoireSidebar();
+      showGrimoireToast('\u2728 Smart MIDI Hygiene ON');
+    }
+    e.currentTarget.blur();
+  });
+}
+
+if (btnNotationSwitchHighway) {
+  btnNotationSwitchHighway.addEventListener('click', (e) => {
+    setStageViewMode('highway', { announceToast: true });
+    e.currentTarget.blur();
+  });
+}
+
+if (btnNotationDismiss) {
+  btnNotationDismiss.addEventListener('click', (e) => {
+    const songKey = currentSong?.songId || currentSong?.fileName;
+    if (songKey) {
+      dismissedQualitySongIds.add(songKey);
+    }
+    updateNotationQualityBanner();
+    e.currentTarget.blur();
+  });
+}
+
+if (btnSettingsOpenSync) {
+  btnSettingsOpenSync.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeAllConservatoryPopovers();
+    if (audioSyncPopover && currentSong?.backingAudioEl) {
+      updateAudioSyncUI();
+      audioSyncPopover.classList.remove('hidden');
+      if (btnAudioSync) {
+        btnAudioSync.classList.add('active');
+        btnAudioSync.setAttribute('aria-expanded', 'true');
+      }
+    }
+  });
+}
+
+if (btnAudioSync && audioSyncPopover) {
+  btnAudioSync.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willOpen = audioSyncPopover.classList.contains('hidden');
+    closeAllConservatoryPopovers();
+    if (willOpen) {
+      updateAudioSyncUI();
+      audioSyncPopover.classList.remove('hidden');
+      btnAudioSync.classList.add('active');
+      btnAudioSync.setAttribute('aria-expanded', 'true');
+    }
+  });
+}
+
+if (btnCloseAudioSync) {
+  btnCloseAudioSync.addEventListener('click', () => {
+    closeAllConservatoryPopovers({ returnFocus: true });
+  });
+}
+
+[
+  [btnOffsetMinus50, -0.05],
+  [btnOffsetMinus10, -0.01],
+  [btnOffsetPlus10, 0.01],
+  [btnOffsetPlus50, 0.05]
+].forEach(([btn, delta]) => {
+  if (!btn) return;
+  btn.addEventListener('click', (e) => {
+    if (!currentSong) return;
+    applyLiveAudioSyncCalibration({
+      nextOffsetSec: (currentSong.audioOffsetSec || 0) + delta
+    });
+    e.currentTarget.blur();
+  });
+});
+
+[
+  [btnDriftDownHalf, -0.005],
+  [btnDriftDownFine, -0.001],
+  [btnDriftUpFine, 0.001],
+  [btnDriftUpHalf, 0.005]
+].forEach(([btn, delta]) => {
+  if (!btn) return;
+  btn.addEventListener('click', (e) => {
+    if (!currentSong) return;
+    applyLiveAudioSyncCalibration({
+      nextTempoRatio: (currentSong.audioTempoRatio ?? 1.0) + delta
+    });
+    e.currentTarget.blur();
+  });
+});
+
+if (btnSyncAudition) {
+  btnSyncAudition.addEventListener('click', (e) => {
+    startAudioAudition();
+    e.currentTarget.blur();
+  });
+}
+
+if (btnSyncMarkBeat1) {
+  btnSyncMarkBeat1.addEventListener('click', (e) => {
+    handleMarkBeat1Click();
+    e.currentTarget.blur();
+  });
+}
+
+if (btnSyncAutoAlign) {
+  btnSyncAutoAlign.addEventListener('click', (e) => {
+    runAutoAlignFirstOnset();
+    e.currentTarget.blur();
+  });
+}
+
+if (btnSyncReset) {
+  btnSyncReset.addEventListener('click', (e) => {
+    if (!currentSong) return;
+    stopAudioAudition();
+    applyLiveAudioSyncCalibration({
+      nextOffsetSec: 0,
+      nextTempoRatio: 1.0,
+      statusMessage: 'Sync reset to +0.00s Start Offset and 100.0% Drift.'
+    });
+    showGrimoireToast('\u21BA Backing Audio Sync reset to default (+0.00s • 100.0%)');
+    e.currentTarget.blur();
   });
 }
 
@@ -5097,6 +7874,8 @@ if (btnToggleSettings && settingsPopover) {
     const willOpen = settingsPopover.classList.contains('hidden');
     closeAllConservatoryPopovers();
     if (willOpen) {
+      syncMidiCleanupCheckboxUI();
+      updateAudioSyncUI();
       settingsPopover.classList.remove('hidden');
       btnToggleSettings.classList.add('active');
       btnToggleSettings.setAttribute('aria-expanded', 'true');
@@ -5106,7 +7885,7 @@ if (btnToggleSettings && settingsPopover) {
 
 if (btnCloseSettings) {
   btnCloseSettings.addEventListener('click', () => {
-    closeAllConservatoryPopovers();
+    closeAllConservatoryPopovers({ returnFocus: true });
   });
 }
 
@@ -5125,7 +7904,7 @@ if (btnSpellDetails && spellDetailsPopover) {
 
 if (btnCloseSpellDetails) {
   btnCloseSpellDetails.addEventListener('click', () => {
-    closeAllConservatoryPopovers();
+    closeAllConservatoryPopovers({ returnFocus: true });
   });
 }
 
@@ -5135,7 +7914,7 @@ document.addEventListener('click', (e) => {
     settingsPopover &&
     !settingsPopover.classList.contains('hidden') &&
     !settingsPopover.contains(target) &&
-    target !== btnToggleSettings
+    !(btnToggleSettings && btnToggleSettings.contains(target))
   ) {
     closeAllConservatoryPopovers();
   }
@@ -5143,7 +7922,24 @@ document.addEventListener('click', (e) => {
     spellDetailsPopover &&
     !spellDetailsPopover.classList.contains('hidden') &&
     !spellDetailsPopover.contains(target) &&
-    target !== btnSpellDetails
+    !(btnSpellDetails && btnSpellDetails.contains(target))
+  ) {
+    closeAllConservatoryPopovers();
+  }
+  if (
+    rehearsalPopover &&
+    !rehearsalPopover.classList.contains('hidden') &&
+    !rehearsalPopover.contains(target) &&
+    !(btnRehearsalPopover && btnRehearsalPopover.contains(target))
+  ) {
+    closeAllConservatoryPopovers();
+  }
+  if (
+    audioSyncPopover &&
+    !audioSyncPopover.classList.contains('hidden') &&
+    !audioSyncPopover.contains(target) &&
+    !(btnAudioSync && btnAudioSync.contains(target)) &&
+    !(btnSettingsOpenSync && btnSettingsOpenSync.contains(target))
   ) {
     closeAllConservatoryPopovers();
   }
@@ -5160,9 +7956,23 @@ btnBackingBand.addEventListener('click', () => {
 });
 
 playbackSpeedSelect.addEventListener('change', (e) => {
-  playbackState.playbackSpeed = Number(e.target.value) || 1.0;
+  setPracticeTempo(Number(e.target.value) || 1.0, { persist: true, toast: false });
   e.target.blur();
 });
+
+if (btnTempoDown) {
+  btnTempoDown.addEventListener('click', (e) => {
+    stepPracticeTempo(-1);
+    e.currentTarget.blur();
+  });
+}
+
+if (btnTempoUp) {
+  btnTempoUp.addEventListener('click', (e) => {
+    stepPracticeTempo(1);
+    e.currentTarget.blur();
+  });
+}
 
 fallSpeedSelect.addEventListener('change', (e) => {
   playbackState.fallSpeedPxPerSec = Number(e.target.value) || 260;
@@ -5170,9 +7980,24 @@ fallSpeedSelect.addEventListener('change', (e) => {
 });
 
 // Phase 5 UI Listeners: Performance Check Modal & +25 Streak Test Shortcut
+if (d20TrayOverlay) {
+  d20TrayOverlay.addEventListener('click', () => {
+    if (activeD20Roller && !activeD20Roller.isSettled()) {
+      activeD20Roller.fastSettle();
+    }
+  });
+}
+
 btnPerformanceCheck.addEventListener('click', () => {
   openPerformanceCheckModal();
 });
+
+if (hudInspirationBanner) {
+  hudInspirationBanner.addEventListener('click', (e) => {
+    activateBardicInspirationBurst();
+    e.currentTarget.blur();
+  });
+}
 
 btnBoostChain.addEventListener('click', () => {
   songSessionStats.spellChain += 25;
@@ -5182,8 +8007,11 @@ btnBoostChain.addEventListener('click', () => {
   if (songSessionStats.spellChain > bardProfile.bestCareerChain) {
     bardProfile.bestCareerChain = songSessionStats.spellChain;
   }
+  if (songSessionStats.inspirationBurstRemainingSec <= 0) {
+    songSessionStats.inspirationCharge = Math.min(100, songSessionStats.inspirationCharge + 100);
+  }
   const diffMult = currentSong?.difficulty?.xpMultiplier ?? 1.0;
-  const isInspired = songSessionStats.spellChain >= BARDIC_INSPIRATION_STREAK;
+  const isInspired = isBardicInspirationActive();
   const bonusXp = Math.round(25 * BASE_NOTE_XP * diffMult * (isInspired ? BARDIC_INSPIRATION_MULT : 1.0));
   songSessionStats.cleanNotesHit += 25;
   awardBardXp(bonusXp);
@@ -5258,14 +8086,17 @@ if (btnSpellbookSaveCurrent) {
 }
 
 if (btnSpellbookOpenImports) {
-  btnSpellbookOpenImports.addEventListener('click', () => {
+  btnSpellbookOpenImports.addEventListener('click', async () => {
     try {
       if (!fs.existsSync(IMPORTS_DIR)) {
         fs.mkdirSync(IMPORTS_DIR, { recursive: true });
       }
-      shell.openPath(IMPORTS_DIR);
+      const openErr = await shell.openPath(IMPORTS_DIR);
+      if (openErr) {
+        showGrimoireToast(`Could not open Imports folder: ${openErr}`, 'error');
+      }
     } catch (err) {
-      alert(`Could not open Imports folder: ${err.message}`);
+      showGrimoireToast(`Could not open Imports folder: ${err.message}`, 'error');
     }
   });
 }
@@ -5278,8 +8109,54 @@ if (btnSpellbookDropTest) {
 
 if (btnSpellbookQuestPointer) {
   btnSpellbookQuestPointer.addEventListener('click', () => {
+    const questOrigin = previousSpellbookOrigin === 'tavern' ? 'tavern' : 'highway';
     closeGrimoireSpellbook();
-    openQuestBoardModal();
+    if (questOrigin === 'tavern') {
+      hideTavernMenu();
+    }
+    openQuestBoardModal({ origin: questOrigin, tab: 'bundle' });
+  });
+}
+
+if (spellbookBundleSheetChip) {
+  spellbookBundleSheetChip.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const entry = (selectedSpellbookEntryId && grimoireSpells.get(selectedSpellbookEntryId)) || null;
+    if (!entry?.sheetMusicPath || !fs.existsSync(entry.sheetMusicPath)) {
+      showGrimoireToast('Attached sheet music file could not be found on disk.', 'warning');
+      renderSpellbookSpread();
+      return;
+    }
+    try {
+      const openErr = await shell.openPath(entry.sheetMusicPath);
+      if (openErr) {
+        showGrimoireToast(`Could not open sheet reference: ${openErr}`, 'error');
+      }
+    } catch (err) {
+      showGrimoireToast(`Could not open sheet reference: ${err.message}`, 'error');
+    }
+  });
+}
+
+if (spellbookBundleSpotifyLink) {
+  spellbookBundleSpotifyLink.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const entry = (selectedSpellbookEntryId && grimoireSpells.get(selectedSpellbookEntryId)) || null;
+    const extUrl = entry?.spotifyUrl || entry?.youtubeUrl || '';
+    if (!/^https?:\/\/\S+$/i.test(extUrl)) {
+      showGrimoireToast('Invalid or missing external URL (must start with http:// or https://).', 'warning');
+      return;
+    }
+    shell.openExternal(extUrl);
+  });
+}
+
+if (btnSpellbookBundle) {
+  btnSpellbookBundle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const entry = (selectedSpellbookEntryId && grimoireSpells.get(selectedSpellbookEntryId)) || null;
+    if (!entry || entry.filePath === 'BUILTIN_DEMO') return;
+    openQuestBoardModal({ origin: 'grimoire', tab: 'bundle', targetEntryId: entry.id });
   });
 }
 
@@ -5298,6 +8175,22 @@ if (btnSpellbookNextPage) {
 if (btnSpellbookLoadSong) {
   btnSpellbookLoadSong.addEventListener('click', () => {
     loadSelectedSpellbookSong();
+  });
+}
+
+if (btnSpellbookFavoriteSong) {
+  btnSpellbookFavoriteSong.addEventListener('click', () => {
+    if (selectedSpellbookEntryId) {
+      toggleGrimoireFavorite(selectedSpellbookEntryId);
+    }
+  });
+}
+
+if (btnSpellbookFavoritesFilter) {
+  btnSpellbookFavoritesFilter.addEventListener('click', () => {
+    spellbookFavoritesOnly = !spellbookFavoritesOnly;
+    saveSpellbookFavoritesFilter();
+    renderSpellbookSpread();
   });
 }
 
@@ -5340,18 +8233,847 @@ if (spellbookSearchInput) {
 }
 
 // ============================================================================
-// PHASE 9: "THE QUEST BOARD" (IN-APP YOUTUBE-TO-MIDI SOURCING & QUICK LINKS)
+// PHASE 9 & ISSUE #76: "THE QUEST BOARD" (SONG BUNDLES & YOUTUBE-TO-MIDI)
 // ============================================================================
 
 let activeQuestChildProcess = null;
 let lastQuestTranscribedMidiPath = null;
+let previousQuestBoardOrigin = 'highway'; // 'highway' | 'tavern' | 'grimoire'
+let previousQuestBoardFocusElement = null;
 
-function openQuestBoardModal() {
+const questBundleState = {
+  targetEntryId: '__new__',
+  notesSourcePath: null,
+  notesBuffer: null,
+  notesFileName: null,
+  sheetSourcePath: null,
+  sheetBuffer: null,
+  sheetFileName: null,
+  sheetCleared: false,
+  audioSourcePath: null,
+  audioBuffer: null,
+  audioFileName: null,
+  audioCleared: false,
+  lastSavedNotesPath: null
+};
+
+function loadBountiesCollapsedPreference() {
+  try {
+    return localStorage.getItem(QUEST_BOUNTIES_COLLAPSED_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function setQuestBountiesCollapsed(collapsed, { persist = true } = {}) {
+  const isCollapsed = Boolean(collapsed);
+  if (dailyBountiesCollapsibleWrap) {
+    dailyBountiesCollapsibleWrap.classList.toggle('collapsed', isCollapsed);
+  }
+  if (btnToggleQuestBounties) {
+    btnToggleQuestBounties.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+  }
+  if (persist) {
+    try {
+      localStorage.setItem(QUEST_BOUNTIES_COLLAPSED_STORAGE_KEY, isCollapsed ? 'true' : 'false');
+    } catch {
+      // Ignore storage write error
+    }
+  }
+}
+
+setQuestBountiesCollapsed(loadBountiesCollapsedPreference(), { persist: false });
+
+if (btnToggleQuestBounties) {
+  btnToggleQuestBounties.addEventListener('click', () => {
+    const currentlyExpanded = btnToggleQuestBounties.getAttribute('aria-expanded') !== 'false';
+    setQuestBountiesCollapsed(currentlyExpanded, { persist: true });
+  });
+}
+
+function setQuestBoardTab(tab = 'bundle', { focusActiveTab = false } = {}) {
+  const isBundle = tab !== 'transcribe';
+  if (btnQuestTabBundle) {
+    btnQuestTabBundle.classList.toggle('active', isBundle);
+    btnQuestTabBundle.setAttribute('aria-selected', isBundle ? 'true' : 'false');
+    btnQuestTabBundle.setAttribute('tabindex', isBundle ? '0' : '-1');
+    if (focusActiveTab && isBundle) btnQuestTabBundle.focus();
+  }
+  if (btnQuestTabTranscribe) {
+    btnQuestTabTranscribe.classList.toggle('active', !isBundle);
+    btnQuestTabTranscribe.setAttribute('aria-selected', !isBundle ? 'true' : 'false');
+    btnQuestTabTranscribe.setAttribute('tabindex', !isBundle ? '0' : '-1');
+    if (focusActiveTab && !isBundle) btnQuestTabTranscribe.focus();
+  }
+  if (questTabPanelBundle) {
+    questTabPanelBundle.classList.toggle('hidden', !isBundle);
+  }
+  if (questTabPanelTranscribe) {
+    questTabPanelTranscribe.classList.toggle('hidden', isBundle);
+  }
+}
+
+function handleQuestTabKeydown(e, currentTab) {
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    e.preventDefault();
+    setQuestBoardTab(currentTab === 'bundle' ? 'transcribe' : 'bundle', { focusActiveTab: true });
+  } else if (e.key === 'Home') {
+    e.preventDefault();
+    setQuestBoardTab('bundle', { focusActiveTab: true });
+  } else if (e.key === 'End') {
+    e.preventDefault();
+    setQuestBoardTab('transcribe', { focusActiveTab: true });
+  }
+}
+
+if (btnQuestTabBundle) {
+  btnQuestTabBundle.addEventListener('click', () => setQuestBoardTab('bundle'));
+  btnQuestTabBundle.addEventListener('keydown', (e) => handleQuestTabKeydown(e, 'bundle'));
+}
+if (btnQuestTabTranscribe) {
+  btnQuestTabTranscribe.addEventListener('click', () => setQuestBoardTab('transcribe'));
+  btnQuestTabTranscribe.addEventListener('keydown', (e) => handleQuestTabKeydown(e, 'transcribe'));
+}
+
+function sanitizeBundleStem(rawTitleOrName, fallback = 'Bundled_Spell') {
+  const noExt = String(rawTitleOrName || '').replace(/\.(mid|midi|musicxml|xml|mxl|wav|mp3|ogg|m4a|flac|pdf)$/i, '');
+  const safe = noExt
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 72);
+  return safe || fallback;
+}
+
+function resolveUniqueBundleStem(baseStem, dir = IMPORTS_DIR, { ignoreFiles = [] } = {}) {
+  const noteExts = ['.mid', '.midi', '.musicxml', '.xml', '.mxl'];
+  const audioExts = ['.wav', '.mp3', '.ogg', '.m4a', '.flac'];
+  const sheetExts = ['.pdf', '.musicxml', '.mxl', '.xml'];
+  const ignoreList = (ignoreFiles || []).filter(Boolean);
+  const isConflict = (candidatePath) => {
+    try {
+      if (!fs.existsSync(candidatePath)) return false;
+      return !ignoreList.some((ignored) => isSameFilePath(candidatePath, ignored));
+    } catch {
+      return false;
+    }
+  };
+
+  let candidate = baseStem;
+  let counter = 2;
+  const stemExists = (stem) => {
+    if (noteExts.some((ext) => isConflict(path.join(dir, `${stem}${ext}`)))) return true;
+    if (audioExts.some((ext) => isConflict(path.join(dir, `${stem}${ext}`)))) return true;
+    if (isConflict(path.join(dir, `${stem}.bundle.json`))) return true;
+    if (sheetExts.some((ext) => isConflict(path.join(IMPORTS_SHEETS_DIR, `${stem}_sheet${ext}`)))) return true;
+    return false;
+  };
+  while (stemExists(candidate) && counter < 999) {
+    candidate = `${baseStem}_${counter}`;
+    counter += 1;
+  }
+  return candidate;
+}
+
+function writePickedFileToDest({ srcPath = null, fallbackBuffer = null, destPath }) {
+  if (!destPath) return null;
+  const parentDir = path.dirname(destPath);
+  if (!fs.existsSync(parentDir)) {
+    fs.mkdirSync(parentDir, { recursive: true });
+  }
+  if (srcPath && fs.existsSync(srcPath)) {
+    if (!isSameFilePath(srcPath, destPath)) {
+      fs.copyFileSync(srcPath, destPath);
+    }
+    return destPath;
+  }
+  if (fallbackBuffer) {
+    fs.writeFileSync(destPath, fallbackBuffer);
+    return destPath;
+  }
+  return null;
+}
+
+function populateQuestBundleTargetSelect(preselectEntryId = '__new__') {
+  if (!questBundleTargetSelect) return;
+  questBundleTargetSelect.innerHTML = '';
+
+  const newOpt = document.createElement('option');
+  newOpt.value = '__new__';
+  newOpt.textContent = '+ Create New Song Bundle in ./Imports';
+  questBundleTargetSelect.appendChild(newOpt);
+
+  const editableEntries = Array.from(grimoireSpells.values())
+    .filter((entry) => entry && entry.filePath && entry.filePath !== 'BUILTIN_DEMO')
+    .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+
+  for (const entry of editableEntries) {
+    const opt = document.createElement('option');
+    opt.value = entry.id;
+    opt.textContent = `${entry.title} (${entry.sourceTag})`;
+    questBundleTargetSelect.appendChild(opt);
+  }
+
+  const hasTarget = preselectEntryId && editableEntries.some((e) => e.id === preselectEntryId);
+  questBundleTargetSelect.value = hasTarget ? preselectEntryId : '__new__';
+}
+
+function applyTargetSelectionToBundleForm(targetId = '__new__') {
+  questBundleState.targetEntryId = targetId || '__new__';
+  questBundleState.notesSourcePath = null;
+  questBundleState.notesBuffer = null;
+  questBundleState.notesFileName = null;
+  questBundleState.sheetSourcePath = null;
+  questBundleState.sheetBuffer = null;
+  questBundleState.sheetFileName = null;
+  questBundleState.sheetCleared = false;
+  questBundleState.audioSourcePath = null;
+  questBundleState.audioBuffer = null;
+  questBundleState.audioFileName = null;
+  questBundleState.audioCleared = false;
+
+  if (btnQuestBundleLoadNow) {
+    btnQuestBundleLoadNow.classList.add('hidden');
+  }
+
+  const entry = questBundleState.targetEntryId !== '__new__'
+    ? grimoireSpells.get(questBundleState.targetEntryId) || null
+    : null;
+
+  if (entry) {
+    if (questBundleTitleInput) questBundleTitleInput.value = entry.title || '';
+    if (questBundleNotesLabel) {
+      questBundleNotesLabel.textContent = `Current: ${entry.fileName}`;
+      questBundleNotesLabel.classList.add('has-file');
+    }
+    if (btnQuestBundlePickNotes) {
+      btnQuestBundlePickNotes.textContent = '\uD83C\uDFB9 Replace MIDI / XML';
+    }
+
+    const hasSheet = Boolean(entry.sheetMusicPath && fs.existsSync(entry.sheetMusicPath));
+    if (questBundleSheetLabel) {
+      questBundleSheetLabel.textContent = hasSheet ? path.basename(entry.sheetMusicPath) : 'Optional';
+      questBundleSheetLabel.classList.toggle('has-file', hasSheet);
+    }
+    if (btnQuestBundleClearSheet) {
+      btnQuestBundleClearSheet.classList.toggle('hidden', !hasSheet);
+    }
+
+    if (questBundleYoutubeUrl) {
+      questBundleYoutubeUrl.value = entry.youtubeUrl || '';
+    }
+
+    const hasAudio = Boolean(entry.backingAudioPath && fs.existsSync(entry.backingAudioPath));
+    if (questBundleAudioLabel) {
+      questBundleAudioLabel.textContent = hasAudio ? path.basename(entry.backingAudioPath) : 'Optional';
+      questBundleAudioLabel.classList.toggle('has-file', hasAudio);
+    }
+    if (btnQuestBundleClearAudio) {
+      btnQuestBundleClearAudio.classList.toggle('hidden', !hasAudio);
+    }
+
+    if (questBundleSpotifyUrl) {
+      questBundleSpotifyUrl.value = entry.spotifyUrl || '';
+    }
+    if (btnSaveSongBundle) {
+      btnSaveSongBundle.textContent = '\uD83D\uDD17 Update Song Bundle';
+    }
+  } else {
+    if (questBundleTitleInput) questBundleTitleInput.value = '';
+    if (questBundleNotesLabel) {
+      questBundleNotesLabel.textContent = 'None selected (required for new bundle)';
+      questBundleNotesLabel.classList.remove('has-file');
+    }
+    if (btnQuestBundlePickNotes) {
+      btnQuestBundlePickNotes.textContent = '\uD83C\uDFB9 Choose MIDI / XML';
+    }
+    if (questBundleSheetLabel) {
+      questBundleSheetLabel.textContent = 'Optional';
+      questBundleSheetLabel.classList.remove('has-file');
+    }
+    if (btnQuestBundleClearSheet) btnQuestBundleClearSheet.classList.add('hidden');
+    if (questBundleYoutubeUrl) questBundleYoutubeUrl.value = '';
+    if (questBundleAudioLabel) {
+      questBundleAudioLabel.textContent = 'Optional';
+      questBundleAudioLabel.classList.remove('has-file');
+    }
+    if (btnQuestBundleClearAudio) btnQuestBundleClearAudio.classList.add('hidden');
+    if (questBundleSpotifyUrl) questBundleSpotifyUrl.value = '';
+    if (btnSaveSongBundle) {
+      btnSaveSongBundle.textContent = '\uD83D\uDD17 Create / Save Song Bundle';
+    }
+  }
+}
+
+if (questBundleTargetSelect) {
+  questBundleTargetSelect.addEventListener('change', (e) => {
+    applyTargetSelectionToBundleForm(e.target.value);
+  });
+}
+
+if (btnQuestBundlePickNotes && questBundleNotesInput) {
+  btnQuestBundlePickNotes.addEventListener('click', () => questBundleNotesInput.click());
+}
+
+if (questBundleNotesInput) {
+  questBundleNotesInput.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    questBundleState.notesFileName = file.name;
+    if (file.path && fs.existsSync(file.path)) {
+      questBundleState.notesSourcePath = file.path;
+      questBundleState.notesBuffer = null;
+    } else {
+      questBundleState.notesSourcePath = null;
+      questBundleState.notesBuffer = Buffer.from(await file.arrayBuffer());
+    }
+    if (questBundleNotesLabel) {
+      questBundleNotesLabel.textContent = file.name;
+      questBundleNotesLabel.classList.add('has-file');
+    }
+    if (questBundleTitleInput && !questBundleTitleInput.value.trim()) {
+      questBundleTitleInput.value = file.name
+        .replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '')
+        .replace(/[_-]+/g, ' ')
+        .trim();
+    }
+    questBundleNotesInput.value = '';
+  });
+}
+
+if (btnQuestBundlePickSheet && questBundleSheetInput) {
+  btnQuestBundlePickSheet.addEventListener('click', () => questBundleSheetInput.click());
+}
+
+if (questBundleSheetInput) {
+  questBundleSheetInput.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    questBundleState.sheetFileName = file.name;
+    questBundleState.sheetCleared = false;
+    if (file.path && fs.existsSync(file.path)) {
+      questBundleState.sheetSourcePath = file.path;
+      questBundleState.sheetBuffer = null;
+    } else {
+      questBundleState.sheetSourcePath = null;
+      questBundleState.sheetBuffer = Buffer.from(await file.arrayBuffer());
+    }
+    if (questBundleSheetLabel) {
+      questBundleSheetLabel.textContent = file.name;
+      questBundleSheetLabel.classList.add('has-file');
+    }
+    if (btnQuestBundleClearSheet) btnQuestBundleClearSheet.classList.remove('hidden');
+    questBundleSheetInput.value = '';
+  });
+}
+
+if (btnQuestBundleClearSheet) {
+  btnQuestBundleClearSheet.addEventListener('click', () => {
+    questBundleState.sheetSourcePath = null;
+    questBundleState.sheetBuffer = null;
+    questBundleState.sheetFileName = null;
+    questBundleState.sheetCleared = true;
+    if (questBundleSheetLabel) {
+      questBundleSheetLabel.textContent = 'Optional (unlinked)';
+      questBundleSheetLabel.classList.remove('has-file');
+    }
+    btnQuestBundleClearSheet.classList.add('hidden');
+  });
+}
+
+if (btnQuestBundlePickAudio && questBundleAudioInput) {
+  btnQuestBundlePickAudio.addEventListener('click', () => questBundleAudioInput.click());
+}
+
+if (questBundleAudioInput) {
+  questBundleAudioInput.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    questBundleState.audioFileName = file.name;
+    questBundleState.audioCleared = false;
+    if (file.path && fs.existsSync(file.path)) {
+      questBundleState.audioSourcePath = file.path;
+      questBundleState.audioBuffer = null;
+    } else {
+      questBundleState.audioSourcePath = null;
+      questBundleState.audioBuffer = Buffer.from(await file.arrayBuffer());
+    }
+    if (questBundleAudioLabel) {
+      questBundleAudioLabel.textContent = file.name;
+      questBundleAudioLabel.classList.add('has-file');
+    }
+    if (btnQuestBundleClearAudio) btnQuestBundleClearAudio.classList.remove('hidden');
+    questBundleAudioInput.value = '';
+  });
+}
+
+if (btnQuestBundleClearAudio) {
+  btnQuestBundleClearAudio.addEventListener('click', () => {
+    questBundleState.audioSourcePath = null;
+    questBundleState.audioBuffer = null;
+    questBundleState.audioFileName = null;
+    questBundleState.audioCleared = true;
+    if (questBundleAudioLabel) {
+      questBundleAudioLabel.textContent = 'Optional (unlinked)';
+      questBundleAudioLabel.classList.remove('has-file');
+    }
+    btnQuestBundleClearAudio.classList.add('hidden');
+  });
+}
+
+function downloadYoutubeAudioOnlyForBundle({ url, outputDir, stem, title = '' }) {
+  return new Promise((resolve, reject) => {
+    const scriptPath = path.join(__dirname, 'python_ml', 'transcribe_quest.py');
+    if (!fs.existsSync(scriptPath)) {
+      reject(new Error(`Python pipeline not found at: ${scriptPath}`));
+      return;
+    }
+
+    const pythonExe = resolvePythonExecutable();
+    const args = [scriptPath, url, '--audio-only', '--output-dir', outputDir, '--stem', stem];
+    if (title) {
+      args.push('--title', title);
+    }
+
+    if (btnRunQuestUrl) btnRunQuestUrl.disabled = true;
+    if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = true;
+    if (btnSaveSongBundle) btnSaveSongBundle.disabled = true;
+
+    if (questLogOutput) {
+      questLogOutput.textContent = `[Bundle Audio] Spawning: ${path.basename(pythonExe)} python_ml/transcribe_quest.py --audio-only --stem ${stem}`;
+    }
+    setQuestStageUI('running', 'Downloading Audio...', 12, `Fetching clean stereo backing audio via yt-dlp for: ${url}`);
+
+    let stdoutBuffer = '';
+    let resolvedBackingPath = null;
+    let resolvedTitle = null;
+    let errorFromStatus = null;
+
+    let child;
+    try {
+      child = spawn(pythonExe, args, { cwd: __dirname, windowsHide: true });
+    } catch (spawnErr) {
+      if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
+      if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
+      if (btnSaveSongBundle) btnSaveSongBundle.disabled = false;
+      reject(spawnErr);
+      return;
+    }
+
+    activeQuestChildProcess = child;
+
+    const processLine = (line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      appendQuestLogLine(trimmed);
+
+      const statusIdx = trimmed.indexOf('[QUEST_STATUS]');
+      if (statusIdx !== -1) {
+        try {
+          const payload = JSON.parse(trimmed.slice(statusIdx + '[QUEST_STATUS]'.length).trim());
+          const pct = typeof payload.progress === 'number' ? payload.progress : 50;
+          const msg = payload.message || 'Downloading audio...';
+          if (payload.stage === 'complete') {
+            resolvedBackingPath = payload.backing_path || null;
+            resolvedTitle = payload.title || null;
+            setQuestStageUI('running', 'Binding Bundle...', 92, msg);
+          } else if (payload.stage === 'error') {
+            errorFromStatus = msg;
+            setQuestStageUI('error', 'Download Error', pct, msg);
+          } else {
+            setQuestStageUI('running', 'Downloading Audio...', pct, msg);
+          }
+        } catch {
+          // Ignore malformed status JSON line
+        }
+      }
+    };
+
+    child.stdout.on('data', (chunk) => {
+      stdoutBuffer += chunk.toString('utf8');
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop() || '';
+      for (const l of lines) processLine(l);
+    });
+
+    child.stderr.on('data', (chunk) => {
+      const text = chunk.toString('utf8').trim();
+      if (text) appendQuestLogLine(`[stderr] ${text}`);
+    });
+
+    child.on('error', (err) => {
+      activeQuestChildProcess = null;
+      if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
+      if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
+      if (btnSaveSongBundle) btnSaveSongBundle.disabled = false;
+      setQuestStageUI('error', 'Spawn Failed', 0, `Could not launch Python: ${err.message}`);
+      reject(err);
+    });
+
+    child.on('close', (code) => {
+      if (stdoutBuffer.trim()) processLine(stdoutBuffer);
+      activeQuestChildProcess = null;
+      if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
+      if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
+      if (btnSaveSongBundle) btnSaveSongBundle.disabled = false;
+
+      if (code === 0 && !errorFromStatus && resolvedBackingPath && fs.existsSync(resolvedBackingPath)) {
+        resolve({ backingPath: resolvedBackingPath, fetchedTitle: resolvedTitle });
+      } else {
+        const errMsg = errorFromStatus || `Backing audio download exited with code ${code}.`;
+        setQuestStageUI('error', 'Download Failed', 0, errMsg);
+        reject(new Error(errMsg));
+      }
+    });
+  });
+}
+
+async function runSaveSongBundle() {
+  if (activeQuestChildProcess) {
+    showGrimoireToast('A Quest Board download or transcription is already running!', 'warning');
+    return;
+  }
+
+  const targetId = questBundleTargetSelect?.value || '__new__';
+  const existingEntry = targetId !== '__new__' ? grimoireSpells.get(targetId) || null : null;
+  const isNew = !existingEntry;
+
+  const customTitle = (questBundleTitleInput?.value || '').trim();
+  const youtubeUrlRaw = (questBundleYoutubeUrl?.value || '').trim();
+  const spotifyUrlRaw = (questBundleSpotifyUrl?.value || '').trim();
+
+  if (youtubeUrlRaw && !/^https?:\/\/\S+$/i.test(youtubeUrlRaw)) {
+    showGrimoireToast('YouTube URL must start with http:// or https://.', 'error');
+    questBundleYoutubeUrl?.focus();
+    return;
+  }
+  if (spotifyUrlRaw && !/^https?:\/\/\S+$/i.test(spotifyUrlRaw)) {
+    showGrimoireToast('Spotify / Bookmark URL must start with http:// or https://.', 'error');
+    questBundleSpotifyUrl?.focus();
+    return;
+  }
+
+  const hasPickedNotes = Boolean(questBundleState.notesSourcePath || questBundleState.notesBuffer);
+  if (isNew && !hasPickedNotes) {
+    showGrimoireToast('Please choose a .mid or .musicxml file for Playable Notes.', 'error');
+    btnQuestBundlePickNotes?.focus();
+    return;
+  }
+
+  try {
+    // Medium #5: Validate selected notes file BEFORE downloading YouTube audio or writing any files to disk
+    let validatedPickedRawBuf = null;
+    let validatedPickedArrayBuf = null;
+    if (hasPickedNotes) {
+      if (questBundleState.notesBuffer) {
+        validatedPickedRawBuf = Buffer.from(questBundleState.notesBuffer);
+      } else if (questBundleState.notesSourcePath && fs.existsSync(questBundleState.notesSourcePath)) {
+        validatedPickedRawBuf = fs.readFileSync(questBundleState.notesSourcePath);
+      } else {
+        throw new Error('Selected notes file could not be read from disk.');
+      }
+
+      if (!validatedPickedRawBuf || validatedPickedRawBuf.length < 16) {
+        throw new Error('Selected notes file is empty or too small to be valid MIDI/MusicXML.');
+      }
+
+      const pickedNameForCheck = questBundleState.notesFileName || path.basename(questBundleState.notesSourcePath || 'notes.mid');
+      validatedPickedArrayBuf = validatedPickedRawBuf.buffer.slice(
+        validatedPickedRawBuf.byteOffset,
+        validatedPickedRawBuf.byteOffset + validatedPickedRawBuf.byteLength
+      );
+
+      let checkMidiData;
+      if (isMusicXmlFileName(pickedNameForCheck)) {
+        const convertedCheck = convertMusicXmlToMidiBuffer(validatedPickedArrayBuf, pickedNameForCheck);
+        checkMidiData = new Midi(convertedCheck.midiArrayBuffer);
+      } else {
+        checkMidiData = new Midi(validatedPickedArrayBuf);
+      }
+
+      const totalCheckNotes = (checkMidiData.tracks || []).reduce((sum, tr) => sum + (tr.notes?.length || 0), 0);
+      if (totalCheckNotes <= 0) {
+        throw new Error('Selected notes file contains no playable notes.');
+      }
+    }
+
+    if (!fs.existsSync(IMPORTS_DIR)) {
+      fs.mkdirSync(IMPORTS_DIR, { recursive: true });
+    }
+    if (!fs.existsSync(IMPORTS_SHEETS_DIR)) {
+      fs.mkdirSync(IMPORTS_SHEETS_DIR, { recursive: true });
+    }
+
+    let destStem = '';
+    let assetStem = '';
+    let destNotesPath = '';
+    let archiveReplacedOldNotesPath = null;
+    let prevBundleUnlinkState = { audioUnlinked: false, sheetUnlinked: false };
+
+    if (isNew) {
+      const pickedName = questBundleState.notesFileName || path.basename(questBundleState.notesSourcePath || 'Bundled_Spell.mid');
+      const notesExt = path.extname(pickedName) || '.mid';
+      const baseStem = sanitizeBundleStem(customTitle || pickedName, 'Bundled_Spell');
+      destStem = resolveUniqueBundleStem(baseStem, IMPORTS_DIR);
+      assetStem = destStem;
+      destNotesPath = path.join(IMPORTS_DIR, `${destStem}${notesExt}`);
+    } else {
+      const existingDir = path.dirname(existingEntry.filePath);
+      const existingExt = path.extname(existingEntry.filePath) || '.mid';
+      const existingBase = path.basename(existingEntry.filePath, existingExt);
+      destStem = sanitizeBundleStem(existingBase, 'Bundled_Spell');
+
+      const existingSidecar = existingEntry.sidecarPath || getSidecarBundlePath(existingEntry.filePath);
+      assetStem = resolveUniqueBundleStem(destStem, IMPORTS_DIR, {
+        ignoreFiles: [
+          existingEntry.filePath,
+          existingEntry.backingAudioPath,
+          existingEntry.sheetMusicPath,
+          existingSidecar
+        ]
+      });
+
+      const prevBundle = resolveBundleForSong({
+        filePath: existingEntry.filePath,
+        fileName: existingEntry.fileName,
+        songId: existingEntry.songId,
+        title: existingEntry.rawTitle || existingEntry.title,
+        store: loadBundlesStore(BUNDLE_STORE_PATH),
+        projectRoot: __dirname
+      });
+      prevBundleUnlinkState = {
+        audioUnlinked: Boolean(prevBundle.audioUnlinked),
+        sheetUnlinked: Boolean(prevBundle.sheetUnlinked)
+      };
+
+      if (hasPickedNotes) {
+        const pickedExt = path.extname(questBundleState.notesFileName || questBundleState.notesSourcePath || existingExt) || existingExt;
+        let candidateNotesPath = path.join(existingDir, `${existingBase}${pickedExt}`);
+        if (!isSameFilePath(candidateNotesPath, existingEntry.filePath) && fs.existsSync(candidateNotesPath)) {
+          const uniqueNotesStem = resolveUniqueBundleStem(existingBase, existingDir, {
+            ignoreFiles: [existingEntry.filePath]
+          });
+          candidateNotesPath = path.join(existingDir, `${uniqueNotesStem}${pickedExt}`);
+        }
+        destNotesPath = candidateNotesPath;
+        if (!isSameFilePath(destNotesPath, existingEntry.filePath)) {
+          archiveReplacedOldNotesPath = existingEntry.filePath;
+        }
+      } else {
+        destNotesPath = existingEntry.filePath;
+      }
+    }
+
+    const hasPickedAudio = Boolean(questBundleState.audioSourcePath || questBundleState.audioBuffer);
+    const youtubeChanged = Boolean(youtubeUrlRaw && (!existingEntry || youtubeUrlRaw !== (existingEntry.youtubeUrl || '')));
+    const shouldDownloadYoutube = Boolean(
+      !hasPickedAudio &&
+      youtubeUrlRaw &&
+      (youtubeChanged || (!questBundleState.audioCleared && (isNew || !existingEntry?.backingAudioPath)))
+    );
+
+    // Fetch YouTube stereo audio BEFORE writing new MIDI/sheet files so failures leave ./Imports clean
+    let downloadedAudioPath = null;
+    let fetchedTitle = null;
+    if (shouldDownloadYoutube) {
+      const dlResult = await downloadYoutubeAudioOnlyForBundle({
+        url: youtubeUrlRaw,
+        outputDir: IMPORTS_DIR,
+        stem: assetStem,
+        title: customTitle
+      });
+      downloadedAudioPath = dlResult.backingPath;
+      fetchedTitle = dlResult.fetchedTitle;
+    }
+
+    if (hasPickedNotes) {
+      writePickedFileToDest({
+        srcPath: questBundleState.notesSourcePath,
+        fallbackBuffer: questBundleState.notesBuffer,
+        destPath: destNotesPath
+      });
+      if (archiveReplacedOldNotesPath && fs.existsSync(archiveReplacedOldNotesPath)) {
+        try {
+          moveFileToArchive(archiveReplacedOldNotesPath);
+        } catch {
+          // Non-fatal if old replaced note remains
+        }
+      }
+    }
+
+    let finalSheetPath = existingEntry?.sheetMusicPath || null;
+    if (questBundleState.sheetSourcePath || questBundleState.sheetBuffer) {
+      const sheetExt = path.extname(questBundleState.sheetFileName || questBundleState.sheetSourcePath || '.pdf') || '.pdf';
+      const destSheetPath = path.join(IMPORTS_SHEETS_DIR, `${assetStem}_sheet${sheetExt}`);
+      finalSheetPath = writePickedFileToDest({
+        srcPath: questBundleState.sheetSourcePath,
+        fallbackBuffer: questBundleState.sheetBuffer,
+        destPath: destSheetPath
+      });
+    } else if (questBundleState.sheetCleared) {
+      finalSheetPath = null;
+    }
+
+    let finalAudioPath = existingEntry?.backingAudioPath || null;
+    if (downloadedAudioPath) {
+      finalAudioPath = downloadedAudioPath;
+    } else if (hasPickedAudio) {
+      const audioExt = path.extname(questBundleState.audioFileName || questBundleState.audioSourcePath || '.wav') || '.wav';
+      const destAudioPath = path.join(IMPORTS_DIR, `${assetStem}${audioExt}`);
+      finalAudioPath = writePickedFileToDest({
+        srcPath: questBundleState.audioSourcePath,
+        fallbackBuffer: questBundleState.audioBuffer,
+        destPath: destAudioPath
+      });
+    } else if (questBundleState.audioCleared) {
+      finalAudioPath = null;
+    }
+
+    const rawNotesBuf = hasPickedNotes && validatedPickedRawBuf ? validatedPickedRawBuf : fs.readFileSync(destNotesPath);
+    const notesArrayBuf = rawNotesBuf.buffer.slice(rawNotesBuf.byteOffset, rawNotesBuf.byteOffset + rawNotesBuf.byteLength);
+    let effectiveShaBuf = rawNotesBuf;
+    if (isMusicXmlFileName(path.basename(destNotesPath))) {
+      const converted = convertMusicXmlToMidiBuffer(notesArrayBuf, path.basename(destNotesPath));
+      effectiveShaBuf = Buffer.from(converted.midiArrayBuffer);
+    }
+    const songId = crypto.createHash('sha1').update(effectiveShaBuf).digest('hex');
+
+    const resolvedTitle = customTitle || fetchedTitle || existingEntry?.title || destStem.replace(/[_-]+/g, ' ').trim();
+
+    if (archiveReplacedOldNotesPath) {
+      removeBundleRecordForSong({
+        storePath: BUNDLE_STORE_PATH,
+        projectRoot: __dirname,
+        filePath: archiveReplacedOldNotesPath,
+        songId: existingEntry?.songId
+      });
+    }
+
+    const nextAudioUnlinked = finalAudioPath
+      ? false
+      : (questBundleState.audioCleared || prevBundleUnlinkState.audioUnlinked);
+    const nextSheetUnlinked = finalSheetPath
+      ? false
+      : (questBundleState.sheetCleared || prevBundleUnlinkState.sheetUnlinked);
+
+    saveBundleRecord({
+      storePath: BUNDLE_STORE_PATH,
+      projectRoot: __dirname,
+      importsDir: IMPORTS_DIR,
+      writeSidecar: true,
+      record: {
+        id: songId,
+        songId,
+        title: resolvedTitle,
+        fileName: path.basename(destNotesPath),
+        notesPath: destNotesPath,
+        sheetMusicPath: finalSheetPath,
+        backingAudioPath: finalAudioPath,
+        audioUnlinked: nextAudioUnlinked,
+        sheetUnlinked: nextSheetUnlinked,
+        youtubeUrl: youtubeUrlRaw || null,
+        spotifyUrl: spotifyUrlRaw || null,
+        audioOffsetSec: existingEntry ? existingEntry.audioOffsetSec : undefined,
+        audioTempoRatio: existingEntry ? existingEntry.audioTempoRatio : undefined,
+        midiCleanupEnabled: existingEntry && typeof existingEntry.midiCleanupEnabled === 'boolean'
+          ? existingEntry.midiCleanupEnabled
+          : undefined
+      }
+    });
+
+    scanWatchedDirectories(false);
+
+    let savedEntry = null;
+    for (const candidate of grimoireSpells.values()) {
+      if (isSameFilePath(candidate.filePath, destNotesPath)) {
+        savedEntry = candidate;
+        break;
+      }
+    }
+
+    populateQuestBundleTargetSelect(savedEntry?.id || '__new__');
+    applyTargetSelectionToBundleForm(savedEntry?.id || '__new__');
+    questBundleState.lastSavedNotesPath = destNotesPath;
+
+    if (btnQuestBundleLoadNow) {
+      btnQuestBundleLoadNow.textContent = `\u25B6 Load "${savedEntry?.title || resolvedTitle}"`;
+      btnQuestBundleLoadNow.classList.remove('hidden');
+    }
+
+    const matchesActiveSong = Boolean(
+      currentSong && (
+        isSameFilePath(currentSong.filePath, destNotesPath) ||
+        (archiveReplacedOldNotesPath && isSameFilePath(currentSong.filePath, archiveReplacedOldNotesPath))
+      )
+    );
+    if (!playbackState.isPlaying && matchesActiveSong) {
+      loadSongFromBuffer(notesArrayBuf, path.basename(destNotesPath), destNotesPath, { quietSuccess: true });
+    } else {
+      renderGrimoireSidebar();
+    }
+
+    setQuestStageUI('complete', 'Bundle Saved!', 100, `Saved "${savedEntry?.title || resolvedTitle}" to ./Imports & Grimoire Bundle Store.`);
+    appendQuestLogLine(
+      `[Bundle Saved] Notes: ${path.basename(destNotesPath)}` +
+      `${finalSheetPath ? ` | Sheet: ${path.basename(finalSheetPath)}` : ''}` +
+      `${finalAudioPath ? ` | Audio: ${path.basename(finalAudioPath)}` : ''}`
+    );
+    showGrimoireToast(`\uD83D\uDD17 Saved Song Bundle: "${savedEntry?.title || resolvedTitle}"!`);
+  } catch (err) {
+    setQuestStageUI('error', 'Bundle Error', 0, `Could not save Song Bundle: ${err.message}`);
+    showGrimoireToast(`Could not save Song Bundle: ${err.message}`, 'error');
+  }
+}
+
+if (btnSaveSongBundle) {
+  btnSaveSongBundle.addEventListener('click', () => {
+    runSaveSongBundle();
+  });
+}
+
+if (btnQuestBundleLoadNow) {
+  btnQuestBundleLoadNow.addEventListener('click', () => {
+    const targetPath = questBundleState.lastSavedNotesPath;
+    if (!targetPath || !fs.existsSync(targetPath)) {
+      showGrimoireToast('Bundled notes file could not be found on disk.', 'error');
+      return;
+    }
+    try {
+      const buf = fs.readFileSync(targetPath);
+      const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+      loadSongFromBuffer(arrayBuf, path.basename(targetPath), targetPath, { quietSuccess: true });
+      previousQuestBoardOrigin = 'highway';
+      closeQuestBoardModal();
+      if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+        previousSpellbookOrigin = 'highway';
+        closeGrimoireSpellbook();
+      }
+      hideTavernMenu();
+      resetPlaybackToStart();
+      showGrimoireToast(`\uD83D\uDD17 Loaded Song Bundle: "${currentSong?.title || path.basename(targetPath)}"!`);
+    } catch (err) {
+      showGrimoireToast(`Failed to load Song Bundle: ${err.message}`, 'error');
+    }
+  });
+}
+
+function openQuestBoardModal({ origin = 'highway', tab = 'bundle', targetEntryId = '__new__' } = {}) {
   pausePlayback();
   closeAllConservatoryPopovers();
+  closeStreakPopover();
+  previousQuestBoardOrigin = origin || 'highway';
+  previousQuestBoardFocusElement = document.activeElement;
+
   renderDailyBountiesBoard();
+  setQuestBountiesCollapsed(loadBountiesCollapsedPreference(), { persist: false });
+  setQuestBoardTab(tab);
+  populateQuestBundleTargetSelect(targetEntryId || '__new__');
+  applyTargetSelectionToBundleForm(targetEntryId || '__new__');
+
   if (questBoardModal) {
     questBoardModal.classList.remove('hidden');
+  }
+  if (btnCloseQuestBoard) {
+    btnCloseQuestBoard.focus();
   }
 }
 
@@ -5359,22 +9081,57 @@ function closeQuestBoardModal() {
   if (questBoardModal) {
     questBoardModal.classList.add('hidden');
   }
+  if (previousQuestBoardOrigin === 'tavern') {
+    showTavernMenu();
+  } else if (previousQuestBoardOrigin === 'grimoire' && grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+    renderSpellbookSpread();
+    if (previousQuestBoardFocusElement && typeof previousQuestBoardFocusElement.focus === 'function' && document.body.contains(previousQuestBoardFocusElement)) {
+      previousQuestBoardFocusElement.focus();
+    } else if (btnSpellbookBundle) {
+      btnSpellbookBundle.focus();
+    }
+  } else if (previousQuestBoardFocusElement && typeof previousQuestBoardFocusElement.focus === 'function' && document.body.contains(previousQuestBoardFocusElement)) {
+    previousQuestBoardFocusElement.focus();
+  } else if (btnPlayPause) {
+    btnPlayPause.focus();
+  }
+  previousQuestBoardFocusElement = null;
 }
 
 /**
- * Resolve the local Python executable, preferring the user's Python 3.14 install
- * before falling back to 'python' on PATH (avoiding the WindowsApps Store stub).
+ * Resolve the local Python executable, preferring active/project virtual environments
+ * and user Python installs before falling back to 'python' / 'python3' on PATH.
  */
 function resolvePythonExecutable() {
-  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
-  const candidates = [
-    path.join(localAppData, 'Python', 'pythoncore-3.14-64', 'python.exe'),
-    path.join(localAppData, 'Programs', 'Python', 'Python314', 'python.exe'),
-    path.join(localAppData, 'Programs', 'Python', 'Python313', 'python.exe'),
-    path.join(localAppData, 'Programs', 'Python', 'Python312', 'python.exe'),
-    path.join(localAppData, 'Programs', 'Python', 'Python311', 'python.exe'),
-    path.join(localAppData, 'Programs', 'Python', 'Python310', 'python.exe')
-  ];
+  const isWin = process.platform === 'win32';
+  const venvRoots = [
+    process.env.VIRTUAL_ENV,
+    path.join(__dirname, 'python_ml', '.venv'),
+    path.join(__dirname, '.venv')
+  ].filter(Boolean);
+
+  const candidates = [];
+  for (const venvRoot of venvRoots) {
+    if (isWin) {
+      candidates.push(path.join(venvRoot, 'Scripts', 'python.exe'));
+    } else {
+      candidates.push(path.join(venvRoot, 'bin', 'python'));
+      candidates.push(path.join(venvRoot, 'bin', 'python3'));
+    }
+  }
+
+  if (isWin) {
+    const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    candidates.push(
+      path.join(localAppData, 'Python', 'pythoncore-3.14-64', 'python.exe'),
+      path.join(localAppData, 'Programs', 'Python', 'Python314', 'python.exe'),
+      path.join(localAppData, 'Programs', 'Python', 'Python313', 'python.exe'),
+      path.join(localAppData, 'Programs', 'Python', 'Python312', 'python.exe'),
+      path.join(localAppData, 'Programs', 'Python', 'Python311', 'python.exe'),
+      path.join(localAppData, 'Programs', 'Python', 'Python310', 'python.exe')
+    );
+  }
+
   for (const candidate of candidates) {
     try {
       if (fs.existsSync(candidate)) {
@@ -5384,7 +9141,7 @@ function resolvePythonExecutable() {
       // Ignore fs check error
     }
   }
-  return 'python';
+  return isWin ? 'python' : 'python3';
 }
 
 function setQuestStageUI(stageType, badgeText, progressPct, messageText) {
@@ -5413,7 +9170,7 @@ function appendQuestLogLine(line) {
  */
 function runQuestBoardTranscriber({ selfTest = false } = {}) {
   if (activeQuestChildProcess) {
-    alert('A Quest Board transcription is already running in the background!');
+    showGrimoireToast('A Quest Board job is already running in the background!', 'warning');
     return;
   }
 
@@ -5421,14 +9178,14 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
   const customTitle = (questCustomTitleInput?.value || '').trim();
 
   if (!selfTest && !rawUrlOrPath) {
-    alert('Please paste a YouTube URL (or local .wav / .mp3 path), or click "⚡ Run ML Self-Test (2s)"!');
+    showGrimoireToast('Please paste a YouTube URL (or local audio path), or click "Run ML Self-Test"!', 'error');
     questYoutubeUrlInput?.focus();
     return;
   }
 
   const scriptPath = path.join(__dirname, 'python_ml', 'transcribe_quest.py');
   if (!fs.existsSync(scriptPath)) {
-    alert(`Python ML script not found at: ${scriptPath}`);
+    showGrimoireToast(`Python ML script not found at: ${scriptPath}`, 'error');
     return;
   }
 
@@ -5449,6 +9206,7 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
 
   if (btnRunQuestUrl) btnRunQuestUrl.disabled = true;
   if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = true;
+  if (btnSaveSongBundle) btnSaveSongBundle.disabled = true;
   if (btnQuestLoadResult) btnQuestLoadResult.classList.add('hidden');
 
   if (questLogOutput) {
@@ -5535,6 +9293,7 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
       activeQuestChildProcess = null;
       if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
       if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
+      if (btnSaveSongBundle) btnSaveSongBundle.disabled = false;
       setQuestStageUI('error', 'Spawn Failed', 0, `Could not launch Python: ${err.message}`);
       appendQuestLogLine(`[Error] ${err.message}`);
     });
@@ -5546,6 +9305,7 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
       activeQuestChildProcess = null;
       if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
       if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
+      if (btnSaveSongBundle) btnSaveSongBundle.disabled = false;
 
       if (code === 0) {
         setTimeout(() => scanWatchedDirectories(true), 150);
@@ -5557,13 +9317,14 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
     activeQuestChildProcess = null;
     if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
     if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
+    if (btnSaveSongBundle) btnSaveSongBundle.disabled = false;
     setQuestStageUI('error', 'Failed', 0, `Failed to start Python transcriber: ${err.message}`);
   }
 }
 
 if (btnOpenQuestBoard) {
   btnOpenQuestBoard.addEventListener('click', () => {
-    openQuestBoardModal();
+    openQuestBoardModal({ origin: 'highway', tab: 'bundle' });
   });
 }
 
@@ -5614,11 +9375,18 @@ if (btnQuestLoadResult) {
       try {
         const buf = fs.readFileSync(lastQuestTranscribedMidiPath);
         const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-        parseMidiBuffer(arrayBuf, path.basename(lastQuestTranscribedMidiPath), lastQuestTranscribedMidiPath);
+        loadSongFromBuffer(arrayBuf, path.basename(lastQuestTranscribedMidiPath), lastQuestTranscribedMidiPath, { quietSuccess: true });
+        previousQuestBoardOrigin = 'highway';
         closeQuestBoardModal();
-        showGrimoireToast(`🔮 Loaded Transcribed Spell: "${path.basename(lastQuestTranscribedMidiPath)}"!`);
+        if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+          previousSpellbookOrigin = 'highway';
+          closeGrimoireSpellbook();
+        }
+        hideTavernMenu();
+        resetPlaybackToStart();
+        showGrimoireToast(`\uD83D\uDD2E Loaded Transcribed Spell: "${path.basename(lastQuestTranscribedMidiPath)}"!`);
       } catch (err) {
-        alert(`Failed to load transcribed MIDI: ${err.message}`);
+        showGrimoireToast(`Failed to load transcribed MIDI: ${err.message}`, 'error');
       }
     }
   });
@@ -5643,44 +9411,64 @@ if (btnLinkYoutube) {
 }
 
 if (btnQuestOpenImports) {
-  btnQuestOpenImports.addEventListener('click', () => {
+  btnQuestOpenImports.addEventListener('click', async () => {
     try {
       if (!fs.existsSync(IMPORTS_DIR)) {
         fs.mkdirSync(IMPORTS_DIR, { recursive: true });
       }
-      shell.openPath(IMPORTS_DIR);
+      const openErr = await shell.openPath(IMPORTS_DIR);
+      if (openErr) {
+        showGrimoireToast(`Could not open Imports folder: ${openErr}`, 'error');
+      }
     } catch (err) {
-      alert(`Could not open Imports folder: ${err.message}`);
+      showGrimoireToast(`Could not open Imports folder: ${err.message}`, 'error');
     }
   });
 }
 
-// Drag & Drop .mid support on the stage
+// Drag & Drop .mid / .musicxml / .xml / .mxl support anywhere on the window (Issue #40)
+let globalDragDepth = 0;
+
+function hideGlobalDropOverlay() {
+  globalDragDepth = 0;
+  stageContainer.classList.remove('drag-over');
+  if (globalDropOverlay) globalDropOverlay.classList.add('hidden');
+}
+
+window.addEventListener('dragenter', (e) => {
+  e.preventDefault();
+  globalDragDepth += 1;
+  stageContainer.classList.add('drag-over');
+  if (globalDropOverlay) globalDropOverlay.classList.remove('hidden');
+});
+
 window.addEventListener('dragover', (e) => {
   e.preventDefault();
   stageContainer.classList.add('drag-over');
+  if (globalDropOverlay) globalDropOverlay.classList.remove('hidden');
 });
 
 window.addEventListener('dragleave', (e) => {
-  if (e.target === document.body || e.target === stageContainer) {
-    stageContainer.classList.remove('drag-over');
+  globalDragDepth = Math.max(0, globalDragDepth - 1);
+  if (globalDragDepth === 0 || e.relatedTarget === null) {
+    hideGlobalDropOverlay();
   }
 });
 
 window.addEventListener('drop', async (e) => {
   e.preventDefault();
-  stageContainer.classList.remove('drag-over');
+  hideGlobalDropOverlay();
   const file = e.dataTransfer?.files?.[0];
   if (!file) return;
-  if (!/\.(mid|midi)$/i.test(file.name)) {
-    alert('Please drop a valid .mid or .midi file.');
+  if (!/\.(mid|midi|musicxml|xml|mxl)$/i.test(file.name)) {
+    showGrimoireToast('Unsupported file type. Please drop a .mid, .midi, .musicxml, .xml, or .mxl file.', 'error');
     return;
   }
   try {
     const buffer = await file.arrayBuffer();
-    parseMidiBuffer(buffer, file.name, file.path || null);
+    loadSongFromBuffer(buffer, file.name, file.path || null);
   } catch (err) {
-    alert(`Failed to parse MIDI file: ${err.message}`);
+    showGrimoireToast(`Failed to import "${file.name}": ${err.message}`, 'error');
   }
 });
 
@@ -5688,8 +9476,16 @@ window.addEventListener('resize', () => {
   computeKeyGeometry();
 });
 
+if (typeof ResizeObserver === 'function' && stageCanvasWrap) {
+  const stageResizeObserver = new ResizeObserver(() => {
+    computeKeyGeometry();
+  });
+  stageResizeObserver.observe(stageCanvasWrap);
+}
+
 // Release any held QWERTY or mouse notes if the window loses focus (Alt+Tab) (Issue #16)
 window.addEventListener('blur', () => {
+  hideGlobalDropOverlay();
   for (const [k, midi] of Array.from(pressedQwertyKeys.entries())) {
     pressedQwertyKeys.delete(k);
     handleNoteOff(midi);
@@ -5703,13 +9499,28 @@ window.addEventListener('blur', () => {
   }
 });
 
-// Terminate any active background Python transcription child process on window close/reload (Issue #17)
+// Terminate any active background Python transcription child process & audio audition on close/reload (Issue #17, #76)
 window.addEventListener('beforeunload', () => {
-  if (activeQuestChildProcess) {
+  stopAudioAudition();
+  const child = activeQuestChildProcess;
+  if (child) {
     try {
-      activeQuestChildProcess.kill();
+      if (process.platform === 'win32' && child.pid) {
+        const killer = spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+          windowsHide: true,
+          stdio: 'ignore',
+          detached: true
+        });
+        if (typeof killer.unref === 'function') killer.unref();
+      } else {
+        child.kill();
+      }
     } catch {
-      // Ignore kill errors
+      try {
+        child.kill();
+      } catch {
+        // Ignore kill errors
+      }
     }
     activeQuestChildProcess = null;
   }
@@ -5733,7 +9544,7 @@ function restoreLastSong() {
     }
     if (!fs.existsSync(lastPath)) return false;
     const buf = fs.readFileSync(lastPath);
-    parseMidiBuffer(
+    loadSongFromBuffer(
       buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
       path.basename(lastPath),
       lastPath
@@ -6006,6 +9817,7 @@ function hideTavernMenu() {
 function openBardAnnalsModal() {
   pausePlayback();
   closeAllConservatoryPopovers();
+  closeStreakPopover();
   if (!bardAnnalsModal) return;
 
   previousModalFocusElement = document.activeElement;
@@ -6105,6 +9917,7 @@ function closeBardAnnalsModal() {
 function openHowToPlayModal() {
   pausePlayback();
   closeAllConservatoryPopovers();
+  closeStreakPopover();
   previousModalFocusElement = document.activeElement;
   if (howToPlayModal) {
     howToPlayModal.classList.remove('hidden');
@@ -6127,26 +9940,29 @@ function closeHowToPlayModal() {
   }
 }
 
-// Modal Focus Trap Helper (Issue #68, #77 stacked modal support)
+// Modal Focus Trap Helper (Issue #68, #76, #77 stacked modal support sorted by computed z-index)
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Tab') return;
   const activeModals = Array.from(document.querySelectorAll('.modal-backdrop:not(.hidden)'));
+  if (activeModals.length === 0) return;
+  activeModals.sort((a, b) => (Number(getComputedStyle(a).zIndex) || 0) - (Number(getComputedStyle(b).zIndex) || 0));
   const activeModal = activeModals[activeModals.length - 1];
   if (!activeModal) return;
 
-  const focusables = Array.from(activeModal.querySelectorAll('button:not([disabled]), [tabindex]:not([tabindex="-1"]), input:not([disabled]), select:not([disabled])'));
+  const focusables = Array.from(activeModal.querySelectorAll('button:not([disabled]), [tabindex]:not([tabindex="-1"]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'))
+    .filter((el) => !el.closest('.hidden') && el.getClientRects().length > 0);
   if (focusables.length === 0) return;
 
   const first = focusables[0];
   const last = focusables[focusables.length - 1];
 
   if (e.shiftKey) {
-    if (document.activeElement === first) {
+    if (document.activeElement === first || !activeModal.contains(document.activeElement)) {
       e.preventDefault();
       last.focus();
     }
   } else {
-    if (document.activeElement === last) {
+    if (document.activeElement === last || !activeModal.contains(document.activeElement)) {
       e.preventDefault();
       first.focus();
     }
@@ -6192,7 +10008,7 @@ if (btnMenuGrimoire) {
 if (btnMenuQuestBoard) {
   btnMenuQuestBoard.addEventListener('click', () => {
     hideTavernMenu();
-    openQuestBoardModal();
+    openQuestBoardModal({ origin: 'tavern', tab: 'bundle' });
   });
 }
 
@@ -6207,7 +10023,10 @@ if (btnMenuSettings) {
     // Prevent the global document outside-click handler from instantly closing the popover (Issue #67)
     e.stopPropagation();
     hideTavernMenu();
+    closeAllConservatoryPopovers();
     if (settingsPopover) {
+      syncMidiCleanupCheckboxUI();
+      updateAudioSyncUI();
       settingsPopover.classList.remove('hidden');
       if (btnToggleSettings) {
         btnToggleSettings.classList.add('active');
@@ -6865,7 +10684,7 @@ if (tavernVersionTag) {
   }
 }
 
-computeKeyGeometry();
+setStageViewMode('highway');
 loadBardProfile();
 initGrimoireAndWatcher();
 initAudioEngine();

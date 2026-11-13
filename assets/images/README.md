@@ -56,6 +56,10 @@ Toolbar icon set for the Spell Scroll Bar, all transparent PNG (1600x1600, RGBA)
 - icon-backing-band.png: electric guitar in a round rope-frame medallion, for #btn-backing-band (Rock Band Mode toggle).
 - icon-spell-details.png: magnifying glass over a rolled music scroll, for #btn-spell-details (inspector).
 
+## notation/parchment-scroll-tile.png
+
+Seamless tileable `512x512` warm ivory-cream vellum texture (`#f4ebd9` mean base with subtle paper grain fibers) used by the scrolling Grand Staff notation pane (`Split` and `Score` views, Issue #39). Tiled cleanly via HTML5 Canvas `createPattern(..., 'repeat')` at arbitrary window sizes with zero aspect distortion and guaranteed high contrast (`>5.5:1` to `16:1`) under iron-gall black ink (`#1a0a00`), Burnished Amber RH highlights (`#b45309`), and Deep Arcane Teal LH highlights (`#0e7490`).
+
 ## Adding new art
 
 Keep the same style and palette so new screens match. Put new images in a subfolder named after the screen they belong to, and add a section here saying what it is, where it is used, and what must stay clear for overlays.
