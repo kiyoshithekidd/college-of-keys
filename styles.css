@@ -1022,26 +1022,69 @@ html, body {
   color: #fca5a5;
 }
 
-/* Bardic Inspiration Status Banner (Only prominent when active or subtly shown below pill) */
+/* Bardic Inspiration Meter Pill (Issue #24) */
 .inspiration-banner {
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 2px 10px;
+  gap: 3px;
+  min-width: 230px;
+  padding: 3px 12px 4px;
   border-radius: 999px;
-  background: rgba(24, 18, 14, 0.75);
-  border: 1px solid rgba(186, 171, 147, 0.2);
+  background: rgba(24, 18, 14, 0.80);
+  border: 1px solid rgba(186, 171, 147, 0.24);
+  font-family: inherit;
   font-size: 0.65rem;
   color: var(--text-muted);
+  pointer-events: none;
   transition: all 0.2s ease;
 }
 
+.inspiration-text {
+  white-space: nowrap;
+}
+
+.inspiration-meter-track {
+  width: 100%;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(186, 171, 147, 0.18);
+  overflow: hidden;
+}
+
+.inspiration-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #00e5ff 0%, #ffd700 100%);
+  transition: width 0.12s linear;
+}
+
+.inspiration-banner.ready {
+  pointer-events: auto;
+  cursor: pointer;
+  background: linear-gradient(90deg, rgba(0, 229, 255, 0.22) 0%, rgba(212, 175, 55, 0.35) 100%);
+  border-color: #00e5ff;
+  color: #e0f7ff;
+  font-weight: 700;
+  box-shadow: 0 0 14px rgba(0, 229, 255, 0.45);
+}
+
+.inspiration-banner.ready:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 18px rgba(0, 229, 255, 0.65);
+}
+
 .inspiration-banner.active {
-  background: linear-gradient(90deg, rgba(217, 119, 6, 0.65) 0%, rgba(255, 215, 0, 0.5) 100%);
+  background: linear-gradient(90deg, rgba(217, 119, 6, 0.72) 0%, rgba(255, 215, 0, 0.56) 100%);
   border-color: #ffd700;
   color: #fff6cc;
   font-weight: 700;
-  box-shadow: 0 0 14px rgba(255, 215, 0, 0.5);
+  box-shadow: 0 0 16px rgba(255, 215, 0, 0.55);
+}
+
+.inspiration-banner.active .inspiration-meter-fill {
+  background: linear-gradient(90deg, #fde68a 0%, #ffffff 100%);
 }
 
 .btn-mini-sim {
