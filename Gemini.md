@@ -512,6 +512,14 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - Updated `renderSpellbookSpread()`, `navigateToSpellbookTier()`, `loadSelectedSpellbookSong()`, and `deleteSelectedSpellbookSong()` so the Favorites filter displays starred songs across all difficulty tiers and supports searching, loading, and archiving seamlessly.
 - **Current status:** Verified (`"Testing successful"`). Renamed filter/view to **Attuned** (`☆ Attuned`, `Attuned Spells`) and persisted filter state across opens/restarts.
 
+### 2026-11-12 — Session 25: Loop Practice Mode (Rehearsal) (Issue #30)
+- **What we did:**
+  - Completed Pre-Build Engineering Plan, UI/UX Design Reviewer subagent pass, and 4-point Decision Check before coding.
+  - Created isolated feature branch `feature/issue-30-loop-practice-mode` from `main`.
+  - Implemented `rehearsalLoopState`, timeline range/bracket overlays, inline `[A]` / `[B]` / `[🔁 Loop]` controls, `#rehearsal-popover` (Clear A–B, Auto-Ramp Tempo, Target Speed, Pass Status), `0.8s` pre-roll loop wrapping in `animationLoop`, `[` / `]` / `\` keyboard shortcuts, and `LOOP A` / `LOOP B` canvas boundary lines.
+  - Completed Post-Build Peer Review & QA Audit subagent pass and fixed outside-click popover dismissal, immediate Set-B wrap edge case, and `.btn-rehearsal-caret.active` styling.
+- **Current status:** Verified (`"Testing successful"`). Ready to merge into `main` and close Issue #30.
+
 
 
 

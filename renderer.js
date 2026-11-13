@@ -123,6 +123,21 @@ const btnWaitMode = document.getElementById('btn-wait-mode');
 const waitModeStateText = document.getElementById('wait-mode-state');
 const songProgressSlider = document.getElementById('song-progress-slider');
 const songTimeReadout = document.getElementById('song-time-readout');
+const loopRangeFill = document.getElementById('loop-range-fill');
+const loopMarkerA = document.getElementById('loop-marker-a');
+const loopMarkerB = document.getElementById('loop-marker-b');
+const btnLoopA = document.getElementById('btn-loop-a');
+const btnLoopB = document.getElementById('btn-loop-b');
+const btnRehearsalToggle = document.getElementById('btn-rehearsal-toggle');
+const btnRehearsalPopover = document.getElementById('btn-rehearsal-popover');
+const rehearsalPopover = document.getElementById('rehearsal-popover');
+const btnCloseRehearsalPopover = document.getElementById('btn-close-rehearsal-popover');
+const rehearsalATime = document.getElementById('rehearsal-a-time');
+const rehearsalBTime = document.getElementById('rehearsal-b-time');
+const btnLoopClear = document.getElementById('btn-loop-clear');
+const chkRehearsalAutoramp = document.getElementById('chk-rehearsal-autoramp');
+const rehearsalTargetSpeedSelect = document.getElementById('rehearsal-target-speed');
+const rehearsalPassStatus = document.getElementById('rehearsal-pass-status');
 const playableTrackSelect = document.getElementById('playable-track-select');
 const handIsolationSelect = document.getElementById('hand-isolation-select');
 const accompanimentSelect = document.getElementById('accompaniment-select');
@@ -370,6 +385,22 @@ const playbackState = {
   activeStrikeGroup: null,         // Current chord/note group being gated at the strike line
   lastFrameTimestamp: null,
   isScrubbing: false
+};
+
+// Issue #30: Loop Practice Mode (Rehearsal) State
+const REHEARSAL_SPEED_PRESETS = [0.5, 0.75, 1.0, 1.25];
+const REHEARSAL_PREROLL_SEC = 0.8;
+const MIN_REHEARSAL_LOOP_SPAN_SEC = 0.5;
+
+const rehearsalLoopState = {
+  enabled: false,
+  startTime: null,
+  endTime: null,
+  autoRamp: false,
+  targetSpeed: 1.0,
+  cleanPasses: 0,
+  totalPasses: 0,
+  passMistakes: 0
 };
 
 // Phase 5 State: Persistent Bard Profile & Per-Song Performance Session Stats
@@ -961,6 +992,7 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
   btnPlayPause.disabled = false;
   btnRestart.disabled = false;
   songProgressSlider.disabled = false;
+  clearRehearsalLoop();
   renderGrimoireSidebar();
 }
 
@@ -1518,6 +1550,9 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll) {
 function recordSpellChainBreak(reasonText = 'Chain Broken! (Off-Key)') {
   songSessionStats.spellChain = 0;
   songSessionStats.wrongOrMissedNotes++;
+  if (rehearsalLoopState.enabled) {
+    rehearsalLoopState.passMistakes++;
+  }
   songSessionStats.lastGainText = reasonText;
   songSessionStats.lastGainFumbled = true;
   updateLitrpgHUD();
@@ -2220,6 +2255,268 @@ function processSongAudioTriggers(prevTime, newTime) {
 }
 
 /**
+ * Issue #30: Loop Practice Mode (Rehearsal) Helpers
+ */
+function hasValidRehearsalLoop() {
+  return Boolean(
+    currentSong &&
+    rehearsalLoopState.startTime !== null &&
+    rehearsalLoopState.endTime !== null &&
+    (rehearsalLoopState.endTime - rehearsalLoopState.startTime) >= MIN_REHEARSAL_LOOP_SPAN_SEC
+  );
+}
+
+function updateRehearsalUI() {
+  const hasSong = Boolean(currentSong && currentSong.duration > 0);
+  const valid = hasValidRehearsalLoop();
+  const active = Boolean(valid && rehearsalLoopState.enabled);
+
+  if (btnLoopA) {
+    btnLoopA.disabled = !hasSong;
+    btnLoopA.classList.toggle('marker-set', hasSong && rehearsalLoopState.startTime !== null);
+  }
+  if (btnLoopB) {
+    btnLoopB.disabled = !hasSong;
+    btnLoopB.classList.toggle('marker-set', hasSong && rehearsalLoopState.endTime !== null);
+  }
+  if (btnRehearsalToggle) {
+    btnRehearsalToggle.disabled = !hasSong;
+    btnRehearsalToggle.classList.toggle('loop-active', active);
+    btnRehearsalToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
+  }
+  if (btnRehearsalPopover) {
+    btnRehearsalPopover.disabled = !hasSong;
+  }
+  if (btnLoopClear) {
+    btnLoopClear.disabled = !hasSong || (rehearsalLoopState.startTime === null && rehearsalLoopState.endTime === null);
+  }
+
+  if (rehearsalATime) {
+    rehearsalATime.textContent = hasSong && rehearsalLoopState.startTime !== null
+      ? formatSeconds(rehearsalLoopState.startTime)
+      : '\u2014';
+  }
+  if (rehearsalBTime) {
+    rehearsalBTime.textContent = hasSong && rehearsalLoopState.endTime !== null
+      ? formatSeconds(rehearsalLoopState.endTime)
+      : '\u2014';
+  }
+
+  if (rehearsalPassStatus) {
+    if (!hasSong) {
+      rehearsalPassStatus.textContent = 'Load a spell to use Rehearsal Loop';
+    } else if (!valid) {
+      rehearsalPassStatus.textContent = 'Set A ([) and B (]) to loop a passage';
+    } else if (!active) {
+      rehearsalPassStatus.textContent = `Loop paused (${formatSeconds(rehearsalLoopState.startTime)} \u2192 ${formatSeconds(rehearsalLoopState.endTime)})`;
+    } else if (rehearsalLoopState.autoRamp) {
+      rehearsalPassStatus.textContent = `Active \u2022 ${playbackState.playbackSpeed}x \u2192 ${rehearsalLoopState.targetSpeed}x (${rehearsalLoopState.cleanPasses} clean)`;
+    } else {
+      rehearsalPassStatus.textContent = `Active \u2022 ${rehearsalLoopState.cleanPasses} clean / ${rehearsalLoopState.totalPasses} passes`;
+    }
+  }
+
+  // Update Timeline Scrubber Overlays
+  const dur = hasSong ? currentSong.duration : 1;
+  if (loopMarkerA) {
+    if (hasSong && rehearsalLoopState.startTime !== null) {
+      const pctA = Math.max(0, Math.min(100, (rehearsalLoopState.startTime / dur) * 100));
+      loopMarkerA.style.left = `${pctA}%`;
+      loopMarkerA.title = `Loop Start (A): ${formatSeconds(rehearsalLoopState.startTime)}`;
+      loopMarkerA.classList.remove('hidden');
+    } else {
+      loopMarkerA.classList.add('hidden');
+    }
+  }
+
+  if (loopMarkerB) {
+    if (hasSong && rehearsalLoopState.endTime !== null) {
+      const pctB = Math.max(0, Math.min(100, (rehearsalLoopState.endTime / dur) * 100));
+      loopMarkerB.style.left = `${pctB}%`;
+      loopMarkerB.title = `Loop End (B): ${formatSeconds(rehearsalLoopState.endTime)}`;
+      loopMarkerB.classList.remove('hidden');
+    } else {
+      loopMarkerB.classList.add('hidden');
+    }
+  }
+
+  if (loopRangeFill) {
+    if (valid) {
+      const leftPct = Math.max(0, Math.min(100, (rehearsalLoopState.startTime / dur) * 100));
+      const rightPct = Math.max(0, Math.min(100, (rehearsalLoopState.endTime / dur) * 100));
+      loopRangeFill.style.left = `${leftPct}%`;
+      loopRangeFill.style.width = `${Math.max(0.5, rightPct - leftPct)}%`;
+      loopRangeFill.classList.toggle('inactive', !active);
+      loopRangeFill.classList.remove('hidden');
+    } else {
+      loopRangeFill.classList.add('hidden');
+    }
+  }
+}
+
+function setRehearsalMarkerA(rawTime = playbackState.currentTime) {
+  if (!currentSong || !currentSong.duration) return;
+  const clamped = Math.max(0, Math.min(currentSong.duration, rawTime));
+  rehearsalLoopState.startTime = clamped;
+
+  if (rehearsalLoopState.endTime !== null) {
+    if (rehearsalLoopState.startTime > rehearsalLoopState.endTime) {
+      const tmp = rehearsalLoopState.endTime;
+      rehearsalLoopState.endTime = rehearsalLoopState.startTime;
+      rehearsalLoopState.startTime = tmp;
+    }
+    if ((rehearsalLoopState.endTime - rehearsalLoopState.startTime) >= MIN_REHEARSAL_LOOP_SPAN_SEC) {
+      rehearsalLoopState.enabled = true;
+      rehearsalLoopState.passMistakes = 0;
+    }
+  }
+
+  updateRehearsalUI();
+  showGrimoireToast(`\uD83D\uDD01 Loop Start [A] set to ${formatSeconds(rehearsalLoopState.startTime)}`);
+}
+
+function setRehearsalMarkerB(rawTime = playbackState.currentTime) {
+  if (!currentSong || !currentSong.duration) return;
+  const clamped = Math.max(0, Math.min(currentSong.duration, rawTime));
+  rehearsalLoopState.endTime = clamped;
+
+  if (rehearsalLoopState.startTime === null) {
+    rehearsalLoopState.startTime = 0;
+  }
+  if (rehearsalLoopState.endTime < rehearsalLoopState.startTime) {
+    const tmp = rehearsalLoopState.startTime;
+    rehearsalLoopState.startTime = rehearsalLoopState.endTime;
+    rehearsalLoopState.endTime = tmp;
+  }
+
+  if ((rehearsalLoopState.endTime - rehearsalLoopState.startTime) >= MIN_REHEARSAL_LOOP_SPAN_SEC) {
+    rehearsalLoopState.enabled = true;
+    rehearsalLoopState.passMistakes = 0;
+
+    if (playbackState.isPlaying || playbackState.currentTime >= rehearsalLoopState.endTime - 0.05) {
+      const jumpTime = Math.max(0, rehearsalLoopState.startTime - REHEARSAL_PREROLL_SEC);
+      playbackState.currentTime = jumpTime;
+      playbackState.isWaitingForStrike = false;
+      playbackState.waitStartedAtMs = null;
+      playbackState.activeStrikeGroup = null;
+      resetSongProgressFlags(jumpTime);
+      if (currentSong.backingAudioEl) {
+        try {
+          currentSong.backingAudioEl.currentTime = jumpTime;
+        } catch {
+          // Ignore seek errors
+        }
+      }
+      syncBackingAudioElement(jumpTime);
+      updateTimelineUI();
+    }
+
+    showGrimoireToast(
+      `\uD83D\uDD01 Rehearsal Loop Active: ${formatSeconds(rehearsalLoopState.startTime)} \u2192 ${formatSeconds(rehearsalLoopState.endTime)}`
+    );
+  } else {
+    showGrimoireToast(`\uD83D\uDD01 Loop End [B] must be at least ${MIN_REHEARSAL_LOOP_SPAN_SEC}s after [A]`);
+  }
+
+  updateRehearsalUI();
+}
+
+function toggleRehearsalLoop() {
+  if (!currentSong) return;
+  if (!hasValidRehearsalLoop()) {
+    showGrimoireToast('\uD83D\uDD01 Set Loop Start [A] and End [B] first (shortcuts: [ and ])');
+    return;
+  }
+
+  rehearsalLoopState.enabled = !rehearsalLoopState.enabled;
+  rehearsalLoopState.passMistakes = 0;
+
+  if (rehearsalLoopState.enabled && playbackState.currentTime >= rehearsalLoopState.endTime) {
+    const jumpTime = Math.max(0, rehearsalLoopState.startTime - REHEARSAL_PREROLL_SEC);
+    playbackState.currentTime = jumpTime;
+    resetSongProgressFlags(jumpTime);
+    if (currentSong.backingAudioEl) {
+      try {
+        currentSong.backingAudioEl.currentTime = jumpTime;
+      } catch {
+        // Ignore seek errors
+      }
+    }
+    updateTimelineUI();
+  }
+
+  updateRehearsalUI();
+  showGrimoireToast(
+    rehearsalLoopState.enabled
+      ? `\uD83D\uDD01 Rehearsal Loop ON (${formatSeconds(rehearsalLoopState.startTime)} \u2192 ${formatSeconds(rehearsalLoopState.endTime)})`
+      : '\uD83D\uDD01 Rehearsal Loop OFF'
+  );
+}
+
+function clearRehearsalLoop() {
+  rehearsalLoopState.enabled = false;
+  rehearsalLoopState.startTime = null;
+  rehearsalLoopState.endTime = null;
+  rehearsalLoopState.cleanPasses = 0;
+  rehearsalLoopState.totalPasses = 0;
+  rehearsalLoopState.passMistakes = 0;
+  updateRehearsalUI();
+}
+
+function handleRehearsalLoopWrap() {
+  if (!currentSong || !hasValidRehearsalLoop()) return;
+
+  rehearsalLoopState.totalPasses++;
+  const isClean = rehearsalLoopState.passMistakes === 0;
+  if (isClean) {
+    rehearsalLoopState.cleanPasses++;
+  }
+
+  if (rehearsalLoopState.autoRamp && isClean && playbackState.playbackSpeed < rehearsalLoopState.targetSpeed) {
+    const nextPreset = REHEARSAL_SPEED_PRESETS.find(
+      (s) => s > playbackState.playbackSpeed + 0.001 && s <= rehearsalLoopState.targetSpeed + 0.001
+    );
+    if (nextPreset) {
+      playbackState.playbackSpeed = nextPreset;
+      if (playbackSpeedSelect) {
+        playbackSpeedSelect.value = String(nextPreset);
+      }
+      if (currentSong.backingAudioEl) {
+        currentSong.backingAudioEl.playbackRate = nextPreset;
+      }
+      showGrimoireToast(`\u2728 Clean Pass! Tempo ramped to ${nextPreset}x`);
+    } else {
+      showGrimoireToast(`\uD83C\uDFC6 Clean Pass #${rehearsalLoopState.cleanPasses} at target ${playbackState.playbackSpeed}x!`);
+    }
+  } else if (isClean) {
+    showGrimoireToast(`\uD83D\uDD01 Clean Pass #${rehearsalLoopState.cleanPasses} (${playbackState.playbackSpeed}x)`);
+  } else {
+    const m = rehearsalLoopState.passMistakes;
+    showGrimoireToast(`\uD83D\uDD01 Repeat at ${playbackState.playbackSpeed}x (${m} miss${m === 1 ? '' : 'es'})`);
+  }
+
+  rehearsalLoopState.passMistakes = 0;
+
+  const jumpTime = Math.max(0, rehearsalLoopState.startTime - REHEARSAL_PREROLL_SEC);
+  playbackState.currentTime = jumpTime;
+  playbackState.isWaitingForStrike = false;
+  playbackState.waitStartedAtMs = null;
+  playbackState.activeStrikeGroup = null;
+  resetSongProgressFlags(jumpTime);
+
+  if (currentSong.backingAudioEl) {
+    try {
+      currentSong.backingAudioEl.currentTime = jumpTime;
+    } catch {
+      // Ignore seek errors
+    }
+  }
+  syncBackingAudioElement(jumpTime);
+  updateTimelineUI();
+  updateRehearsalUI();
+}
+
+/**
  * 60 FPS Master Animation Loop (The Spell Highway + Phase 4 Wait Mode Gating)
  */
 function animationLoop(timestamp) {
@@ -2375,6 +2672,20 @@ function animationLoop(timestamp) {
     }
 
     playbackState.currentTime = proposedTime;
+
+    // Issue #30: Loop Practice Mode (Rehearsal) — wrap cleanly from B back to A - preRoll
+    if (
+      rehearsalLoopState.enabled &&
+      hasValidRehearsalLoop() &&
+      !playbackState.isWaitingForStrike &&
+      playbackState.currentTime >= rehearsalLoopState.endTime
+    ) {
+      handleRehearsalLoopWrap();
+      renderCanvas();
+      requestAnimationFrame(animationLoop);
+      return;
+    }
+
     // Hold accompaniment & backing band notes at anchorTime while frozen in Wait Mode until the player strikes (Issue #10, Fixes #56)
     const audioTriggerEnd = playbackState.isWaitingForStrike ? (proposedTime - 0.001) : proposedTime;
     if (audioTriggerEnd >= prevTime) {
@@ -3724,6 +4035,7 @@ function unloadCurrentSongToEmptyState() {
     songProgressSlider.disabled = true;
   }
   if (songTimeReadout) songTimeReadout.textContent = '0:00 / 0:00';
+  clearRehearsalLoop();
 
   setStrikeStatusBadge('idle', 'Highway Clear \u2014 Open Grimoire to Choose a Spell');
   updateLitrpgHUD();
@@ -4632,6 +4944,34 @@ function renderCanvas() {
   // 2. Draw 60 FPS Falling Spell Highway Notes
   const strikeLineGuides = drawFallingSpellHighway(strikeLineY, width);
 
+  // 2b. Issue #30: Draw Rehearsal Loop A/B boundary lines on the Spell Highway
+  if (currentSong && rehearsalLoopState.enabled && hasValidRehearsalLoop()) {
+    const pxPerSec = playbackState.fallSpeedPxPerSec;
+    const markers = [
+      { t: rehearsalLoopState.startTime, label: 'LOOP A', color: 'rgba(255, 215, 0, 0.78)' },
+      { t: rehearsalLoopState.endTime, label: 'LOOP B', color: 'rgba(245, 158, 11, 0.88)' }
+    ];
+    for (const m of markers) {
+      const y = strikeLineY - (m.t - playbackState.currentTime) * pxPerSec;
+      if (y >= 4 && y <= strikeLineY) {
+        ctx.save();
+        ctx.strokeStyle = m.color;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = m.color;
+        ctx.font = 'bold 10px "Consolas", monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(m.label, width - 8, Math.max(12, y - 4));
+        ctx.restore();
+      }
+    }
+  }
+
   // 3. Draw glowing Strike Zone Line above the 61-key keyboard (with Bardic Inspiration glow at 50+ combo)
   ctx.save();
   const isWaiting = playbackState.isWaitingForStrike;
@@ -4927,6 +5267,11 @@ function closeAllConservatoryPopovers() {
     btnSpellDetails.classList.remove('active');
     btnSpellDetails.setAttribute('aria-expanded', 'false');
   }
+  if (rehearsalPopover) rehearsalPopover.classList.add('hidden');
+  if (btnRehearsalPopover) {
+    btnRehearsalPopover.classList.remove('active');
+    btnRehearsalPopover.setAttribute('aria-expanded', 'false');
+  }
 }
 
 function isAnyModalOpen() {
@@ -5024,6 +5369,22 @@ window.addEventListener('keydown', (e) => {
 
   if (e.repeat) return;
   const key = (e.key || '').toLowerCase();
+
+  if (key === '[') {
+    e.preventDefault();
+    setRehearsalMarkerA();
+    return;
+  }
+  if (key === ']') {
+    e.preventDefault();
+    setRehearsalMarkerB();
+    return;
+  }
+  if (key === '\\') {
+    e.preventDefault();
+    toggleRehearsalLoop();
+    return;
+  }
 
   if (key === 'z' || e.code === 'KeyZ') {
     e.preventDefault();
@@ -5272,6 +5633,71 @@ songProgressSlider.addEventListener('mouseup', () => {
   songProgressSlider.blur();
 });
 
+// Issue #30: Rehearsal Loop Event Listeners
+if (btnLoopA) {
+  btnLoopA.addEventListener('click', () => {
+    setRehearsalMarkerA();
+    btnLoopA.blur();
+  });
+}
+
+if (btnLoopB) {
+  btnLoopB.addEventListener('click', () => {
+    setRehearsalMarkerB();
+    btnLoopB.blur();
+  });
+}
+
+if (btnRehearsalToggle) {
+  btnRehearsalToggle.addEventListener('click', () => {
+    toggleRehearsalLoop();
+    btnRehearsalToggle.blur();
+  });
+}
+
+if (btnRehearsalPopover && rehearsalPopover) {
+  btnRehearsalPopover.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willOpen = rehearsalPopover.classList.contains('hidden');
+    closeAllConservatoryPopovers();
+    if (willOpen) {
+      updateRehearsalUI();
+      rehearsalPopover.classList.remove('hidden');
+      btnRehearsalPopover.classList.add('active');
+      btnRehearsalPopover.setAttribute('aria-expanded', 'true');
+    }
+  });
+}
+
+if (btnCloseRehearsalPopover) {
+  btnCloseRehearsalPopover.addEventListener('click', () => {
+    closeAllConservatoryPopovers();
+  });
+}
+
+if (btnLoopClear) {
+  btnLoopClear.addEventListener('click', () => {
+    clearRehearsalLoop();
+    showGrimoireToast('\uD83D\uDD01 Rehearsal Loop cleared');
+  });
+}
+
+if (chkRehearsalAutoramp) {
+  chkRehearsalAutoramp.addEventListener('change', (e) => {
+    rehearsalLoopState.autoRamp = Boolean(e.target.checked);
+    updateRehearsalUI();
+    e.target.blur();
+  });
+}
+
+if (rehearsalTargetSpeedSelect) {
+  rehearsalTargetSpeedSelect.addEventListener('change', (e) => {
+    rehearsalLoopState.targetSpeed = Number(e.target.value) || 1.0;
+    updateRehearsalUI();
+    e.target.blur();
+  });
+}
+
 playableTrackSelect.addEventListener('change', (e) => {
   assignSongTracksAndDifficulty(e.target.value);
   e.target.blur();
@@ -5360,6 +5786,14 @@ document.addEventListener('click', (e) => {
     !spellDetailsPopover.classList.contains('hidden') &&
     !spellDetailsPopover.contains(target) &&
     target !== btnSpellDetails
+  ) {
+    closeAllConservatoryPopovers();
+  }
+  if (
+    rehearsalPopover &&
+    !rehearsalPopover.classList.contains('hidden') &&
+    !rehearsalPopover.contains(target) &&
+    target !== btnRehearsalPopover
   ) {
     closeAllConservatoryPopovers();
   }

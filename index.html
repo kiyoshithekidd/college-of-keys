@@ -375,8 +375,57 @@
           &#9198;
         </button>
         <div class="timeline-box">
-          <input id="song-progress-slider" type="range" min="0" max="1000" value="0" step="1" class="timeline-slider" disabled />
+          <div class="timeline-track-wrap">
+            <div id="loop-range-fill" class="loop-range-fill hidden"></div>
+            <div id="loop-marker-a" class="loop-marker loop-marker-a hidden" title="Loop Start (A)"></div>
+            <div id="loop-marker-b" class="loop-marker loop-marker-b hidden" title="Loop End (B)"></div>
+            <input id="song-progress-slider" type="range" min="0" max="1000" value="0" step="1" class="timeline-slider" disabled />
+          </div>
           <span id="song-time-readout" class="time-readout">0:00 / 0:00</span>
+        </div>
+
+        <!-- Issue #30: Loop Practice Mode (Rehearsal) -->
+        <div class="rehearsal-inline-group popover-anchor">
+          <button id="btn-loop-a" type="button" class="tavern-btn btn-loop-marker" disabled title="Set Loop Start [A] at current playhead (Shortcut: [)">
+            A
+          </button>
+          <button id="btn-loop-b" type="button" class="tavern-btn btn-loop-marker" disabled title="Set Loop End [B] at current playhead (Shortcut: ])">
+            B
+          </button>
+          <button id="btn-rehearsal-toggle" type="button" class="tavern-btn btn-rehearsal-toggle" disabled title="Toggle Rehearsal Loop ON/OFF (Shortcut: \)" aria-pressed="false">
+            &#128257; <span id="rehearsal-toggle-label">Loop</span>
+          </button>
+          <button id="btn-rehearsal-popover" type="button" class="tavern-btn btn-rehearsal-caret" disabled title="Rehearsal Loop &amp; Auto-Ramp Options" aria-expanded="false" aria-controls="rehearsal-popover">
+            &#9662;
+          </button>
+
+          <div id="rehearsal-popover" class="conservatory-popover rehearsal-popover hidden" role="dialog" aria-label="Rehearsal Loop Settings">
+            <div class="popover-header">
+              <strong>&#128257; Rehearsal Circle</strong>
+              <button id="btn-close-rehearsal-popover" type="button" class="btn-icon" title="Close Rehearsal Options">&#10005;</button>
+            </div>
+            <div class="popover-row">
+              <span class="rehearsal-ab-readout">A: <strong id="rehearsal-a-time">&mdash;</strong> &rarr; B: <strong id="rehearsal-b-time">&mdash;</strong></span>
+              <button id="btn-loop-clear" type="button" class="btn-mini-sim" disabled title="Clear A and B loop markers">
+                Clear A&ndash;B
+              </button>
+            </div>
+            <div class="popover-divider"></div>
+            <div class="popover-row">
+              <label for="chk-rehearsal-autoramp" class="rehearsal-check-label" title="Step up tempo to the next speed preset after each 0-miss pass">
+                <input id="chk-rehearsal-autoramp" type="checkbox" />
+                <span>Auto-Ramp Tempo</span>
+              </label>
+              <select id="rehearsal-target-speed" class="tavern-select rehearsal-target-select" title="Target tempo for Auto-Ramp">
+                <option value="1" selected>Target: 1.0x</option>
+                <option value="1.25">Target: 1.25x</option>
+              </select>
+            </div>
+            <div class="popover-divider"></div>
+            <div class="rehearsal-status-footer">
+              <span id="rehearsal-pass-status">Set A ([) and B (]) to loop a passage</span>
+            </div>
+          </div>
         </div>
       </div>
 
