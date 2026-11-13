@@ -177,10 +177,10 @@ def write_standard_midi_file(
 def clean_and_quantize_neural_notes(raw_notes: list) -> list:
     """
     Post-process neural note events for 61-key human playability:
-    1. Filter out low-confidence ghost notes and ultra-short (<100ms) glitches.
+    1. Filter out low-confidence ghost notes and ultra-short (<95ms) glitches.
     2. Merge same-pitch notes separated by tiny gaps (<45ms) caused by vibrato/pedal.
-    3. Limit simultaneous polyphony per 60ms onset cluster to at most 3 RH notes + 2 LH notes
-       (keeping highest-confidence notes) so YouTube reverb/percussion doesn't create impossible clusters.
+    3. Snap micro-jittered onset clusters (<= 35ms) to a clean shared anchor time,
+       limit simultaneous polyphony to at most 3 RH + 2 LH notes, and cap >5.5s smears.
     """
     if not raw_notes:
         return []
@@ -191,40 +191,47 @@ def clean_and_quantize_neural_notes(raw_notes: list) -> list:
     for note in by_pitch:
         if note["duration"] < 0.095 or note["velocity"] < 42:
             continue
-        if merged and merged[-1]["midi"] == note["midi"]:
+        clipped = dict(note)
+        if clipped["duration"] > 5.5:
+            clipped["duration"] = 5.5
+        if merged and merged[-1]["midi"] == clipped["midi"]:
             prev = merged[-1]
-            gap = note["start"] - (prev["start"] + prev["duration"])
+            gap = clipped["start"] - (prev["start"] + prev["duration"])
             if gap <= 0.045:
-                new_end = max(prev["start"] + prev["duration"], note["start"] + note["duration"])
+                new_end = min(prev["start"] + 5.5, max(prev["start"] + prev["duration"], clipped["start"] + clipped["duration"]))
                 prev["duration"] = round(new_end - prev["start"], 3)
-                prev["velocity"] = max(prev["velocity"], note["velocity"])
+                prev["velocity"] = max(prev["velocity"], clipped["velocity"])
                 continue
-        merged.append(dict(note))
+        merged.append(clipped)
 
-    # Sort chronologically and cap polyphony within 60ms onset windows
+    # Sort chronologically and cap polyphony within 45ms onset windows, snapping onsets together
     merged.sort(key=lambda n: (n["start"], -n["velocity"]))
     cleaned = []
     cluster = []
     cluster_anchor = None
 
-    def flush_cluster(c_list):
+    def flush_cluster(c_list, anchor):
         if not c_list:
             return
+        snapped = round(float(anchor), 3)
+        for n in c_list:
+            if abs(n["start"] - snapped) <= 0.038:
+                n["start"] = snapped
         rh = sorted([n for n in c_list if n["midi"] >= 60], key=lambda x: -x["velocity"])[:3]
         lh = sorted([n for n in c_list if n["midi"] < 60], key=lambda x: -x["velocity"])[:2]
         cleaned.extend(rh + lh)
 
     for note in merged:
-        if cluster_anchor is None or (note["start"] - cluster_anchor) <= 0.060:
+        if cluster_anchor is None or (note["start"] - cluster_anchor) <= 0.045:
             if cluster_anchor is None:
                 cluster_anchor = note["start"]
             cluster.append(note)
         else:
-            flush_cluster(cluster)
+            flush_cluster(cluster, cluster_anchor)
             cluster = [note]
             cluster_anchor = note["start"]
 
-    flush_cluster(cluster)
+    flush_cluster(cluster, cluster_anchor)
     cleaned.sort(key=lambda n: (n["start"], n["midi"]))
     return cleaned
 
@@ -524,6 +531,17 @@ def download_youtube_audio(url: str, work_dir: Path, custom_title: str = None):
     return downloaded_path, video_title
 
 
+def _find_ffmpeg_bin():
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if not ffmpeg_bin:
+        try:
+            import imageio_ffmpeg
+            ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            ffmpeg_bin = None
+    return ffmpeg_bin
+
+
 def convert_audio_to_pcm_wav(input_audio: Path, target_wav: Path) -> bool:
     """
     If `input_audio` is already a standard 16-bit PCM `.wav` file, copy it; otherwise use `ffmpeg`
@@ -537,19 +555,13 @@ def convert_audio_to_pcm_wav(input_audio: Path, target_wav: Path) -> bool:
                 if wf.getcomptype() == "NONE" and wf.getsampwidth() in (1, 2, 3, 4):
                     is_valid_pcm_wav = True
                     if wf.getsampwidth() == 2 and wf.getnchannels() == 1:
-                        shutil.copy2(input_audio, target_wav)
+                        if input_audio.resolve() != target_wav.resolve():
+                            shutil.copy2(input_audio, target_wav)
                         return True
         except Exception:
             is_valid_pcm_wav = False
 
-    ffmpeg_bin = shutil.which("ffmpeg")
-    if not ffmpeg_bin:
-        try:
-            import imageio_ffmpeg
-            ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
-        except Exception:
-            ffmpeg_bin = None
-
+    ffmpeg_bin = _find_ffmpeg_bin()
     if ffmpeg_bin:
         cmd = [
             ffmpeg_bin,
@@ -569,10 +581,65 @@ def convert_audio_to_pcm_wav(input_audio: Path, target_wav: Path) -> bool:
             return True
 
     if is_valid_pcm_wav:
-        shutil.copy2(input_audio, target_wav)
+        if input_audio.resolve() != target_wav.resolve():
+            shutil.copy2(input_audio, target_wav)
         return True
 
     return False
+
+
+def convert_audio_to_stereo_backing_wav(input_audio: Path, target_wav: Path) -> bool:
+    """
+    Decode `.webm`/`.opus`/stream audio to 44.1kHz stereo 16-bit PCM WAV for Chromium `<audio>` playback.
+    """
+    ffmpeg_bin = _find_ffmpeg_bin()
+    if ffmpeg_bin:
+        cmd = [
+            ffmpeg_bin,
+            "-y",
+            "-i",
+            str(input_audio),
+            "-ac",
+            "2",
+            "-ar",
+            "44100",
+            "-sample_fmt",
+            "s16",
+            str(target_wav),
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if res.returncode == 0 and target_wav.exists():
+            return True
+    return convert_audio_to_pcm_wav(input_audio, target_wav)
+
+
+def save_playable_backing_audio(source_audio_path: Path, output_dir: Path, safe_base: str, tmp_dir: Path, mono_pcm_wav: Path = None) -> Path:
+    """
+    Copy Chromium-playable audio directly or transcode `.webm`/`.opus` streams into high-quality WAV.
+    """
+    ext_lower = source_audio_path.suffix.lower()
+    if ext_lower in (".wav", ".mp3", ".m4a", ".ogg", ".flac") and source_audio_path.exists():
+        dest_path = output_dir / f"{safe_base}{ext_lower}"
+        if source_audio_path.resolve() != dest_path.resolve():
+            shutil.copy2(source_audio_path, dest_path)
+        return dest_path
+
+    dest_wav = output_dir / f"{safe_base}.wav"
+    log_status("converting_audio", "Converting stream to high-quality backing WAV...", 75)
+    if convert_audio_to_stereo_backing_wav(source_audio_path, dest_wav):
+        return dest_wav
+
+    if mono_pcm_wav and mono_pcm_wav.exists():
+        shutil.copy2(mono_pcm_wav, dest_wav)
+        return dest_wav
+
+    if source_audio_path.exists():
+        fallback_dest = output_dir / f"{safe_base}{ext_lower or '.audio'}"
+        if source_audio_path.resolve() != fallback_dest.resolve():
+            shutil.copy2(source_audio_path, fallback_dest)
+        return fallback_dest
+
+    raise RuntimeError("Could not produce a playable backing audio file.")
 
 
 # ============================================================================
@@ -637,7 +704,7 @@ def generate_self_test_wav(wav_path: Path):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="College of Keys — Phase 8 YouTube/Audio-to-MIDI ML Pipeline (yt-dlp + basic-pitch)"
+        description="College of Keys — Phase 8 YouTube/Audio-to-MIDI ML Pipeline & Issue #76 Clean Audio Fetcher"
     )
     parser.add_argument(
         "source",
@@ -653,6 +720,16 @@ def main():
         "--title",
         default=None,
         help="Optional custom spell title",
+    )
+    parser.add_argument(
+        "--stem",
+        default=None,
+        help="Optional safe filename stem (without extension) for the saved output files",
+    )
+    parser.add_argument(
+        "--audio-only",
+        action="store_true",
+        help="Download/convert clean backing audio only without running AI MIDI transcription (Song Bundle mode)",
     )
     parser.add_argument(
         "--no-backing",
@@ -675,7 +752,7 @@ def main():
 
             if args.self_test:
                 title = args.title or f"Arcane_ML_Transcription_{int(time.time()) % 1000}"
-                safe_base = sanitize_filename(title)
+                safe_base = sanitize_filename(args.stem or title)
                 test_wav = tmp_dir / f"{safe_base}.wav"
 
                 log_status("starting", "Generating polyphonic acoustic test audio (.wav)...", 15)
@@ -696,7 +773,23 @@ def main():
                     source_audio_path = local_path
                     title = args.title or local_path.stem
 
-                safe_base = sanitize_filename(title)
+                safe_base = sanitize_filename(args.stem or title)
+
+            if args.audio_only:
+                dest_backing_path = save_playable_backing_audio(source_audio_path, output_dir, safe_base, tmp_dir)
+                log_status(
+                    "complete",
+                    f"Clean Backing Audio ready in Imports/: {dest_backing_path.name}",
+                    100,
+                    {
+                        "title": title,
+                        "midi_path": None,
+                        "backing_path": str(dest_backing_path) if dest_backing_path.exists() else None,
+                        "audio_only": True,
+                        "engine": "yt-dlp-audio-only",
+                    },
+                )
+                return 0
 
             dest_midi_path = output_dir / f"{safe_base}.mid"
             dest_backing_path = output_dir / f"{safe_base}{source_audio_path.suffix.lower()}"
@@ -711,14 +804,13 @@ def main():
             #    so that when fs.watch detects the new .mid file, the paired backing track is already on disk!
             if not args.no_backing:
                 try:
-                    ext_lower = source_audio_path.suffix.lower()
-                    if ext_lower in (".wav", ".mp3", ".m4a", ".ogg") and source_audio_path.exists():
-                        shutil.copy2(source_audio_path, dest_backing_path)
-                    elif has_pcm_wav and pcm_wav.exists():
-                        dest_backing_path = output_dir / f"{safe_base}.wav"
-                        shutil.copy2(pcm_wav, dest_backing_path)
-                    elif source_audio_path.exists():
-                        shutil.copy2(source_audio_path, dest_backing_path)
+                    dest_backing_path = save_playable_backing_audio(
+                        source_audio_path,
+                        output_dir,
+                        safe_base,
+                        tmp_dir,
+                        mono_pcm_wav=pcm_wav if has_pcm_wav else None,
+                    )
                 except Exception:
                     pass
 
@@ -751,6 +843,7 @@ def main():
                     "title": title,
                     "midi_path": str(dest_midi_path),
                     "backing_path": str(dest_backing_path) if dest_backing_path.exists() else None,
+                    "audio_only": False,
                     "engine": "spotify-basic-pitch" if used_basic_pitch else "polyphonic-harmonic-dsp",
                 },
             )
@@ -764,4 +857,5 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
 

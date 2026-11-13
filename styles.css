@@ -592,10 +592,46 @@ html, body {
 
 .btn-settings-gear.active,
 .btn-info-pill.active,
-.btn-rehearsal-caret.active {
+.btn-rehearsal-caret.active,
+.btn-audio-sync.active {
   border-color: var(--radiant-gold);
   color: var(--radiant-gold);
   box-shadow: 0 0 12px rgba(255, 215, 0, 0.35);
+}
+
+.btn-audio-sync {
+  padding: 3px 8px;
+  gap: 5px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #a5f3fc;
+  border-color: rgba(0, 229, 255, 0.45);
+  background: rgba(14, 24, 30, 0.85);
+}
+
+.btn-audio-sync:hover {
+  border-color: var(--eldritch-blue);
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.32);
+}
+
+.btn-audio-sync.sync-non-zero {
+  border-color: rgba(255, 215, 0, 0.65);
+  color: #fde68a;
+}
+
+.sync-badge-pill {
+  font-family: 'Consolas', monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.42);
+  color: #67e8f9;
+}
+
+.btn-audio-sync.sync-non-zero .sync-badge-pill {
+  color: var(--radiant-gold);
 }
 
 .conservatory-popover {
@@ -620,6 +656,86 @@ html, body {
   right: auto;
   left: 0;
   width: 350px;
+}
+
+.conservatory-popover.audio-sync-popover {
+  width: 320px;
+  gap: 9px;
+}
+
+.sync-control-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sync-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sync-field-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.sync-readout {
+  font-family: 'Consolas', monospace;
+  font-size: 0.84rem;
+  color: var(--radiant-gold);
+}
+
+.sync-stepper-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.sync-step-btn {
+  padding: 4px 6px;
+  font-family: 'Consolas', monospace;
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.sync-actions-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.sync-action-btn {
+  padding: 5px 8px;
+  font-size: 0.73rem;
+  justify-content: center;
+}
+
+.sync-action-btn.is-auditioning {
+  background: linear-gradient(180deg, rgba(0, 229, 255, 0.25) 0%, rgba(14, 116, 144, 0.35) 100%);
+  border-color: var(--eldritch-blue);
+  color: #ecfeff;
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.35);
+}
+
+.sync-action-btn.is-armed {
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.42) 0%, rgba(180, 83, 9, 0.52) 100%);
+  border-color: #fde68a;
+  color: #ffffff;
+  box-shadow: 0 0 14px rgba(255, 215, 0, 0.48);
+}
+
+.sync-status-hint {
+  font-size: 0.71rem;
+  line-height: 1.32;
+  color: #baab93;
+  background: rgba(10, 8, 6, 0.55);
+  border: 1px solid rgba(138, 109, 47, 0.32);
+  border-radius: 6px;
+  padding: 6px 8px;
 }
 
 .popover-header {
@@ -2137,18 +2253,28 @@ html, body {
 .spellbook-detail-panel {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.30cqw;
+}
+
+.detail-scroll-body {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 0.35cqw;
+  gap: 0.30cqw;
+  padding-right: 2px;
 }
 
-.spellbook-detail-panel::-webkit-scrollbar {
+.detail-scroll-body::-webkit-scrollbar {
   width: 4px;
 }
 
-.spellbook-detail-panel::-webkit-scrollbar-thumb {
-  background: rgba(138, 109, 47, 0.40);
+.detail-scroll-body::-webkit-scrollbar-thumb {
+  background: rgba(138, 109, 47, 0.42);
   border-radius: 999px;
 }
 
@@ -2243,6 +2369,103 @@ html, body {
   color: #1a0a00;
   font-family: 'Consolas', monospace;
   font-weight: 800;
+}
+
+/* Issue #76: Compact 1-Row Parchment Song Bundle Strip */
+.detail-bundle-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.30cqw;
+  background: rgba(255, 252, 244, 0.78);
+  border: 1px solid rgba(138, 109, 47, 0.36);
+  border-radius: 5px;
+  padding: 0.22cqw 0.45cqw;
+  min-height: 22px;
+  flex-shrink: 0;
+}
+
+.detail-bundle-chips {
+  display: flex;
+  align-items: center;
+  gap: 0.22cqw;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.bundle-chip {
+  font-family: 'Consolas', monospace;
+  font-size: clamp(7px, 0.58cqw, 8.5px);
+  font-weight: 700;
+  padding: 0.08cqw 0.32cqw;
+  border-radius: 4px;
+  border: 1px solid rgba(138, 109, 47, 0.34);
+  background: rgba(138, 109, 47, 0.12);
+  color: #1a0a00;
+  white-space: nowrap;
+  line-height: 1.25;
+}
+
+.bundle-chip.chip-sheet {
+  color: #065f46;
+  background: rgba(6, 95, 70, 0.10);
+  border-color: rgba(6, 95, 70, 0.35);
+  cursor: pointer;
+}
+
+.bundle-chip.chip-sheet:hover {
+  background: rgba(6, 95, 70, 0.20);
+  border-color: #065f46;
+}
+
+.bundle-chip.chip-audio {
+  color: #065f46;
+  background: rgba(6, 95, 70, 0.10);
+  border-color: rgba(6, 95, 70, 0.35);
+}
+
+.bundle-chip.chip-audio.chip-missing {
+  color: #6a4c30;
+  background: rgba(138, 109, 47, 0.07);
+  border-color: rgba(138, 109, 47, 0.24);
+}
+
+.bundle-chip.chip-spotify {
+  color: #7a4a0c;
+  background: rgba(217, 119, 6, 0.12);
+  border-color: rgba(180, 83, 9, 0.38);
+  cursor: pointer;
+}
+
+.bundle-chip.chip-spotify:hover {
+  background: rgba(217, 119, 6, 0.24);
+  border-color: #7a4a0c;
+}
+
+.btn-spellbook-bundle {
+  font-family: Georgia, serif;
+  font-size: clamp(7.5px, 0.62cqw, 9px);
+  font-weight: 700;
+  padding: 0.12cqw 0.44cqw;
+  border-radius: 999px;
+  border: 1px solid rgba(138, 109, 47, 0.55);
+  background: rgba(255, 247, 224, 0.92);
+  color: #4a2d12;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.btn-spellbook-bundle:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: #7a4a0c;
+  color: #1a0a00;
+}
+
+.btn-spellbook-bundle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* 2x2 Bardic Annals Performance Box (Zero Overflow) */
@@ -2661,21 +2884,25 @@ html, body {
   box-shadow: 0 0 18px rgba(251, 191, 36, 0.48);
 }
 
+#quest-board-modal {
+  z-index: 1300;
+}
+
 .quest-board-card {
-  width: min(740px, 95vw);
+  width: min(820px, 95vw);
   max-height: 92vh;
   overflow-y: auto;
   background: linear-gradient(180deg, #241a14 0%, #130d09 100%);
   border: 2px solid var(--radiant-gold);
   border-radius: 14px;
-  padding: 20px 24px;
+  padding: 14px 20px;
   box-shadow:
     0 24px 60px rgba(0, 0, 0, 0.88),
     0 0 36px rgba(212, 175, 55, 0.22),
     inset 0 0 22px rgba(255, 215, 0, 0.08);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
 .quest-modal-top-bar {
@@ -2695,10 +2922,10 @@ html, body {
   background: rgba(18, 13, 10, 0.88);
   border: 1px solid rgba(138, 109, 47, 0.65);
   border-radius: 10px;
-  padding: 14px 16px;
+  padding: 10px 14px;
   display: flex;
   flex-direction: column;
-  gap: 11px;
+  gap: 8px;
 }
 
 .quest-section-header {
@@ -2709,21 +2936,152 @@ html, body {
   flex-wrap: wrap;
 }
 
+.quest-bounties-header-bar {
+  gap: 8px;
+}
+
+.btn-bounties-accordion {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+  border-radius: 6px;
+}
+
+.btn-bounties-accordion:hover {
+  background: rgba(212, 175, 55, 0.08);
+}
+
+.bounties-caret {
+  font-size: 0.78rem;
+  color: var(--radiant-gold);
+  transition: transform 0.16s ease;
+}
+
+.btn-bounties-accordion[aria-expanded="false"] .bounties-caret {
+  transform: rotate(-90deg);
+}
+
+.daily-bounties-collapsible.collapsed {
+  display: none;
+}
+
+.quest-tabs-bar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.quest-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  border: 1px solid rgba(138, 109, 47, 0.55);
+  background: rgba(24, 18, 13, 0.85);
+  color: var(--text-muted);
+  font-family: Georgia, serif;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.quest-tab-btn:hover {
+  border-color: var(--radiant-gold);
+  color: var(--text-parchment);
+  background: rgba(38, 28, 20, 0.92);
+}
+
+.quest-tab-btn.active {
+  background: linear-gradient(180deg, rgba(64, 44, 18, 0.96) 0%, rgba(36, 24, 10, 0.96) 100%);
+  border-color: var(--radiant-gold);
+  color: #fff6cc;
+  box-shadow: 0 0 14px rgba(255, 215, 0, 0.22);
+}
+
+.quest-tab-pill {
+  font-family: 'Consolas', monospace;
+  font-size: 0.68rem;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  color: #67e8f9;
+}
+
+.quest-bundle-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+}
+
+.quest-field-span2 {
+  grid-column: 1 / -1;
+}
+
+.quest-file-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  background: #0c0907;
+  border: 1px solid var(--border-brass);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.quest-pick-btn {
+  padding: 3px 9px;
+  font-size: 0.74rem;
+  flex-shrink: 0;
+}
+
+.quest-file-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'Consolas', monospace;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.quest-file-label.has-file {
+  color: #a7f3d0;
+}
+
+@media (max-width: 720px) {
+  .quest-tabs-bar,
+  .quest-bundle-grid,
+  .quest-input-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .quest-section-title {
   font-family: Georgia, serif;
-  font-size: 0.94rem;
+  font-size: 0.9rem;
   font-weight: 700;
   color: var(--radiant-gold);
 }
 
 .quest-section-title code {
   font-family: 'Consolas', monospace;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: #67e8f9;
 }
 
 .quest-hint-text {
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   color: var(--text-muted);
 }
 
@@ -2734,9 +3092,9 @@ html, body {
 
 .quest-stage-pill {
   font-family: 'Consolas', monospace;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 700;
-  padding: 3px 10px;
+  padding: 2px 9px;
   border-radius: 999px;
   border: 1px solid rgba(138, 109, 47, 0.55);
   background: rgba(34, 26, 20, 0.92);
@@ -2750,7 +3108,8 @@ html, body {
   box-shadow: 0 0 12px rgba(0, 229, 255, 0.35);
 }
 
-.quest-stage-pill.stage-complete {
+.quest-stage-pill.stage-complete,
+.quest-stage-pill.stage-done {
   border-color: #36d399;
   color: #a7f3d0;
   background: rgba(54, 211, 153, 0.16);
@@ -2773,10 +3132,11 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
 }
 
 .quest-field-wrap label {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
@@ -2787,10 +3147,11 @@ html, body {
   border: 1px solid var(--border-brass);
   border-radius: 6px;
   color: var(--text-parchment);
-  padding: 7px 10px;
-  font-size: 0.82rem;
+  padding: 6px 10px;
+  font-size: 0.8rem;
   font-family: 'Consolas', monospace;
   outline: none;
+  min-width: 0;
 }
 
 .quest-text-input:focus {
@@ -2807,17 +3168,17 @@ html, body {
 
 .quest-btn-main {
   padding: 7px 16px;
-  font-size: 0.84rem;
+  font-size: 0.82rem;
 }
 
 .quest-progress-container {
   background: rgba(14, 10, 8, 0.9);
   border: 1px solid rgba(138, 109, 47, 0.45);
   border-radius: 8px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .quest-progress-labels {
@@ -2825,12 +3186,19 @@ html, body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   color: var(--text-parchment);
 }
 
+.quest-progress-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .quest-progress-track {
-  height: 10px;
+  height: 9px;
 }
 
 .quest-progress-fill {
@@ -2842,34 +3210,44 @@ html, body {
 }
 
 .quest-log-output {
-  max-height: 105px;
+  max-height: 58px;
   overflow-y: auto;
   font-family: 'Consolas', monospace;
-  font-size: 0.71rem;
-  line-height: 1.38;
+  font-size: 0.69rem;
+  line-height: 1.35;
   color: #a5f3fc;
   background: rgba(8, 6, 4, 0.88);
   border: 1px solid rgba(138, 109, 47, 0.3);
   border-radius: 6px;
-  padding: 7px 9px;
+  padding: 6px 8px;
   white-space: pre-wrap;
   word-break: break-word;
+  transition: max-height 0.2s ease;
+}
+
+.quest-log-output.running {
+  max-height: 100px;
+}
+
+.quest-links-compact-section {
+  padding: 8px 12px;
+  gap: 6px;
 }
 
 .quest-links-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
+  gap: 8px;
 }
 
 .quest-archive-card {
   background: linear-gradient(180deg, rgba(36, 27, 20, 0.94) 0%, rgba(20, 15, 11, 0.94) 100%);
   border: 1px solid var(--border-brass);
-  border-radius: 9px;
-  padding: 11px 12px;
+  border-radius: 8px;
+  padding: 7px 10px;
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 9px;
   cursor: pointer;
   text-align: left;
   color: var(--text-parchment);
@@ -2884,30 +3262,31 @@ html, body {
 }
 
 .archive-icon {
-  font-size: 1.55rem;
+  font-size: 1.25rem;
   flex-shrink: 0;
 }
 
 .archive-info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
+  min-width: 0;
 }
 
 .archive-info strong {
   font-family: Georgia, serif;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   color: var(--radiant-gold);
 }
 
 .archive-info span {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   color: var(--text-muted);
 }
 
 .archive-info code {
   font-family: 'Consolas', monospace;
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   color: #67e8f9;
 }
 
@@ -2915,12 +3294,48 @@ html, body {
   justify-content: space-between;
 }
 
-/* Issue #55: Responsive 2-Bar Conservatory Layout down to 1024px Minimum Window Width */
+/* Issue #55 & #76: Responsive 2-Bar Conservatory Layout down to 1024px Minimum Window Width */
+@media (max-width: 1460px) {
+  #spell-scroll-bar {
+    padding: 4px 12px 4px 10px;
+    gap: 6px;
+  }
+
+  #spell-metadata-panel {
+    min-width: 145px;
+    gap: 5px;
+    padding: 3px 7px;
+  }
+
+  .spell-title-group {
+    min-width: 68px;
+  }
+
+  .control-group label,
+  #rehearsal-toggle-label,
+  .audio-sync-btn-label {
+    display: none;
+  }
+
+  .control-group {
+    padding: 2px 5px;
+    gap: 4px;
+  }
+
+  .timeline-slider {
+    width: 72px;
+  }
+
+  .practice-select {
+    max-width: 155px;
+  }
+}
+
 @media (max-width: 1280px) {
   #tavern-header,
   #spell-scroll-bar {
-    padding: 4px 16px 4px 8px;
-    gap: 6px;
+    padding: 4px 10px 4px 8px;
+    gap: 5px;
   }
 
   /* Bar 1: Header groups & buttons */
@@ -2970,37 +3385,49 @@ html, body {
 
   /* Bar 2: Active spell, transport & routing controls */
   #spell-metadata-panel {
-    gap: 5px;
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
+    gap: 4px;
+    flex: 1 1 150px;
+    min-width: 130px;
+    overflow: visible;
+    padding: 2px 6px;
   }
 
   .spell-title-group {
-    min-width: 0;
+    min-width: 56px;
+    flex: 1 1 56px;
+    overflow: hidden;
   }
 
   #spell-name-display {
-    max-width: 120px;
-    font-size: 0.76rem;
+    max-width: 140px;
+    font-size: 0.74rem;
   }
 
   .difficulty-badge {
     padding: 2px 6px;
-    font-size: 0.68rem;
+    font-size: 0.66rem;
+    max-width: 132px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .btn-info-pill {
+  .btn-info-pill,
+  .btn-audio-sync {
     padding: 2px 5px;
-    font-size: 0.68rem;
+    font-size: 0.66rem;
+  }
+
+  .audio-sync-btn-label {
+    display: none;
   }
 
   .transport-group {
-    gap: 4px;
+    gap: 3px;
   }
 
   .transport-group .tavern-btn-cast {
-    min-width: 76px;
+    min-width: 70px;
   }
 
   .timeline-box {
@@ -3008,11 +3435,11 @@ html, body {
   }
 
   .timeline-slider {
-    width: 60px;
+    width: 50px;
   }
 
   .time-readout {
-    font-size: 0.68rem;
+    font-size: 0.66rem;
   }
 
   #rehearsal-toggle-label {
@@ -3022,11 +3449,11 @@ html, body {
   .btn-loop-marker,
   .btn-rehearsal-toggle,
   .btn-rehearsal-caret {
-    padding: 2px 5px;
+    padding: 2px 4px;
   }
 
   .highway-routing-controls {
-    gap: 4px;
+    gap: 3px;
   }
 
   .control-group {
@@ -3039,27 +3466,38 @@ html, body {
   }
 
   .practice-select {
-    max-width: 130px;
-    font-size: 0.7rem;
+    max-width: 112px;
+    font-size: 0.68rem;
     padding: 2px 4px;
   }
 
   .tempo-select,
   #playback-speed-select {
-    max-width: 60px;
-    font-size: 0.7rem;
-    padding: 2px 4px;
+    max-width: 54px;
+    font-size: 0.68rem;
+    padding: 2px 3px;
   }
 
   .btn-tempo-step {
-    padding: 2px 5px;
-    min-width: 20px;
-    font-size: 0.7rem;
+    padding: 2px 4px;
+    min-width: 18px;
+    font-size: 0.68rem;
   }
 
   .tavern-btn {
-    padding: 3px 6px;
-    font-size: 0.7rem;
+    padding: 3px 5px;
+    font-size: 0.68rem;
+  }
+}
+
+@media (max-width: 1120px) {
+  .difficulty-badge {
+    max-width: 104px;
+  }
+
+  .sync-badge-pill {
+    font-size: 0.64rem;
+    padding: 0 4px;
   }
 }
 

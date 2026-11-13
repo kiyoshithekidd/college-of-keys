@@ -19,6 +19,22 @@ const { pathToFileURL } = require('url');
 const { shell } = require('electron');
 const { createD20TrayRoller } = require('./d20-roller');
 const { isMusicXmlFileName, convertMusicXmlToMidiBuffer } = require('./musicxml-converter');
+const { isPianoCandidateTrackSmart, selectAutoPianoTracks, cleanPlayableHandNotes } = require('./midi-hygiene');
+const {
+  BUNDLE_STORE_FILENAME,
+  clampAudioOffsetSec,
+  clampAudioTempoRatio,
+  isSameFilePath: isBundleSameFilePath,
+  getSidecarBundlePath,
+  loadBundlesStore,
+  resolveBundleForSong,
+  saveBundleRecord,
+  removeBundleRecordForSong,
+  getMappedBackingAudioTime,
+  getEffectiveBackingPlaybackRate,
+  computeAudioOffsetForBeat1,
+  detectFirstAudioOnsetSec
+} = require('./song-bundle');
 
 const MIN_MIDI = 36; // C2
 const MAX_MIDI = 96; // C7
@@ -50,12 +66,18 @@ const FIRST_RUN_STORAGE_KEY = 'collegeOfKeys_hasSeenIntro_v1';
 
 // Phase 6 Constants: The Grimoire & Watched Directories
 const IMPORTS_DIR = path.join(__dirname, 'Imports');
+const IMPORTS_SHEETS_DIR = path.join(IMPORTS_DIR, 'Sheets');
 const MIDI_TEST_DIR = path.join(__dirname, 'Midi Test Files');
 const ARCHIVE_DIR = path.join(__dirname, 'Archive');
 const GRIMOIRE_STORAGE_KEY = 'collegeOfKeys_grimoire_v1';
 const GRIMOIRE_FAVORITES_STORAGE_KEY = 'collegeOfKeys_grimoire_favorites_v1';
 const GRIMOIRE_FAV_FILTER_STORAGE_KEY = 'collegeOfKeys_grimoire_attuned_filter_v1';
 const GRIMOIRE_INDEX_FILE = path.join(__dirname, 'grimoire_library.json');
+
+// Issue #76 Constants: Song Bundles, Sync Calibration & Smart MIDI Hygiene
+const BUNDLE_STORE_PATH = path.join(__dirname, BUNDLE_STORE_FILENAME);
+const MIDI_CLEANUP_STORAGE_KEY = 'collegeOfKeys_midiCleanup_v1';
+const QUEST_BOUNTIES_COLLAPSED_STORAGE_KEY = 'collegeOfKeys_bountiesCollapsed_v1';
 
 // Black key horizontal offset ratio relative to the boundary between two white keys
 const BLACK_KEY_OFFSETS = {
@@ -113,6 +135,9 @@ const btnToggleSettings = document.getElementById('btn-toggle-settings');
 const settingsPopover = document.getElementById('settings-popover');
 const btnCloseSettings = document.getElementById('btn-close-settings');
 const toggleQwertyLabelsCheckbox = document.getElementById('toggle-qwerty-labels');
+const toggleMidiCleanupCheckbox = document.getElementById('toggle-midi-cleanup');
+const settingsSyncRow = document.getElementById('settings-sync-row');
+const btnSettingsOpenSync = document.getElementById('btn-settings-open-sync');
 const btnSpellDetails = document.getElementById('btn-spell-details');
 const spellDetailsPopover = document.getElementById('spell-details-popover');
 const btnCloseSpellDetails = document.getElementById('btn-close-spell-details');
@@ -168,6 +193,30 @@ const statBandTracks = document.getElementById('stat-band-tracks');
 const statFoldedNotes = document.getElementById('stat-folded-notes');
 const statKeySigChip = document.getElementById('stat-key-sig-chip');
 const statKeySig = document.getElementById('stat-key-sig');
+const statCleanedChip = document.getElementById('stat-cleaned-chip');
+const statCleaned = document.getElementById('stat-cleaned');
+
+// DOM Elements — Issue #76 (Bar 2 Backing Audio Sync Calibrator Popover)
+const audioSyncAnchor = document.getElementById('audio-sync-anchor');
+const btnAudioSync = document.getElementById('btn-audio-sync');
+const syncBadgePill = document.getElementById('sync-badge-pill');
+const audioSyncPopover = document.getElementById('audio-sync-popover');
+const btnCloseAudioSync = document.getElementById('btn-close-audio-sync');
+const syncOffsetReadout = document.getElementById('sync-offset-readout');
+const btnOffsetMinus50 = document.getElementById('btn-offset-minus-50');
+const btnOffsetMinus10 = document.getElementById('btn-offset-minus-10');
+const btnOffsetPlus10 = document.getElementById('btn-offset-plus-10');
+const btnOffsetPlus50 = document.getElementById('btn-offset-plus-50');
+const btnSyncAudition = document.getElementById('btn-sync-audition');
+const btnSyncMarkBeat1 = document.getElementById('btn-sync-mark-beat1');
+const btnSyncAutoAlign = document.getElementById('btn-sync-auto-align');
+const btnSyncReset = document.getElementById('btn-sync-reset');
+const syncDriftReadout = document.getElementById('sync-drift-readout');
+const btnDriftDownHalf = document.getElementById('btn-drift-down-half');
+const btnDriftDownFine = document.getElementById('btn-drift-down-fine');
+const btnDriftUpFine = document.getElementById('btn-drift-up-fine');
+const btnDriftUpHalf = document.getElementById('btn-drift-up-half');
+const syncStatusHint = document.getElementById('sync-status-hint');
 
 // DOM Elements — Phase 5 (LitRPG HUD & Post-Song Performance Check Modal)
 const btnPerformanceCheck = document.getElementById('btn-performance-check');
@@ -260,6 +309,12 @@ const spellbookDetailLastAcc = document.getElementById('spellbook-detail-last-ac
 const spellbookDetailTotalXp = document.getElementById('spellbook-detail-total-xp');
 const spellbookDetailLastPlayed = document.getElementById('spellbook-detail-last-played');
 const spellbookDetailAudioBadge = document.getElementById('spellbook-detail-audio-badge');
+const spellbookBundleStrip = document.getElementById('spellbook-bundle-strip');
+const spellbookBundleNotesChip = document.getElementById('spellbook-bundle-notes-chip');
+const spellbookBundleSheetChip = document.getElementById('spellbook-bundle-sheet-chip');
+const spellbookBundleAudioChip = document.getElementById('spellbook-bundle-audio-chip');
+const spellbookBundleSpotifyLink = document.getElementById('spellbook-bundle-spotify-link');
+const btnSpellbookBundle = document.getElementById('btn-spellbook-bundle');
 const btnSpellbookLoadSong = document.getElementById('btn-spellbook-load-song');
 const btnSpellbookFavoriteSong = document.getElementById('btn-spellbook-favorite-song');
 const btnSpellbookDeleteSong = document.getElementById('btn-spellbook-delete-song');
@@ -278,10 +333,33 @@ const btnCloseDeleteConfirm = document.getElementById('btn-close-delete-confirm'
 const btnDeleteConfirmCancel = document.getElementById('btn-delete-confirm-cancel');
 const btnDeleteConfirmAccept = document.getElementById('btn-delete-confirm-accept');
 
-// DOM Elements — Phase 9 ("The Quest Board" In-App YouTube-to-MIDI Sourcing & Quick Links)
+// DOM Elements — Phase 9 & Issue #76 ("The Quest Board": Clean Song Bundles, Transcriber & Bounties)
 const btnOpenQuestBoard = document.getElementById('btn-open-quest-board');
 const questBoardModal = document.getElementById('quest-board-modal');
 const btnCloseQuestBoard = document.getElementById('btn-close-quest-board');
+const btnToggleQuestBounties = document.getElementById('btn-toggle-quest-bounties');
+const dailyBountiesCollapsibleWrap = document.getElementById('daily-bounties-collapsible-wrap');
+const btnQuestTabBundle = document.getElementById('btn-quest-tab-bundle');
+const btnQuestTabTranscribe = document.getElementById('btn-quest-tab-transcribe');
+const questTabPanelBundle = document.getElementById('quest-tab-panel-bundle');
+const questTabPanelTranscribe = document.getElementById('quest-tab-panel-transcribe');
+const questBundleTargetSelect = document.getElementById('quest-bundle-target-select');
+const questBundleTitleInput = document.getElementById('quest-bundle-title-input');
+const questBundleNotesInput = document.getElementById('quest-bundle-notes-input');
+const btnQuestBundlePickNotes = document.getElementById('btn-quest-bundle-pick-notes');
+const questBundleNotesLabel = document.getElementById('quest-bundle-notes-label');
+const questBundleSheetInput = document.getElementById('quest-bundle-sheet-input');
+const btnQuestBundlePickSheet = document.getElementById('btn-quest-bundle-pick-sheet');
+const questBundleSheetLabel = document.getElementById('quest-bundle-sheet-label');
+const btnQuestBundleClearSheet = document.getElementById('btn-quest-bundle-clear-sheet');
+const questBundleYoutubeUrl = document.getElementById('quest-bundle-youtube-url');
+const questBundleAudioInput = document.getElementById('quest-bundle-audio-input');
+const btnQuestBundlePickAudio = document.getElementById('btn-quest-bundle-pick-audio');
+const questBundleAudioLabel = document.getElementById('quest-bundle-audio-label');
+const btnQuestBundleClearAudio = document.getElementById('btn-quest-bundle-clear-audio');
+const questBundleSpotifyUrl = document.getElementById('quest-bundle-spotify-url');
+const btnSaveSongBundle = document.getElementById('btn-save-song-bundle');
+const btnQuestBundleLoadNow = document.getElementById('btn-quest-bundle-load-now');
 const questStatusBadge = document.getElementById('quest-status-badge');
 const questYoutubeUrlInput = document.getElementById('quest-youtube-url');
 const questCustomTitleInput = document.getElementById('quest-custom-title');
@@ -469,6 +547,45 @@ const grimoireFavorites = new Set(); // Set of favorited entry.id strings (Issue
 let grimoireWatcher = null;
 let grimoireToastTimer = null;
 let testDropCounter = 0;
+
+// Issue #76 State: Smart MIDI Hygiene & Backing Audio Audition Calibration
+function loadMidiCleanupPreference() {
+  try {
+    const raw = localStorage.getItem(MIDI_CLEANUP_STORAGE_KEY);
+    if (raw === 'false') return false;
+  } catch {
+    // Ignore storage read error
+  }
+  return true;
+}
+
+function saveMidiCleanupPreference(enabled) {
+  try {
+    localStorage.setItem(MIDI_CLEANUP_STORAGE_KEY, enabled ? 'true' : 'false');
+  } catch {
+    // Ignore storage write error
+  }
+}
+
+let midiCleanupGlobalEnabled = loadMidiCleanupPreference();
+
+function isEffectiveMidiCleanupEnabled(song = currentSong) {
+  if (song && typeof song.midiCleanupOverride === 'boolean') {
+    return song.midiCleanupOverride;
+  }
+  return Boolean(midiCleanupGlobalEnabled);
+}
+
+function syncMidiCleanupCheckboxUI() {
+  if (!toggleMidiCleanupCheckbox) return;
+  toggleMidiCleanupCheckbox.checked = isEffectiveMidiCleanupEnabled(currentSong);
+}
+
+let audioAuditionEl = null;
+let audioAuditionStartedAtMs = null;
+let audioAuditionTimer = null;
+let auditionRequestSeq = 0;
+let isAuditionPending = false;
 
 // Phase 7 State: 60 FPS Arcane Particle Bursts, Shockwaves, Floating Runes & Ambient Motes
 const strikeParticles = [];
@@ -855,17 +972,7 @@ function calculateSpellDifficulty(totalPlayableNotes, durationSeconds) {
 }
 
 function isPianoCandidateTrack(track) {
-  if (track.instrument && track.instrument.percussion) return false;
-  const family = (track.instrument?.family || '').toLowerCase();
-  const instName = (track.instrument?.name || '').toLowerCase();
-  const trackName = (track.name || '').toLowerCase();
-  const prog = track.instrument?.number ?? -1;
-
-  if (family === 'piano' || (prog >= 0 && prog <= 7)) return true;
-  if (/piano|keys|keyboard|clav|harpsichord|rh|lh|right hand|left hand/.test(`${trackName} ${instName}`)) {
-    return true;
-  }
-  return false;
+  return isPianoCandidateTrackSmart(track);
 }
 
 function areTracksDuplicates(trackA, trackB) {
@@ -903,6 +1010,9 @@ function loadSongFromBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePa
 
 function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath = null, musicXmlMeta = null) {
   pausePlayback();
+  if (typeof stopAudioAudition === 'function') {
+    stopAudioAudition();
+  }
 
   const midiData = new Midi(arrayBuffer);
 
@@ -925,6 +1035,7 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
         : 60;
       return {
         index: idx,
+        channel: t.channel ?? 0,
         name: t.name?.trim() || t.instrument?.name || `Track ${idx + 1}`,
         instrumentName: t.instrument?.name || 'Unknown Instrument',
         instrumentFamily: t.instrument?.family || 'unknown',
@@ -971,49 +1082,57 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     || midiData.name?.trim()
     || fileName.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
 
-  // If a previous song had a synced backing audio element, stop it before loading new song
+  // If a previous song had a synced backing audio element, stop & dispose it cleanly before loading new song
   if (currentSong?.backingAudioEl) {
     try {
+      currentSong.backingAudioEl._disposed = true;
       currentSong.backingAudioEl.pause();
-      currentSong.backingAudioEl.src = '';
+      currentSong.backingAudioEl.removeAttribute('src');
+      currentSong.backingAudioEl.load();
     } catch {
       // Ignore audio cleanup errors
     }
   }
 
-  // Check if this spell file has a paired backing audio track (.wav, .mp3, .ogg, .m4a)
-  let backingAudioPath = null;
+  const rawBuf = Buffer.from(arrayBuffer);
+  const isDemo = filePath === 'BUILTIN_DEMO';
+  const songId = isDemo
+    ? 'builtin::demo'
+    : crypto.createHash('sha1').update(rawBuf).digest('hex');
+
+  const bundleStore = loadBundlesStore(BUNDLE_STORE_PATH);
+  const bundle = resolveBundleForSong({
+    filePath,
+    fileName,
+    songId,
+    title: cleanTitle,
+    store: bundleStore,
+    projectRoot: __dirname
+  });
+  const effectiveTitle = (bundle.title && bundle.title.trim()) || cleanTitle;
+
+  const backingAudioPath = bundle.backingAudioPath || null;
   let backingAudioEl = null;
-  if (filePath && filePath !== 'BUILTIN_DEMO') {
-    const baseNoExt = filePath.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
-    for (const ext of ['.wav', '.mp3', '.ogg', '.m4a']) {
-      if (fs.existsSync(baseNoExt + ext)) {
-        backingAudioPath = baseNoExt + ext;
-        break;
-      }
-    }
-  }
-  if (backingAudioPath) {
+  if (backingAudioPath && fs.existsSync(backingAudioPath)) {
     try {
-      backingAudioEl = new Audio(pathToFileURL(backingAudioPath).href);
-      backingAudioEl.preload = 'auto';
-      backingAudioEl.preservesPitch = true;
-      backingAudioEl.webkitPreservesPitch = true;
-      backingAudioEl.volume = getBackingAudioVolumeFromSlider();
+      const el = new Audio(pathToFileURL(backingAudioPath).href);
+      el.preload = 'auto';
+      el.preservesPitch = true;
+      el.webkitPreservesPitch = true;
+      el.volume = getBackingAudioVolumeFromSlider();
+      el.addEventListener('error', () => {
+        if (el._disposed) return;
+        showGrimoireToast(`Could not load backing audio "${path.basename(backingAudioPath)}".`, 'warning');
+      });
+      backingAudioEl = el;
     } catch {
       backingAudioEl = null;
     }
   }
 
-  const rawBuf = Buffer.from(arrayBuffer);
-  const isDemo = fileName === 'Demo Spell (The Tavern Busker)' || cleanTitle.toLowerCase().includes('demo spell');
-  const songId = isDemo
-    ? 'builtin::demo'
-    : crypto.createHash('sha1').update(rawBuf).digest('hex');
-
   currentSong = {
     songId,
-    title: cleanTitle,
+    title: effectiveTitle,
     fileName,
     filePath,
     rawBuffer: rawBuf,
@@ -1035,6 +1154,14 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     backingBandNotes: [],
     backingAudioPath,
     backingAudioEl,
+    sheetMusicPath: bundle.sheetMusicPath || null,
+    youtubeUrl: bundle.youtubeUrl || null,
+    spotifyUrl: bundle.spotifyUrl || null,
+    audioOffsetSec: bundle.audioOffsetSec ?? 0,
+    audioTempoRatio: bundle.audioTempoRatio ?? 1.0,
+    midiCleanupOverride: typeof bundle.midiCleanupEnabled === 'boolean' ? bundle.midiCleanupEnabled : null,
+    midiCleanStats: { enabled: false, selectionNote: null, snapped: 0, removed: 0, trimmed: 0 },
+    hasCustomBundle: Boolean(bundle.hasCustomBundle),
     foldedNotesCount: 0,
     difficulty: null
   };
@@ -1048,12 +1175,16 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
   songProgressSlider.disabled = false;
   clearRehearsalLoop();
 
-  const savedHistory = getSongHistoryRecord({ id: songId, filePath, title: cleanTitle });
+  const savedHistory = getSongHistoryRecord({ id: songId, filePath, title: effectiveTitle });
   const restoredTempo = typeof savedHistory?.preferredTempo === 'number'
     ? savedHistory.preferredTempo
     : 1.0;
   setPracticeTempo(restoredTempo, { persist: false, toast: false });
 
+  syncMidiCleanupCheckboxUI();
+  if (typeof updateAudioSyncUI === 'function') {
+    updateAudioSyncUI();
+  }
   renderGrimoireSidebar();
   return true;
 }
@@ -1125,77 +1256,14 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
   const chosenPlayableIndices = new Set();
   let track1Raw = [];
   let track2Raw = [];
+  let selectionNote = null;
 
   if (mode === 'auto-piano') {
-    let pianoTracks = rawTracks
-      .map((t, idx) => ({ t, idx }))
-      .filter((item) => item.t.isPianoCandidate && !item.t.isPercussion && !item.t.isDuplicate);
-
-    if (pianoTracks.length === 0) {
-      pianoTracks = rawTracks
-        .map((t, idx) => ({ t, idx }))
-        .filter((item) => !item.t.isPercussion && !item.t.isDuplicate);
-    }
-    if (pianoTracks.length === 0) {
-      pianoTracks = [{ t: rawTracks[0], idx: 0 }];
-    }
-
-    if (pianoTracks.length >= 2) {
-      const explicitRh = pianoTracks.find((item) => /Right Hand \(Staff 1\)/i.test(item.t.name));
-      const explicitLh = pianoTracks.find((item) => /Left Hand \(Staff 2\)/i.test(item.t.name));
-      const trebleCandidates = pianoTracks
-        .filter((item) => item.t.avgPitch >= 62)
-        .sort((a, b) => b.t.notes.length - a.t.notes.length);
-      const bassCandidates = pianoTracks
-        .filter((item) => item.t.avgPitch < 62)
-        .sort((a, b) => b.t.notes.length - a.t.notes.length);
-
-      let rhChoice = null;
-      let lhChoice = null;
-
-      if (explicitRh && explicitLh) {
-        rhChoice = explicitRh;
-        lhChoice = explicitLh;
-      } else if (trebleCandidates.length > 0 && bassCandidates.length > 0) {
-        rhChoice = trebleCandidates[0];
-        lhChoice = bassCandidates[0];
-      } else {
-        const topTwo = pianoTracks
-          .slice()
-          .sort((a, b) => b.t.notes.length - a.t.notes.length)
-          .slice(0, 2)
-          .sort((a, b) => b.t.avgPitch - a.t.avgPitch);
-        rhChoice = topTwo[0];
-        lhChoice = topTwo[1];
-      }
-
-      chosenPlayableIndices.add(rhChoice.idx);
-      chosenPlayableIndices.add(lhChoice.idx);
-      track1Raw = rhChoice.t.notes;
-      track2Raw = lhChoice.t.notes;
-
-      rawTracks.forEach((t, idx) => {
-        if (t.isDuplicate && (t.duplicateOfIndex === rhChoice.idx || t.duplicateOfIndex === lhChoice.idx)) {
-          chosenPlayableIndices.add(idx);
-        }
-      });
-    } else {
-      const singleIdx = pianoTracks[0].idx;
-      chosenPlayableIndices.add(singleIdx);
-      rawTracks.forEach((t, idx) => {
-        if (t.isDuplicate && t.duplicateOfIndex === singleIdx) {
-          chosenPlayableIndices.add(idx);
-        }
-      });
-      for (const n of pianoTracks[0].t.notes) {
-        const foldedCheck = foldMidiTo61Keys(n.originalMidi);
-        if (foldedCheck >= MIDDLE_C) {
-          track1Raw.push(n);
-        } else {
-          track2Raw.push(n);
-        }
-      }
-    }
+    const sel = selectAutoPianoTracks(rawTracks, currentSong.duration);
+    sel.chosenPlayableIndices.forEach((idx) => chosenPlayableIndices.add(idx));
+    track1Raw = sel.track1Raw;
+    track2Raw = sel.track2Raw;
+    selectionNote = sel.selectionNote || null;
   } else if (mode.startsWith('track-')) {
     const idx = Number(mode.replace('track-', ''));
     const chosen = rawTracks[idx] || rawTracks[0];
@@ -1210,6 +1278,27 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
       }
     }
   }
+
+  const cleanupEnabled = isEffectiveMidiCleanupEnabled(currentSong);
+  let snapped = 0;
+  let removed = 0;
+  let trimmed = 0;
+  if (cleanupEnabled) {
+    const clean1 = cleanPlayableHandNotes(track1Raw, 1);
+    const clean2 = cleanPlayableHandNotes(track2Raw, 2);
+    track1Raw = clean1.notes;
+    track2Raw = clean2.notes;
+    snapped = clean1.snappedCount + clean2.snappedCount;
+    removed = clean1.removedCount + clean2.removedCount;
+    trimmed = clean1.trimmedSustainCount + clean2.trimmedSustainCount;
+  }
+  currentSong.midiCleanStats = {
+    enabled: cleanupEnabled,
+    selectionNote,
+    snapped,
+    removed,
+    trimmed
+  };
 
   const foldedT1 = foldAndDeduplicateHandNotes(track1Raw, 1);
   const foldedT2 = foldAndDeduplicateHandNotes(track2Raw, 2);
@@ -1266,9 +1355,13 @@ function updateSpellInspectorHUD() {
   statDuration.textContent = formatSeconds(currentSong.duration);
   statT1Notes.textContent = String(currentSong.track1Notes.length);
   statT2Notes.textContent = String(currentSong.track2Notes.length);
-  statBandTracks.textContent = currentSong.backingAudioPath && currentSong.backingBandTracks.length === 0
-    ? '1 (Audio)'
-    : String(currentSong.backingBandTracks.length);
+  if (currentSong.backingAudioPath && currentSong.backingBandTracks.length > 0) {
+    statBandTracks.textContent = `${currentSong.backingBandTracks.length} + Audio`;
+  } else if (currentSong.backingAudioPath) {
+    statBandTracks.textContent = 'Audio';
+  } else {
+    statBandTracks.textContent = String(currentSong.backingBandTracks.length);
+  }
   statFoldedNotes.textContent = String(currentSong.foldedNotesCount);
   if (statKeySigChip && statKeySig) {
     if (currentSong.keySignature) {
@@ -1276,6 +1369,32 @@ function updateSpellInspectorHUD() {
       statKeySigChip.classList.remove('hidden');
     } else {
       statKeySigChip.classList.add('hidden');
+    }
+  }
+  if (statCleanedChip && statCleaned) {
+    const stats = currentSong.midiCleanStats || { enabled: false, selectionNote: null, snapped: 0, removed: 0, trimmed: 0 };
+    statCleanedChip.classList.remove('hidden');
+    if (stats.enabled) {
+      const totalFixes = stats.snapped + stats.removed + stats.trimmed;
+      if (totalFixes > 0) {
+        statCleaned.textContent = `Clean (${totalFixes} fixes)`;
+      } else if (stats.selectionNote) {
+        statCleaned.textContent = 'Clean (Smart Track)';
+      } else {
+        statCleaned.textContent = 'Clean (0 fixes)';
+      }
+      const details = [
+        `${stats.snapped} chord jitter snapped`,
+        `${stats.removed} ghosts/slabs trimmed`,
+        `${stats.trimmed} long sustains capped`
+      ];
+      if (stats.selectionNote) details.unshift(stats.selectionNote);
+      statCleanedChip.title = `Smart MIDI Hygiene ON: ${details.join(' • ')}`;
+    } else {
+      statCleaned.textContent = 'Raw';
+      statCleanedChip.title = stats.selectionNote
+        ? `Smart MIDI Hygiene OFF (${stats.selectionNote})`
+        : 'Smart MIDI Hygiene OFF — showing raw unquantized MIDI notes';
     }
   }
 }
@@ -1877,13 +1996,7 @@ function practiceWeakRegion(startSec, endSec, label = 'Weak Measure') {
   playbackState.activeStrikeGroup = null;
   resetSongProgressFlags(jumpTime);
 
-  if (currentSong.backingAudioEl) {
-    try {
-      currentSong.backingAudioEl.currentTime = jumpTime;
-    } catch {
-      // Ignore seek errors
-    }
-  }
+  seekBackingAudioToSongTime(jumpTime);
   syncBackingAudioElement(jumpTime);
   updateTimelineUI();
   updateRehearsalUI();
@@ -2711,13 +2824,7 @@ function resetPlaybackToStart() {
   playbackState.currentTime = -playbackState.leadInSeconds;
   resetSongProgressFlags(-playbackState.leadInSeconds);
   resetSongSessionStats();
-  if (currentSong?.backingAudioEl) {
-    try {
-      currentSong.backingAudioEl.currentTime = 0;
-    } catch {
-      // Ignore seek errors before audio metadata is ready
-    }
-  }
+  seekBackingAudioToSongTime(playbackState.currentTime);
   if (!currentSong) {
     setStrikeStatusBadge('idle', 'Highway Clear — Open Grimoire to Choose a Spell');
   } else {
@@ -2735,12 +2842,14 @@ function resetPlaybackToStart() {
 
 async function startPlayback() {
   if (!currentSong) return;
+  stopAudioAudition();
   await ensureAudioReady();
 
   if (playbackState.currentTime >= currentSong.duration) {
     playbackState.currentTime = -playbackState.leadInSeconds;
     resetSongProgressFlags(-playbackState.leadInSeconds);
     resetSongSessionStats();
+    seekBackingAudioToSongTime(playbackState.currentTime);
   }
 
   playbackState.isPlaying = true;
@@ -2794,8 +2903,8 @@ function updateTimelineUI() {
 }
 
 /**
- * Issue #63: Centralized Practice Tempo setter — syncs highway, MIDI accompaniment,
- * pitch-preserved backing audio, UI stepper state, and per-song persistence.
+ * Issue #63 & #76: Centralized Practice Tempo setter — syncs highway, MIDI accompaniment,
+ * pitch-preserved backing audio (including per-song drift ratio), UI stepper state, and persistence.
  */
 function setPracticeTempo(rawSpeed, { persist = true, toast = false } = {}) {
   const num = Number(rawSpeed);
@@ -2829,7 +2938,10 @@ function setPracticeTempo(rawSpeed, { persist = true, toast = false } = {}) {
   if (currentSong?.backingAudioEl) {
     currentSong.backingAudioEl.preservesPitch = true;
     currentSong.backingAudioEl.webkitPreservesPitch = true;
-    currentSong.backingAudioEl.playbackRate = speed;
+    currentSong.backingAudioEl.playbackRate = getEffectiveBackingPlaybackRate(
+      speed,
+      currentSong.audioTempoRatio
+    );
   }
 
   if (persist && currentSong) {
@@ -2871,31 +2983,445 @@ function stepPracticeTempo(delta) {
 }
 
 /**
- * Synchronize paired .wav / .mp3 backing audio element (Issue #31).
+ * Issue #76: Seek Backing Audio using calibrated Start Offset & Audio Drift Match
+ */
+function seekBackingAudioToSongTime(songTime = playbackState.currentTime) {
+  if (!currentSong?.backingAudioEl) return;
+  const audioEl = currentSong.backingAudioEl;
+  const mapped = getMappedBackingAudioTime(songTime, {
+    audioOffsetSec: currentSong.audioOffsetSec,
+    audioTempoRatio: currentSong.audioTempoRatio
+  });
+  let targetTime = mapped.clampedAudioTime;
+  const audioDur = audioEl.duration;
+  if (Number.isFinite(audioDur) && audioDur > 0) {
+    targetTime = Math.min(targetTime, Math.max(0, audioDur - 0.02));
+  }
+  try {
+    audioEl.currentTime = targetTime;
+  } catch {
+    // Ignore seek errors before audio metadata is ready
+  }
+}
+
+function getFirstPlayableNoteSec(song = currentSong) {
+  if (!song) return 0;
+  let minTime = Infinity;
+  for (const n of song.track1Notes || []) {
+    if (Number.isFinite(n.time) && n.time < minTime) minTime = n.time;
+  }
+  for (const n of song.track2Notes || []) {
+    if (Number.isFinite(n.time) && n.time < minTime) minTime = n.time;
+  }
+  if (!Number.isFinite(minTime)) {
+    for (const tr of song.rawTracks || []) {
+      if (tr.isPercussion) continue;
+      for (const n of tr.notes || []) {
+        if (Number.isFinite(n.time) && n.time < minTime) minTime = n.time;
+      }
+    }
+  }
+  return Number.isFinite(minTime) ? Math.max(0, minTime) : 0;
+}
+
+function persistCurrentSongCalibration() {
+  if (!currentSong) return;
+  try {
+    saveBundleRecord({
+      storePath: BUNDLE_STORE_PATH,
+      projectRoot: __dirname,
+      importsDir: IMPORTS_DIR,
+      record: {
+        id: currentSong.songId,
+        songId: currentSong.songId,
+        title: currentSong.title,
+        fileName: currentSong.fileName,
+        notesPath: currentSong.filePath || 'BUILTIN_DEMO',
+        sheetMusicPath: currentSong.sheetMusicPath || undefined,
+        backingAudioPath: currentSong.backingAudioPath || undefined,
+        youtubeUrl: currentSong.youtubeUrl || undefined,
+        spotifyUrl: currentSong.spotifyUrl || undefined,
+        audioOffsetSec: currentSong.audioOffsetSec ?? 0,
+        audioTempoRatio: currentSong.audioTempoRatio ?? 1.0,
+        midiCleanupEnabled: typeof currentSong.midiCleanupOverride === 'boolean'
+          ? currentSong.midiCleanupOverride
+          : null
+      }
+    });
+  } catch {
+    // Ignore store save errors for unsaved in-memory imports
+  }
+
+  for (const entry of grimoireSpells.values()) {
+    const isBothDemo = currentSong.filePath === 'BUILTIN_DEMO' && entry.filePath === 'BUILTIN_DEMO';
+    const samePath = Boolean(
+      currentSong.filePath &&
+      currentSong.filePath !== 'BUILTIN_DEMO' &&
+      entry.filePath &&
+      entry.filePath !== 'BUILTIN_DEMO' &&
+      isSameFilePath(currentSong.filePath, entry.filePath)
+    );
+    const sameIdUnbacked = Boolean(
+      !currentSong.filePath &&
+      currentSong.songId &&
+      entry.songId &&
+      entry.songId === currentSong.songId &&
+      entry.filePath !== 'BUILTIN_DEMO'
+    );
+    if (isBothDemo || samePath || sameIdUnbacked) {
+      entry.audioOffsetSec = currentSong.audioOffsetSec ?? 0;
+      entry.audioTempoRatio = currentSong.audioTempoRatio ?? 1.0;
+      entry.midiCleanupEnabled = currentSong.midiCleanupOverride;
+      entry.hasCustomBundle = Boolean(
+        entry.sheetMusicPath ||
+        entry.backingAudioPath ||
+        entry.youtubeUrl ||
+        entry.spotifyUrl ||
+        Math.abs(entry.audioOffsetSec) > 0.0001 ||
+        Math.abs((entry.audioTempoRatio ?? 1.0) - 1.0) > 0.0001 ||
+        typeof entry.midiCleanupEnabled === 'boolean'
+      );
+    }
+  }
+  if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+    renderSpellbookSpread();
+  }
+}
+
+function applyLiveAudioSyncCalibration({ nextOffsetSec, nextTempoRatio, statusMessage = null } = {}) {
+  if (!currentSong) return;
+  if (nextOffsetSec !== undefined) {
+    currentSong.audioOffsetSec = clampAudioOffsetSec(nextOffsetSec);
+  }
+  if (nextTempoRatio !== undefined) {
+    currentSong.audioTempoRatio = clampAudioTempoRatio(nextTempoRatio);
+  }
+  currentSong.hasCustomBundle = Boolean(
+    currentSong.sheetMusicPath ||
+    currentSong.backingAudioPath ||
+    currentSong.youtubeUrl ||
+    currentSong.spotifyUrl ||
+    Math.abs(currentSong.audioOffsetSec || 0) > 0.0001 ||
+    Math.abs((currentSong.audioTempoRatio ?? 1.0) - 1.0) > 0.0001 ||
+    typeof currentSong.midiCleanupOverride === 'boolean'
+  );
+
+  if (currentSong.backingAudioEl) {
+    currentSong.backingAudioEl.preservesPitch = true;
+    currentSong.backingAudioEl.webkitPreservesPitch = true;
+    currentSong.backingAudioEl.playbackRate = getEffectiveBackingPlaybackRate(
+      playbackState.playbackSpeed,
+      currentSong.audioTempoRatio
+    );
+    seekBackingAudioToSongTime(playbackState.currentTime);
+  }
+
+  persistCurrentSongCalibration();
+  updateAudioSyncUI(statusMessage);
+  syncBackingAudioElement(playbackState.currentTime);
+}
+
+function updateAudioSyncUI(customHint = null) {
+  const hasAudio = Boolean(currentSong?.backingAudioPath && currentSong?.backingAudioEl);
+  if (audioSyncAnchor) {
+    audioSyncAnchor.classList.toggle('hidden', !hasAudio);
+  }
+  if (settingsSyncRow) {
+    settingsSyncRow.classList.toggle('hidden', !hasAudio);
+  }
+  if (!hasAudio) {
+    stopAudioAudition();
+    if (audioSyncPopover) audioSyncPopover.classList.add('hidden');
+    if (btnAudioSync) {
+      btnAudioSync.classList.remove('active', 'sync-non-zero');
+      btnAudioSync.setAttribute('aria-expanded', 'false');
+    }
+    return;
+  }
+
+  const off = clampAudioOffsetSec(currentSong.audioOffsetSec || 0);
+  const ratio = clampAudioTempoRatio(currentSong.audioTempoRatio ?? 1.0);
+  const offsetText = `${off >= 0 ? '+' : ''}${off.toFixed(2)}s`;
+  const driftText = `${(ratio * 100).toFixed(1)}%`;
+  const isNonZero = Math.abs(off) >= 0.005 || Math.abs(ratio - 1.0) >= 0.0005;
+
+  if (syncBadgePill) syncBadgePill.textContent = offsetText;
+  if (syncOffsetReadout) syncOffsetReadout.textContent = offsetText;
+  if (syncDriftReadout) syncDriftReadout.textContent = driftText;
+  if (btnAudioSync) btnAudioSync.classList.toggle('sync-non-zero', isNonZero);
+
+  if (syncStatusHint) {
+    if (customHint) {
+      syncStatusHint.textContent = customHint;
+    } else if (!audioAuditionEl && !isAuditionPending) {
+      const firstNoteSec = getFirstPlayableNoteSec(currentSong);
+      syncStatusHint.textContent = `First note at ${firstNoteSec.toFixed(2)}s • Offset ${offsetText} • Drift ${driftText}. Saves automatically per song.`;
+    }
+  }
+}
+
+function stopAudioAudition() {
+  auditionRequestSeq += 1;
+  isAuditionPending = false;
+  if (audioAuditionTimer) {
+    clearInterval(audioAuditionTimer);
+    audioAuditionTimer = null;
+  }
+  audioAuditionStartedAtMs = null;
+  if (audioAuditionEl) {
+    try {
+      audioAuditionEl._disposed = true;
+      audioAuditionEl.pause();
+      audioAuditionEl.removeAttribute('src');
+      audioAuditionEl.load();
+    } catch {
+      // Ignore audition cleanup error
+    }
+    audioAuditionEl = null;
+  }
+  if (btnSyncAudition) {
+    btnSyncAudition.textContent = '\uD83D\uDD0A Audition 0:00';
+  }
+  if (btnSyncMarkBeat1) {
+    btnSyncMarkBeat1.textContent = '\uD83C\uDFAF Mark Beat 1';
+  }
+}
+
+async function startAudioAudition() {
+  if (audioAuditionEl || isAuditionPending) {
+    stopAudioAudition();
+    updateAudioSyncUI('Audition stopped.');
+    return;
+  }
+  const targetSong = currentSong;
+  if (!targetSong?.backingAudioPath || !fs.existsSync(targetSong.backingAudioPath)) return;
+
+  const seq = ++auditionRequestSeq;
+  isAuditionPending = true;
+  pausePlayback();
+  if (btnSyncAudition) btnSyncAudition.textContent = '\u23F9 Stop Audition';
+  if (syncStatusHint) syncStatusHint.textContent = 'Starting audition from 0:00\u2026';
+
+  let el = null;
+  const disposeEl = (targetEl) => {
+    if (!targetEl) return;
+    try {
+      targetEl._disposed = true;
+      targetEl.pause();
+      targetEl.removeAttribute('src');
+      targetEl.load();
+    } catch {
+      // Ignore audition cleanup error
+    }
+  };
+
+  try {
+    await ensureAudioReady();
+    if (seq !== auditionRequestSeq || currentSong !== targetSong || !fs.existsSync(targetSong.backingAudioPath)) {
+      isAuditionPending = false;
+      if (!audioAuditionEl && btnSyncAudition) {
+        btnSyncAudition.textContent = '\uD83D\uDD0A Audition 0:00';
+      }
+      return;
+    }
+
+    el = new Audio(pathToFileURL(targetSong.backingAudioPath).href);
+    el.preload = 'auto';
+    el.volume = getBackingAudioVolumeFromSlider();
+    el.preservesPitch = true;
+    el.webkitPreservesPitch = true;
+    el.playbackRate = 1.0;
+
+    el.addEventListener('ended', () => {
+      if (el._disposed) return;
+      stopAudioAudition();
+      updateAudioSyncUI('Audition finished.');
+    });
+    el.addEventListener('error', () => {
+      if (el._disposed) return;
+      stopAudioAudition();
+      showGrimoireToast('Could not audition backing audio file.', 'warning');
+    });
+
+    audioAuditionEl = el;
+    audioAuditionStartedAtMs = performance.now();
+    if (btnSyncAudition) btnSyncAudition.textContent = '\u23F9 Stop Audition';
+    if (btnSyncMarkBeat1) btnSyncMarkBeat1.textContent = '\uD83C\uDFAF Tap Beat 1 Now!';
+    if (syncStatusHint) {
+      syncStatusHint.textContent = 'Listening from 0:00… click "🎯 Tap Beat 1 Now!" when Measure 1 / Beat 1 hits.';
+    }
+
+    await el.play();
+    if (seq !== auditionRequestSeq || el._disposed || currentSong !== targetSong) {
+      disposeEl(el);
+      if (audioAuditionEl === el) audioAuditionEl = null;
+      isAuditionPending = false;
+      return;
+    }
+
+    isAuditionPending = false;
+    audioAuditionTimer = setInterval(() => {
+      if (!audioAuditionEl || audioAuditionEl._disposed) return;
+      const elapsed = Number(audioAuditionEl.currentTime) || 0;
+      if (syncStatusHint) {
+        syncStatusHint.textContent = `Auditioning: ${elapsed.toFixed(2)}s — Tap "🎯 Tap Beat 1 Now!" on Beat 1`;
+      }
+    }, 80);
+  } catch (err) {
+    disposeEl(el);
+    if (seq === auditionRequestSeq) {
+      stopAudioAudition();
+      showGrimoireToast(`Could not play audition audio: ${err?.message || err}`, 'warning');
+    } else {
+      isAuditionPending = false;
+    }
+  }
+}
+
+function handleMarkBeat1Click() {
+  if (!currentSong?.backingAudioPath) return;
+  if (isAuditionPending) return;
+  if (!audioAuditionEl || audioAuditionEl.paused) {
+    startAudioAudition();
+    return;
+  }
+
+  const heardSec = Math.max(0, Number(audioAuditionEl.currentTime) || 0);
+  const firstNoteSec = getFirstPlayableNoteSec(currentSong);
+  const nextOffset = computeAudioOffsetForBeat1(heardSec, firstNoteSec, currentSong.audioTempoRatio);
+  stopAudioAudition();
+
+  applyLiveAudioSyncCalibration({
+    nextOffsetSec: nextOffset,
+    statusMessage: `Beat 1 locked at ${heardSec.toFixed(2)}s (Start Offset ${nextOffset >= 0 ? '+' : ''}${nextOffset.toFixed(2)}s).`
+  });
+  showGrimoireToast(`\uD83C\uDFAF Beat 1 locked (${heardSec.toFixed(2)}s \u2192 Offset ${nextOffset >= 0 ? '+' : ''}${nextOffset.toFixed(2)}s)`);
+}
+
+async function runAutoAlignFirstOnset() {
+  const targetSong = currentSong;
+  if (!targetSong?.backingAudioPath || !fs.existsSync(targetSong.backingAudioPath)) return;
+  pausePlayback();
+  stopAudioAudition();
+
+  if (btnSyncAutoAlign) {
+    btnSyncAutoAlign.disabled = true;
+    btnSyncAutoAlign.textContent = '\u23F3 Analyzing...';
+  }
+  updateAudioSyncUI('Scanning backing audio waveform for first musical onset...');
+
+  let audioCtx = null;
+  try {
+    const fileBuf = await fs.promises.readFile(targetSong.backingAudioPath);
+    if (currentSong !== targetSong) return;
+    const arrayBuf = fileBuf.buffer.slice(fileBuf.byteOffset, fileBuf.byteOffset + fileBuf.byteLength);
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) {
+      throw new Error('Web Audio API unavailable for decoding.');
+    }
+    audioCtx = new AudioCtx();
+    const decoded = await audioCtx.decodeAudioData(arrayBuf);
+    if (currentSong !== targetSong) return;
+
+    const numChannels = Math.max(1, decoded.numberOfChannels || 1);
+    const maxSamples = Math.min(decoded.length, Math.floor(decoded.sampleRate * 40));
+    const mono = new Float32Array(maxSamples);
+    for (let ch = 0; ch < numChannels; ch++) {
+      const chData = decoded.getChannelData(ch);
+      for (let i = 0; i < maxSamples; i++) {
+        mono[i] += chData[i] / numChannels;
+      }
+    }
+
+    const onsetSec = detectFirstAudioOnsetSec(mono, decoded.sampleRate, 35);
+    if (currentSong !== targetSong) return;
+    if (onsetSec === null) {
+      updateAudioSyncUI('No distinct onset detected automatically. Try Audition 0:00 + Mark Beat 1.');
+      showGrimoireToast('Could not detect Beat 1 automatically — tap Mark Beat 1 while auditioning.', 'warning');
+      return;
+    }
+
+    const firstNoteSec = getFirstPlayableNoteSec(targetSong);
+    const nextOffset = computeAudioOffsetForBeat1(onsetSec, firstNoteSec, targetSong.audioTempoRatio);
+    applyLiveAudioSyncCalibration({
+      nextOffsetSec: nextOffset,
+      statusMessage: `Auto-Aligned! First onset at ${onsetSec.toFixed(2)}s \u2192 Offset ${nextOffset >= 0 ? '+' : ''}${nextOffset.toFixed(2)}s.`
+    });
+    showGrimoireToast(`\u26A1 Auto-Aligned! Onset ${onsetSec.toFixed(2)}s \u2192 Offset ${nextOffset >= 0 ? '+' : ''}${nextOffset.toFixed(2)}s`);
+  } catch (err) {
+    if (currentSong === targetSong) {
+      updateAudioSyncUI(`Auto-Align failed: ${err?.message || err}`);
+      showGrimoireToast(`Auto-Align failed: ${err?.message || err}`, 'warning');
+    }
+  } finally {
+    if (audioCtx) {
+      audioCtx.close().catch(() => {});
+    }
+    if (btnSyncAutoAlign) {
+      btnSyncAutoAlign.disabled = false;
+      btnSyncAutoAlign.textContent = '\u26A1 Auto-Align';
+    }
+  }
+}
+
+/**
+ * Synchronize paired .wav / .mp3 backing audio element (Issue #31 & Issue #76).
  * Called independently of `audioTriggerEnd >= prevTime` so backing audio immediately
  * pauses when Wait Mode freezes at a chord or when Backing Band is toggled OFF.
  */
 function syncBackingAudioElement(currentTime = playbackState.currentTime) {
   if (!currentSong?.backingAudioEl) return;
   const audioEl = currentSong.backingAudioEl;
+  const mapped = getMappedBackingAudioTime(currentTime, {
+    audioOffsetSec: currentSong.audioOffsetSec,
+    audioTempoRatio: currentSong.audioTempoRatio
+  });
+  const audioDur = audioEl.duration;
+  const pastAudioEnd = Number.isFinite(audioDur) && audioDur > 0 && mapped.clampedAudioTime >= audioDur - 0.02;
+
   const shouldPlay =
     playbackState.isPlaying &&
     playbackState.backingBandEnabled &&
     !playbackState.isWaitingForStrike &&
-    currentTime >= 0 &&
+    !mapped.isBeforeAudioStart &&
+    !pastAudioEnd &&
     currentTime < currentSong.duration;
 
   if (shouldPlay) {
     audioEl.preservesPitch = true;
     audioEl.webkitPreservesPitch = true;
-    audioEl.playbackRate = playbackState.playbackSpeed;
+    audioEl.playbackRate = getEffectiveBackingPlaybackRate(
+      playbackState.playbackSpeed,
+      currentSong.audioTempoRatio
+    );
+    const targetAudioTime = Number.isFinite(audioDur) && audioDur > 0
+      ? Math.min(mapped.clampedAudioTime, Math.max(0, audioDur - 0.02))
+      : mapped.clampedAudioTime;
+
     if (audioEl.paused) {
-      audioEl.currentTime = Math.max(0, currentTime);
-      audioEl.play().catch(() => {});
-    } else if (Math.abs(audioEl.currentTime - currentTime) > 0.35) {
-      audioEl.currentTime = Math.max(0, currentTime);
+      if (!audioEl._playPending) {
+        if (Math.abs((Number(audioEl.currentTime) || 0) - targetAudioTime) > 0.05) {
+          try {
+            audioEl.currentTime = targetAudioTime;
+          } catch {
+            // Ignore seek errors before audio metadata is ready
+          }
+        }
+        audioEl._playPending = true;
+        Promise.resolve(audioEl.play())
+          .catch(() => {})
+          .finally(() => {
+            audioEl._playPending = false;
+          });
+      }
+    } else if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.28) {
+      try {
+        audioEl.currentTime = targetAudioTime;
+      } catch {
+        // Ignore seek errors
+      }
     }
-  } else if (!audioEl.paused) {
+  } else if (!audioEl.paused || audioEl._playPending) {
     audioEl.pause();
   }
 }
@@ -3101,13 +3627,7 @@ function setRehearsalMarkerB(rawTime = playbackState.currentTime) {
       playbackState.waitStartedAtMs = null;
       playbackState.activeStrikeGroup = null;
       resetSongProgressFlags(jumpTime);
-      if (currentSong.backingAudioEl) {
-        try {
-          currentSong.backingAudioEl.currentTime = jumpTime;
-        } catch {
-          // Ignore seek errors
-        }
-      }
+      seekBackingAudioToSongTime(jumpTime);
       syncBackingAudioElement(jumpTime);
       updateTimelineUI();
     }
@@ -3136,13 +3656,8 @@ function toggleRehearsalLoop() {
     const jumpTime = Math.max(0, rehearsalLoopState.startTime - REHEARSAL_PREROLL_SEC);
     playbackState.currentTime = jumpTime;
     resetSongProgressFlags(jumpTime);
-    if (currentSong.backingAudioEl) {
-      try {
-        currentSong.backingAudioEl.currentTime = jumpTime;
-      } catch {
-        // Ignore seek errors
-      }
-    }
+    seekBackingAudioToSongTime(jumpTime);
+    syncBackingAudioElement(jumpTime);
     updateTimelineUI();
   }
 
@@ -3199,13 +3714,7 @@ function handleRehearsalLoopWrap() {
   playbackState.activeStrikeGroup = null;
   resetSongProgressFlags(jumpTime);
 
-  if (currentSong.backingAudioEl) {
-    try {
-      currentSong.backingAudioEl.currentTime = jumpTime;
-    } catch {
-      // Ignore seek errors
-    }
-  }
+  seekBackingAudioToSongTime(jumpTime);
   syncBackingAudioElement(jumpTime);
   updateTimelineUI();
   updateRehearsalUI();
@@ -3546,9 +4055,11 @@ function showGrimoireToast(message, variant = 'success') {
 }
 
 /**
- * Extract lightweight Grimoire card metadata from a MIDI or MusicXML ArrayBuffer
+ * Extract lightweight Grimoire card metadata from a MIDI or MusicXML ArrayBuffer.
+ * Uses the exact same track selection, Smart MIDI Hygiene, octave folding, and bundle resolution
+ * as parseMidiBuffer()/assignSongTracksAndDifficulty() so Grimoire cards and the Spell Inspector HUD match 100%.
  */
-function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceTag) {
+function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceTag, preloadedBundleStore = null) {
   let effectiveBuffer = arrayBuffer;
   let musicXmlMeta = null;
   if (isMusicXmlFileName(fileName)) {
@@ -3557,79 +4068,89 @@ function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceT
     musicXmlMeta = converted.metadata;
   }
 
+  const effectiveRawBuf = Buffer.from(effectiveBuffer);
   const midiData = new Midi(effectiveBuffer);
   const bpm = midiData.header.tempos.length > 0
     ? Math.round(midiData.header.tempos[0].bpm)
     : 120;
   const duration = Math.max(1, midiData.duration || 1);
-  const cleanTitle = (musicXmlMeta?.title && musicXmlMeta.title.trim())
+  const rawTitle = (musicXmlMeta?.title && musicXmlMeta.title.trim())
     || midiData.name?.trim()
     || fileName.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
 
-  const nonPercTracks = midiData.tracks
-    .filter((t) => t.notes.length > 0 && !(t.instrument?.percussion || t.channel === 9))
-    .map((t) => {
-      const avgPitch = t.notes.reduce((sum, n) => sum + n.midi, 0) / t.notes.length;
-      const notes = t.notes.map((n) => ({
-        originalMidi: n.midi,
-        time: n.time,
-        duration: n.duration
-      }));
-      return {
-        name: t.name,
-        instrument: t.instrument,
-        avgPitch,
-        notes,
-        isPianoCandidate: isPianoCandidateTrack(t),
-        isDuplicate: false
-      };
-    });
+  const isDemo = filePath === 'BUILTIN_DEMO';
+  const songId = isDemo
+    ? 'builtin::demo'
+    : crypto.createHash('sha1').update(effectiveRawBuf).digest('hex');
 
-  for (let i = 0; i < nonPercTracks.length; i++) {
+  // Keep percussion tracks in rawTracks with normalized note durations/velocities so indices and
+  // Smart MIDI Hygiene behave identically to parseMidiBuffer() + assignSongTracksAndDifficulty().
+  const rawTracks = midiData.tracks
+    .map((t, idx) => {
+      const avgPitch = t.notes.length > 0
+        ? t.notes.reduce((sum, n) => sum + n.midi, 0) / t.notes.length
+        : 60;
+      return {
+        index: idx,
+        channel: t.channel ?? 0,
+        name: t.name?.trim() || t.instrument?.name || `Track ${idx + 1}`,
+        instrumentName: t.instrument?.name || 'Unknown Instrument',
+        instrumentFamily: t.instrument?.family || 'unknown',
+        programNumber: t.instrument?.number ?? 0,
+        isPercussion: Boolean(t.instrument?.percussion || t.channel === 9),
+        isPianoCandidate: isPianoCandidateTrack(t),
+        avgPitch,
+        isDuplicate: false,
+        duplicateOfIndex: null,
+        notes: t.notes.map((n, noteIdx) => ({
+          id: `${idx}-${noteIdx}`,
+          originalMidi: n.midi,
+          name: n.name,
+          time: n.time,
+          ticks: n.ticks,
+          duration: Math.max(0.05, n.duration),
+          durationTicks: n.durationTicks,
+          velocity: Math.round((n.velocity ?? 0.8) * 127)
+        }))
+      };
+    })
+    .filter((t) => t.notes.length > 0);
+
+  for (let i = 0; i < rawTracks.length; i++) {
     for (let j = 0; j < i; j++) {
-      if (areTracksDuplicates(nonPercTracks[i], nonPercTracks[j])) {
-        nonPercTracks[i].isDuplicate = true;
+      if (areTracksDuplicates(rawTracks[i], rawTracks[j])) {
+        rawTracks[i].isDuplicate = true;
+        rawTracks[i].duplicateOfIndex = j;
         break;
       }
     }
   }
 
-  let candidates = nonPercTracks.filter((t) => t.isPianoCandidate && !t.isDuplicate);
-  if (candidates.length === 0) {
-    candidates = nonPercTracks.filter((t) => !t.isDuplicate);
-  }
+  const bundleStore = preloadedBundleStore || loadBundlesStore(BUNDLE_STORE_PATH);
+  const bundle = resolveBundleForSong({
+    filePath,
+    fileName,
+    songId,
+    title: rawTitle,
+    store: bundleStore,
+    projectRoot: __dirname
+  });
+  const effectiveTitle = (bundle.title && bundle.title.trim()) || rawTitle;
+  const cleanupEnabled = typeof bundle.midiCleanupEnabled === 'boolean'
+    ? bundle.midiCleanupEnabled
+    : Boolean(midiCleanupGlobalEnabled);
 
   let track1Raw = [];
   let track2Raw = [];
-  if (candidates.length >= 2) {
-    const explicitRh = candidates.find((t) => /Right Hand \(Staff 1\)/i.test(t.name));
-    const explicitLh = candidates.find((t) => /Left Hand \(Staff 2\)/i.test(t.name));
-    const treble = candidates.filter((t) => t.avgPitch >= 62).sort((a, b) => b.notes.length - a.notes.length);
-    const bass = candidates.filter((t) => t.avgPitch < 62).sort((a, b) => b.notes.length - a.notes.length);
-    if (explicitRh && explicitLh) {
-      track1Raw = explicitRh.notes;
-      track2Raw = explicitLh.notes;
-    } else if (treble.length > 0 && bass.length > 0) {
-      track1Raw = treble[0].notes;
-      track2Raw = bass[0].notes;
-    } else {
-      const topTwo = candidates
-        .slice()
-        .sort((a, b) => b.notes.length - a.notes.length)
-        .slice(0, 2)
-        .sort((a, b) => b.avgPitch - a.avgPitch);
-      track1Raw = topTwo[0].notes;
-      track2Raw = topTwo[1].notes;
-    }
-  } else if (candidates.length === 1) {
-    for (const n of candidates[0].notes) {
-      const foldedCheck = foldMidiTo61Keys(n.originalMidi);
-      if (foldedCheck >= MIDDLE_C) {
-        track1Raw.push(n);
-      } else {
-        track2Raw.push(n);
-      }
-    }
+  if (rawTracks.length > 0) {
+    const sel = selectAutoPianoTracks(rawTracks, duration);
+    track1Raw = sel.track1Raw;
+    track2Raw = sel.track2Raw;
+  }
+
+  if (cleanupEnabled) {
+    track1Raw = cleanPlayableHandNotes(track1Raw, 1).notes;
+    track2Raw = cleanPlayableHandNotes(track2Raw, 2).notes;
   }
 
   const foldedT1 = foldAndDeduplicateHandNotes(track1Raw, 1);
@@ -3652,27 +4173,15 @@ function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceT
 
   const diff = calculateSpellDifficulty(playableNoteCount, activeDuration);
 
-  // Check if a paired backing audio file (.mp3 / .wav / .ogg / .m4a) exists in the same folder
-  let backingAudioPath = null;
-  if (filePath && filePath !== 'BUILTIN_DEMO') {
-    const dir = path.dirname(filePath);
-    const base = fileName.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
-    for (const ext of ['.mp3', '.wav', '.ogg', '.m4a']) {
-      const candidate = path.join(dir, `${base}${ext}`);
-      if (fs.existsSync(candidate)) {
-        backingAudioPath = candidate;
-        break;
-      }
-    }
-  }
-
   const id = filePath === 'BUILTIN_DEMO'
     ? 'builtin::demo'
     : `${sourceTag.toLowerCase()}::${fileName.toLowerCase()}`;
 
   return {
     id,
-    title: cleanTitle,
+    songId,
+    rawTitle,
+    title: effectiveTitle,
     fileName,
     filePath,
     sourceTag,
@@ -3684,7 +4193,16 @@ function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceT
     xpMultiplier: diff.xpMultiplier,
     totalNotes: playableNoteCount,
     keySignature: musicXmlMeta?.keySignature || null,
-    backingAudioPath,
+    backingAudioPath: bundle.backingAudioPath || null,
+    sheetMusicPath: bundle.sheetMusicPath || null,
+    youtubeUrl: bundle.youtubeUrl || null,
+    spotifyUrl: bundle.spotifyUrl || null,
+    audioOffsetSec: bundle.audioOffsetSec ?? 0,
+    audioTempoRatio: bundle.audioTempoRatio ?? 1.0,
+    midiCleanupEnabled: typeof bundle.midiCleanupEnabled === 'boolean' ? bundle.midiCleanupEnabled : null,
+    hasCustomBundle: Boolean(bundle.hasCustomBundle),
+    sidecarPath: bundle.sidecarPath || null,
+    _appliedCleanupEnabled: cleanupEnabled,
     isFavorite: grimoireFavorites.has(id),
     newlyIngested: false
   };
@@ -3801,6 +4319,7 @@ function toggleGrimoireFavorite(entryId) {
 function persistGrimoireIndex() {
   const serializable = Array.from(grimoireSpells.values()).map((entry) => ({
     id: entry.id,
+    songId: entry.songId || null,
     title: entry.title,
     fileName: entry.fileName,
     filePath: entry.filePath,
@@ -3813,7 +4332,14 @@ function persistGrimoireIndex() {
     xpMultiplier: entry.xpMultiplier,
     totalNotes: entry.totalNotes,
     keySignature: entry.keySignature || null,
-    backingAudioPath: entry.backingAudioPath,
+    backingAudioPath: entry.backingAudioPath || null,
+    sheetMusicPath: entry.sheetMusicPath || null,
+    youtubeUrl: entry.youtubeUrl || null,
+    spotifyUrl: entry.spotifyUrl || null,
+    audioOffsetSec: entry.audioOffsetSec ?? 0,
+    audioTempoRatio: entry.audioTempoRatio ?? 1.0,
+    midiCleanupEnabled: typeof entry.midiCleanupEnabled === 'boolean' ? entry.midiCleanupEnabled : null,
+    hasCustomBundle: Boolean(entry.hasCustomBundle),
     isFavorite: Boolean(entry.isFavorite)
   }));
 
@@ -3832,7 +4358,7 @@ function persistGrimoireIndex() {
 
 /**
  * Scan ./Imports and ./Midi Test Files for any .mid / .midi / .musicxml / .xml / .mxl files.
- * If notifyOnNew is true, triggers a real-time toast and highlights newly detected files!
+ * Resolves Song Bundle assets/calibration (grimoire_bundles.json + <Base>.bundle.json) and updates live!
  */
 function scanWatchedDirectories(notifyOnNew = false) {
   try {
@@ -3848,6 +4374,7 @@ function scanWatchedDirectories(notifyOnNew = false) {
     { dir: MIDI_TEST_DIR, sourceTag: 'Test Library' }
   ];
 
+  const bundleStore = loadBundlesStore(BUNDLE_STORE_PATH);
   let addedNewSpell = null;
   let changed = false;
 
@@ -3863,33 +4390,75 @@ function scanWatchedDirectories(notifyOnNew = false) {
         if (!stat.isFile() || stat.size < 16) continue;
 
         const existing = grimoireSpells.get(key);
-        if (existing && existing.mtimeMs === stat.mtimeMs && existing.fileSize === stat.size) {
-          // If backing audio arrived slightly after the spell file was indexed, attach it (Issue #13)
-          if (!existing.backingAudioPath) {
-            const base = file.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
-            for (const ext of ['.mp3', '.wav', '.ogg', '.m4a']) {
-              const candidate = path.join(dir, `${base}${ext}`);
-              if (fs.existsSync(candidate)) {
-                existing.backingAudioPath = candidate;
-                changed = true;
-                break;
-              }
+        const sameDiskFile = Boolean(existing && existing.mtimeMs === stat.mtimeMs && existing.fileSize === stat.size);
+
+        if (sameDiskFile) {
+          const bundle = resolveBundleForSong({
+            filePath: existing.filePath,
+            fileName: existing.fileName,
+            songId: existing.songId,
+            title: existing.rawTitle || existing.title,
+            store: bundleStore,
+            projectRoot: __dirname
+          });
+          const nextCleanupEnabled = typeof bundle.midiCleanupEnabled === 'boolean'
+            ? bundle.midiCleanupEnabled
+            : Boolean(midiCleanupGlobalEnabled);
+
+          // Only skip re-extraction when the effective MIDI hygiene state also matches
+          if (existing._appliedCleanupEnabled === nextCleanupEnabled) {
+            const nextTitle = (bundle.title && bundle.title.trim()) || existing.rawTitle || existing.title;
+            const nextAudio = bundle.backingAudioPath || null;
+            const nextSheet = bundle.sheetMusicPath || null;
+            const nextYt = bundle.youtubeUrl || null;
+            const nextSpotify = bundle.spotifyUrl || null;
+            const nextOffset = bundle.audioOffsetSec ?? 0;
+            const nextRatio = bundle.audioTempoRatio ?? 1.0;
+            const nextCleanupOverride = typeof bundle.midiCleanupEnabled === 'boolean' ? bundle.midiCleanupEnabled : null;
+            const nextHasCustom = Boolean(bundle.hasCustomBundle);
+            const nextSidecar = bundle.sidecarPath || null;
+
+            if (
+              existing.title !== nextTitle ||
+              existing.backingAudioPath !== nextAudio ||
+              existing.sheetMusicPath !== nextSheet ||
+              existing.youtubeUrl !== nextYt ||
+              existing.spotifyUrl !== nextSpotify ||
+              existing.audioOffsetSec !== nextOffset ||
+              existing.audioTempoRatio !== nextRatio ||
+              existing.midiCleanupEnabled !== nextCleanupOverride ||
+              existing.hasCustomBundle !== nextHasCustom ||
+              existing.sidecarPath !== nextSidecar
+            ) {
+              existing.title = nextTitle;
+              existing.backingAudioPath = nextAudio;
+              existing.sheetMusicPath = nextSheet;
+              existing.youtubeUrl = nextYt;
+              existing.spotifyUrl = nextSpotify;
+              existing.audioOffsetSec = nextOffset;
+              existing.audioTempoRatio = nextRatio;
+              existing.midiCleanupEnabled = nextCleanupOverride;
+              existing.hasCustomBundle = nextHasCustom;
+              existing.sidecarPath = nextSidecar;
+              changed = true;
             }
+            continue;
           }
-          continue;
         }
 
         try {
           const buf = fs.readFileSync(fullPath);
           const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-          const entry = extractGrimoireEntryFromBuffer(arrayBuf, file, fullPath, sourceTag);
+          const entry = extractGrimoireEntryFromBuffer(arrayBuf, file, fullPath, sourceTag, bundleStore);
           entry.mtimeMs = stat.mtimeMs;
           entry.fileSize = stat.size;
-          entry.newlyIngested = notifyOnNew;
+
+          const isTrulyNewDiskFile = !sameDiskFile;
+          entry.newlyIngested = Boolean(notifyOnNew && isTrulyNewDiskFile);
 
           grimoireSpells.set(entry.id, entry);
           changed = true;
-          if (notifyOnNew) {
+          if (notifyOnNew && isTrulyNewDiskFile) {
             addedNewSpell = { entry, arrayBuf };
           }
         } catch (fileErr) {
@@ -3925,9 +4494,6 @@ function scanWatchedDirectories(notifyOnNew = false) {
   if (addedNewSpell) {
     const { entry, arrayBuf } = addedNewSpell;
     showGrimoireToast(`📖 Folder Watcher Ingested: "${entry.title}" (${entry.spellLevel}) from ${entry.sourceTag}!`);
-    if (watcherStatusText) {
-      watcherStatusText.textContent = `Ingested: ${entry.fileName}`;
-    }
     if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
       spellbookFavoritesOnly = false;
       saveSpellbookFavoritesFilter();
@@ -3942,6 +4508,23 @@ function scanWatchedDirectories(notifyOnNew = false) {
         showGrimoireToast(`Failed to load "${entry.fileName}": ${err.message}`, 'error');
       }
     }
+  }
+}
+
+function seedBuiltInDemoInGrimoire(bundleStore = null) {
+  try {
+    const demo = buildDemoSpellMidiBytes();
+    const demoEntry = extractGrimoireEntryFromBuffer(
+      demo.arrayBuffer,
+      demo.fileName,
+      'BUILTIN_DEMO',
+      'Built-In',
+      bundleStore
+    );
+    grimoireSpells.set(demoEntry.id, demoEntry);
+    return demoEntry;
+  } catch {
+    return null;
   }
 }
 
@@ -3960,31 +4543,21 @@ function initGrimoireAndWatcher() {
   }
 
   // Always seed the Built-In Demo Spell so The Grimoire is never empty
-  try {
-    const demo = buildDemoSpellMidiBytes();
-    const demoEntry = extractGrimoireEntryFromBuffer(
-      demo.arrayBuffer,
-      demo.fileName,
-      'BUILTIN_DEMO',
-      'Built-In'
-    );
-    grimoireSpells.set(demoEntry.id, demoEntry);
-  } catch {
-    // Ignore demo seed error
-  }
+  seedBuiltInDemoInGrimoire();
 
   // Initial scan of ./Imports and ./Midi Test Files
   scanWatchedDirectories(false);
   renderGrimoireSidebar();
 
-  // Start native fs.watch on ./Imports
+  // Start native fs.watch on ./Imports (tracks playable notes plus bundle sidecars & paired assets)
   try {
     if (grimoireWatcher) {
       grimoireWatcher.close();
     }
     grimoireWatcher = fs.watch(IMPORTS_DIR, { persistent: false }, (eventType, filename) => {
-      if (filename && /\.(mid|midi|musicxml|xml|mxl)$/i.test(filename)) {
-        setTimeout(() => scanWatchedDirectories(true), 180);
+      if (filename && /\.(mid|midi|musicxml|xml|mxl|bundle\.json|wav|mp3|ogg|m4a|flac|pdf)$/i.test(filename)) {
+        const isNotes = /\.(mid|midi|musicxml|xml|mxl)$/i.test(filename);
+        setTimeout(() => scanWatchedDirectories(isNotes), 180);
       }
     });
   } catch {
@@ -4043,6 +4616,9 @@ function getSongHistoryRecord(entry) {
   if (entry.filePath === 'BUILTIN_DEMO') {
     return songPlayHistory['builtin::demo'] || null;
   }
+  if (entry.songId && songPlayHistory[entry.songId]) {
+    return songPlayHistory[entry.songId];
+  }
   if (entry.id && songPlayHistory[entry.id]) {
     return songPlayHistory[entry.id];
   }
@@ -4073,6 +4649,7 @@ function playSpellbookPageTurnSound() {
 function openGrimoireSpellbook(origin = 'highway') {
   pausePlayback();
   closeAllConservatoryPopovers();
+  closeStreakPopover();
   previousSpellbookOrigin = origin;
 
   // Default to the currently loaded song's tier if active (and not in Attuned filter)
@@ -4437,6 +5014,10 @@ function renderSpellbookDetails(entry) {
     if (spellbookDetailTotalXp) spellbookDetailTotalXp.textContent = '0 XP';
     if (spellbookDetailLastPlayed) spellbookDetailLastPlayed.textContent = 'Never performed on stage';
     if (spellbookDetailAudioBadge) spellbookDetailAudioBadge.classList.add('hidden');
+    if (spellbookBundleStrip) spellbookBundleStrip.classList.add('hidden');
+    if (spellbookBundleSheetChip) spellbookBundleSheetChip.classList.add('hidden');
+    if (spellbookBundleSpotifyLink) spellbookBundleSpotifyLink.classList.add('hidden');
+    if (btnSpellbookBundle) btnSpellbookBundle.disabled = true;
     if (btnSpellbookLoadSong) btnSpellbookLoadSong.disabled = true;
     if (btnSpellbookFavoriteSong) {
       btnSpellbookFavoriteSong.disabled = true;
@@ -4482,6 +5063,72 @@ function renderSpellbookDetails(entry) {
     spellbookDetailNotes.textContent = String(entry.totalNotes || '\u2014');
   }
 
+  // Issue #76: Populate compact 1-row Grimoire Song Bundle strip
+  const hasSheet = Boolean(entry.sheetMusicPath && fs.existsSync(entry.sheetMusicPath));
+  const hasAudio = Boolean(entry.backingAudioPath && fs.existsSync(entry.backingAudioPath));
+  const validSpotify = Boolean(entry.spotifyUrl && /^https?:\/\/\S+$/i.test(entry.spotifyUrl));
+  const validYoutube = Boolean(entry.youtubeUrl && /^https?:\/\/\S+$/i.test(entry.youtubeUrl));
+  const isBuiltInDemo = entry.filePath === 'BUILTIN_DEMO';
+
+  if (spellbookBundleStrip) {
+    spellbookBundleStrip.classList.remove('hidden');
+  }
+  if (spellbookBundleNotesChip) {
+    const noteType = isMusicXmlFileName(entry.fileName || '') ? 'XML' : 'MIDI';
+    const isClean = entry._appliedCleanupEnabled !== undefined
+      ? Boolean(entry._appliedCleanupEnabled)
+      : Boolean(midiCleanupGlobalEnabled);
+    spellbookBundleNotesChip.textContent = isClean
+      ? `\uD83C\uDFB9 ${noteType} \u2022 Clean`
+      : `\uD83C\uDFB9 ${noteType}`;
+    spellbookBundleNotesChip.title = isClean
+      ? `${noteType} notes with Smart MIDI Hygiene ON`
+      : `${noteType} notes (Raw uncleaned)`;
+  }
+  if (spellbookBundleSheetChip) {
+    if (hasSheet) {
+      const sheetExt = (path.extname(entry.sheetMusicPath) || '.SHEET').replace(/^\./, '').toUpperCase();
+      spellbookBundleSheetChip.textContent = `\uD83D\uDCDC ${sheetExt}`;
+      spellbookBundleSheetChip.title = `Open sheet music ref: ${path.basename(entry.sheetMusicPath)}`;
+      spellbookBundleSheetChip.classList.remove('hidden');
+    } else {
+      spellbookBundleSheetChip.classList.add('hidden');
+    }
+  }
+  if (spellbookBundleAudioChip) {
+    spellbookBundleAudioChip.classList.toggle('chip-missing', !hasAudio);
+    if (hasAudio) {
+      const off = clampAudioOffsetSec(entry.audioOffsetSec || 0);
+      const offBadge = Math.abs(off) >= 0.005 ? ` (${off >= 0 ? '+' : ''}${off.toFixed(2)}s)` : '';
+      spellbookBundleAudioChip.textContent = `\uD83C\uDFB5 Audio${offBadge}`;
+      spellbookBundleAudioChip.title = `Backing audio: ${path.basename(entry.backingAudioPath)}${offBadge ? ` \u2022 Offset ${offBadge.trim()}` : ''}`;
+    } else {
+      spellbookBundleAudioChip.textContent = '\uD83D\uDD07 No Audio';
+      spellbookBundleAudioChip.title = 'No paired backing audio attached yet';
+    }
+  }
+  if (spellbookBundleSpotifyLink) {
+    if (validSpotify) {
+      spellbookBundleSpotifyLink.textContent = '\u2197 Spotify';
+      spellbookBundleSpotifyLink.title = entry.spotifyUrl;
+      spellbookBundleSpotifyLink.classList.remove('hidden');
+    } else if (validYoutube) {
+      spellbookBundleSpotifyLink.textContent = '\u2197 YouTube';
+      spellbookBundleSpotifyLink.title = entry.youtubeUrl;
+      spellbookBundleSpotifyLink.classList.remove('hidden');
+    } else {
+      spellbookBundleSpotifyLink.classList.add('hidden');
+    }
+  }
+  if (btnSpellbookBundle) {
+    btnSpellbookBundle.disabled = isBuiltInDemo;
+    const hasExtras = hasSheet || hasAudio || validSpotify || validYoutube;
+    btnSpellbookBundle.textContent = hasExtras ? '\u2699 Bundle' : '+ Bundle';
+    btnSpellbookBundle.title = isBuiltInDemo
+      ? 'Song Bundle editor is unavailable for the Built-In Demo Spell'
+      : 'Attach or manage Backing Audio, Sheet Music & Bundle Sync';
+  }
+
   // Load rehearsal history from songPlayHistory store
   const hist = getSongHistoryRecord(entry);
   if (spellbookDetailPlays) {
@@ -4508,7 +5155,7 @@ function renderSpellbookDetails(entry) {
 
   // Backing audio badge
   if (spellbookDetailAudioBadge) {
-    if (entry.backingAudioPath) {
+    if (hasAudio) {
       spellbookDetailAudioBadge.classList.remove('hidden');
       spellbookDetailAudioBadge.textContent = '\uD83C\uDFB5 Backing Audio Synced';
     } else {
@@ -4614,15 +5261,15 @@ function saveActiveSpellToGrimoire() {
     if (isMusicXmlFileName(safeName)) {
       safeName = `${safeName.replace(/\.(musicxml|xml|mxl)$/i, '')}.mid`;
     }
+    const safeBase = safeName.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
     const destPath = path.join(IMPORTS_DIR, safeName);
 
-    // Copy paired backing audio track into ./Imports before writing .mid (Issue #48)
+    // Copy paired backing audio track into ./Imports before writing .mid (Issue #48 & #76)
     if (currentSong.backingAudioPath && fs.existsSync(currentSong.backingAudioPath)) {
       try {
         const ext = path.extname(currentSong.backingAudioPath);
-        const safeBase = safeName.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
         const destAudioPath = path.join(IMPORTS_DIR, `${safeBase}${ext}`);
-        if (path.resolve(currentSong.backingAudioPath) !== path.resolve(destAudioPath)) {
+        if (!isBundleSameFilePath(currentSong.backingAudioPath, destAudioPath)) {
           fs.copyFileSync(currentSong.backingAudioPath, destAudioPath);
         }
         currentSong.backingAudioPath = destAudioPath;
@@ -4631,9 +5278,65 @@ function saveActiveSpellToGrimoire() {
       }
     }
 
+    // Copy attached sheet music ref into ./Imports/Sheets before writing .mid (Issue #76)
+    if (currentSong.sheetMusicPath && fs.existsSync(currentSong.sheetMusicPath)) {
+      try {
+        if (!fs.existsSync(IMPORTS_SHEETS_DIR)) {
+          fs.mkdirSync(IMPORTS_SHEETS_DIR, { recursive: true });
+        }
+        const sheetExt = path.extname(currentSong.sheetMusicPath);
+        const destSheetPath = path.join(IMPORTS_SHEETS_DIR, `${safeBase}_sheet${sheetExt}`);
+        if (!isBundleSameFilePath(currentSong.sheetMusicPath, destSheetPath)) {
+          fs.copyFileSync(currentSong.sheetMusicPath, destSheetPath);
+        }
+        currentSong.sheetMusicPath = destSheetPath;
+      } catch {
+        // Ignore sheet copy errors
+      }
+    }
+
     fs.writeFileSync(destPath, currentSong.rawBuffer);
     currentSong.filePath = destPath;
     currentSong.fileName = safeName;
+
+    const hasBundleMeta = Boolean(
+      currentSong.sheetMusicPath ||
+      currentSong.backingAudioPath ||
+      currentSong.youtubeUrl ||
+      currentSong.spotifyUrl ||
+      Math.abs(currentSong.audioOffsetSec || 0) > 0.0001 ||
+      Math.abs((currentSong.audioTempoRatio ?? 1.0) - 1.0) > 0.0001 ||
+      typeof currentSong.midiCleanupOverride === 'boolean'
+    );
+    if (hasBundleMeta) {
+      const savedSongId = currentSong.songId && currentSong.songId !== 'builtin::demo'
+        ? currentSong.songId
+        : crypto.createHash('sha1').update(currentSong.rawBuffer).digest('hex');
+      currentSong.songId = savedSongId;
+      saveBundleRecord({
+        storePath: BUNDLE_STORE_PATH,
+        projectRoot: __dirname,
+        importsDir: IMPORTS_DIR,
+        writeSidecar: true,
+        record: {
+          id: savedSongId,
+          songId: savedSongId,
+          title: currentSong.title,
+          fileName: safeName,
+          notesPath: destPath,
+          sheetMusicPath: currentSong.sheetMusicPath || null,
+          backingAudioPath: currentSong.backingAudioPath || null,
+          youtubeUrl: currentSong.youtubeUrl || null,
+          spotifyUrl: currentSong.spotifyUrl || null,
+          audioOffsetSec: currentSong.audioOffsetSec ?? 0,
+          audioTempoRatio: currentSong.audioTempoRatio ?? 1.0,
+          midiCleanupEnabled: typeof currentSong.midiCleanupOverride === 'boolean'
+            ? currentSong.midiCleanupOverride
+            : null
+        }
+      });
+    }
+
     scanWatchedDirectories(false);
     showGrimoireToast(`💾 Saved "${currentSong.title}" to The Grimoire (./Imports/${safeName})!`);
     renderGrimoireSidebar();
@@ -4665,18 +5368,50 @@ function isGrimoireEntryDeletable(entry) {
 
 /**
  * Collect all source files associated with a Grimoire entry (MIDI, paired audio,
- * sheet music, and any future #76 bundle parts) so they trash together safely.
+ * sheet music, and bundle sidecar) while never moving files still referenced by another entry (Issue #77 & #76).
  */
 function collectGrimoireEntryFiles(entry) {
   const candidates = [];
   const seen = new Set();
+  const referencedByOtherEntries = new Set();
 
-  const pushCandidate = (filePath) => {
+  const normalizeKey = (filePath) => {
+    if (!filePath || typeof filePath !== 'string' || filePath === 'BUILTIN_DEMO') return null;
+    try {
+      const resolved = path.resolve(filePath);
+      return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+    } catch {
+      return null;
+    }
+  };
+
+  const trackOtherRef = (filePath) => {
+    const key = normalizeKey(filePath);
+    if (key) referencedByOtherEntries.add(key);
+  };
+
+  if (entry) {
+    for (const other of grimoireSpells.values()) {
+      if (!other || other === entry || isSameFilePath(other.filePath, entry.filePath)) continue;
+      trackOtherRef(other.filePath);
+      trackOtherRef(other.sidecarPath || getSidecarBundlePath(other.filePath));
+      trackOtherRef(getSidecarBundlePath(other.filePath));
+      trackOtherRef(other.backingAudioPath);
+      trackOtherRef(other.sheetMusicPath);
+      trackOtherRef(other.musicXmlPath);
+      if (Array.isArray(other.bundleFiles)) other.bundleFiles.forEach(trackOtherRef);
+      if (Array.isArray(other.stems)) other.stems.forEach(trackOtherRef);
+      else if (other.stems && typeof other.stems === 'object') Object.values(other.stems).forEach(trackOtherRef);
+    }
+  }
+
+  const pushCandidate = (filePath, { allowIfShared = false } = {}) => {
     if (!filePath || typeof filePath !== 'string' || filePath === 'BUILTIN_DEMO') return;
     try {
       const resolved = path.resolve(filePath);
       const dedupeKey = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
       if (seen.has(dedupeKey)) return;
+      if (!allowIfShared && referencedByOtherEntries.has(dedupeKey)) return;
       if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
         seen.add(dedupeKey);
         candidates.push(resolved);
@@ -4687,18 +5422,20 @@ function collectGrimoireEntryFiles(entry) {
   };
 
   if (entry) {
-    pushCandidate(entry.filePath);
+    pushCandidate(entry.filePath, { allowIfShared: true });
+    pushCandidate(getSidecarBundlePath(entry.filePath));
+    if (entry.sidecarPath) pushCandidate(entry.sidecarPath);
     pushCandidate(entry.backingAudioPath);
     pushCandidate(entry.sheetMusicPath);
     pushCandidate(entry.musicXmlPath);
 
     if (Array.isArray(entry.bundleFiles)) {
-      entry.bundleFiles.forEach(pushCandidate);
+      entry.bundleFiles.forEach((f) => pushCandidate(f));
     }
     if (Array.isArray(entry.stems)) {
-      entry.stems.forEach(pushCandidate);
+      entry.stems.forEach((f) => pushCandidate(f));
     } else if (entry.stems && typeof entry.stems === 'object') {
-      Object.values(entry.stems).forEach(pushCandidate);
+      Object.values(entry.stems).forEach((f) => pushCandidate(f));
     }
 
     // Sibling paired files sharing the same basename in the entry's directory
@@ -4745,9 +5482,11 @@ function isGrimoireEntryLoadedOnHighway(entry, associatedFiles = []) {
 function unloadCurrentSongToEmptyState() {
   pausePlayback();
   clearAllHeldInputNotes();
+  stopAudioAudition();
 
   if (currentSong?.backingAudioEl) {
     try {
+      currentSong.backingAudioEl._disposed = true;
       currentSong.backingAudioEl.pause();
       currentSong.backingAudioEl.removeAttribute('src');
       currentSong.backingAudioEl.load();
@@ -4781,6 +5520,8 @@ function unloadCurrentSongToEmptyState() {
   if (statT2Notes) statT2Notes.textContent = '0';
   if (statBandTracks) statBandTracks.textContent = '0';
   if (statFoldedNotes) statFoldedNotes.textContent = '0';
+  if (statKeySigChip) statKeySigChip.classList.add('hidden');
+  if (statCleanedChip) statCleanedChip.classList.add('hidden');
 
   if (playableTrackSelect) {
     playableTrackSelect.innerHTML = '<option value="auto-piano">No Spell Loaded</option>';
@@ -4799,6 +5540,8 @@ function unloadCurrentSongToEmptyState() {
   if (songTimeReadout) songTimeReadout.textContent = '0:00 / 0:00';
   clearRehearsalLoop();
 
+  syncMidiCleanupCheckboxUI();
+  updateAudioSyncUI();
   setStrikeStatusBadge('idle', 'Highway Clear \u2014 Open Grimoire to Choose a Spell');
   updateLitrpgHUD();
 }
@@ -4932,6 +5675,7 @@ function removeGrimoireEntry(entry) {
   ) {
     if (currentSong.backingAudioEl) {
       try {
+        currentSong.backingAudioEl._disposed = true;
         currentSong.backingAudioEl.pause();
         currentSong.backingAudioEl.removeAttribute('src');
         currentSong.backingAudioEl.load();
@@ -4941,6 +5685,7 @@ function removeGrimoireEntry(entry) {
       currentSong.backingAudioEl = null;
     }
     currentSong.backingAudioPath = null;
+    updateAudioSyncUI();
   }
 
   const archived = [];
@@ -4963,6 +5708,14 @@ function removeGrimoireEntry(entry) {
     const errReason = failed[0]?.error || 'File could not be moved to the ./Archive folder.';
     throw new Error(errReason);
   }
+
+  removeBundleRecordForSong({
+    storePath: BUNDLE_STORE_PATH,
+    projectRoot: __dirname,
+    filePath: entry.filePath,
+    songId: entry.songId,
+    fileName: entry.fileName
+  });
 
   if (matchedLastSong) {
     bardProfile.lastSongPath = null;
@@ -5014,7 +5767,7 @@ function confirmPendingSpellDeletion() {
       btnDeleteConfirmAccept.disabled = false;
       btnDeleteConfirmAccept.innerHTML = '&#128230; Move to Archive';
     }
-    alert(`Could not move "${targetEntry.title}" to ./Archive: ${err.message}`);
+    showGrimoireToast(`Could not move "${targetEntry.title}" to ./Archive: ${err.message}`, 'error');
   }
 }
 
@@ -5150,7 +5903,7 @@ function dropTestMidiIntoImports() {
     // Trigger watcher scan shortly after file write
     setTimeout(() => scanWatchedDirectories(true), 120);
   } catch (err) {
-    alert(`Failed to drop test MIDI into ./Imports: ${err.message}`);
+    showGrimoireToast(`Failed to drop test MIDI into ./Imports: ${err.message}`, 'error');
   }
 }
 
@@ -6028,22 +6781,38 @@ function shiftQwertyOctave(semitoneDelta) {
   updateQwertyOctaveLabel(true);
 }
 
-function closeAllConservatoryPopovers() {
-  if (settingsPopover) settingsPopover.classList.add('hidden');
-  if (btnToggleSettings) {
-    btnToggleSettings.classList.remove('active');
-    btnToggleSettings.setAttribute('aria-expanded', 'false');
+function closeAllConservatoryPopovers({ returnFocus = false } = {}) {
+  const pairs = [
+    [settingsPopover, btnToggleSettings],
+    [spellDetailsPopover, btnSpellDetails],
+    [rehearsalPopover, btnRehearsalPopover],
+    [audioSyncPopover, btnAudioSync]
+  ];
+  let anyWasOpen = false;
+  let focusTarget = null;
+  for (const [popoverEl, triggerBtn] of pairs) {
+    const isOpen = Boolean(popoverEl && !popoverEl.classList.contains('hidden'));
+    if (isOpen) {
+      anyWasOpen = true;
+      if (
+        returnFocus &&
+        triggerBtn &&
+        (popoverEl.contains(document.activeElement) || document.activeElement === document.body)
+      ) {
+        focusTarget = triggerBtn;
+      }
+      popoverEl.classList.add('hidden');
+    }
+    if (triggerBtn) {
+      triggerBtn.classList.remove('active');
+      triggerBtn.setAttribute('aria-expanded', 'false');
+    }
   }
-  if (spellDetailsPopover) spellDetailsPopover.classList.add('hidden');
-  if (btnSpellDetails) {
-    btnSpellDetails.classList.remove('active');
-    btnSpellDetails.setAttribute('aria-expanded', 'false');
+  stopAudioAudition();
+  if (focusTarget && typeof focusTarget.focus === 'function' && !focusTarget.closest('.hidden')) {
+    focusTarget.focus();
   }
-  if (rehearsalPopover) rehearsalPopover.classList.add('hidden');
-  if (btnRehearsalPopover) {
-    btnRehearsalPopover.classList.remove('active');
-    btnRehearsalPopover.setAttribute('aria-expanded', 'false');
-  }
+  return anyWasOpen;
 }
 
 function isAnyModalOpen() {
@@ -6057,17 +6826,20 @@ function isAnyModalOpen() {
 }
 
 window.addEventListener('keydown', (e) => {
-  // Close open popovers and modals on Escape (Issue #33)
+  // Close open popovers and modals on Escape (Issue #33, #76, #77)
   if (e.key === 'Escape') {
-    closeAllConservatoryPopovers();
-    if (tavernStreakPopover && !tavernStreakPopover.classList.contains('hidden')) {
+    if (closeAllConservatoryPopovers({ returnFocus: true })) {
       e.preventDefault();
-      closeStreakPopover({ returnFocus: true });
       return;
     }
     if (deleteSpellConfirmModal && !deleteSpellConfirmModal.classList.contains('hidden')) {
       e.preventDefault();
       closeDeleteSpellConfirmModal();
+      return;
+    }
+    if (questBoardModal && !questBoardModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeQuestBoardModal();
       return;
     }
     if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
@@ -6090,16 +6862,17 @@ window.addEventListener('keydown', (e) => {
       closePerformanceCheckModal();
       return;
     }
-    if (questBoardModal && !questBoardModal.classList.contains('hidden')) {
+    if (tavernStreakPopover && !tavernStreakPopover.classList.contains('hidden')) {
       e.preventDefault();
-      closeQuestBoardModal();
+      closeStreakPopover({ returnFocus: true });
       return;
     }
   }
 
-  // Keyboard navigation for open Grimoire Spellbook (ArrowLeft/A, ArrowRight/D) (Issue #69)
+  // Keyboard navigation for open Grimoire Spellbook (ArrowLeft/A, ArrowRight/D) (Issue #69, #76)
   const deleteConfirmVisible = deleteSpellConfirmModal && !deleteSpellConfirmModal.classList.contains('hidden');
-  if (!deleteConfirmVisible && grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+  const questBoardVisible = questBoardModal && !questBoardModal.classList.contains('hidden');
+  if (!deleteConfirmVisible && !questBoardVisible && grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
     if (e.target !== spellbookSearchInput) {
       if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
         e.preventDefault();
@@ -6259,8 +7032,12 @@ synthPresetSelect.addEventListener('change', (e) => {
 masterVolumeSlider.addEventListener('input', (e) => {
   if (!masterVol) initAudioEngine();
   masterVol.volume.value = Number(e.target.value);
+  const backingVol = getBackingAudioVolumeFromSlider();
   if (currentSong?.backingAudioEl) {
-    currentSong.backingAudioEl.volume = getBackingAudioVolumeFromSlider();
+    currentSong.backingAudioEl.volume = backingVol;
+  }
+  if (audioAuditionEl) {
+    audioAuditionEl.volume = backingVol;
   }
 });
 
@@ -6418,13 +7195,8 @@ songProgressSlider.addEventListener('input', (e) => {
     songSessionStats.hasShownEndModal = false;
   }
   resetSongProgressFlags(playbackState.currentTime);
-  if (currentSong.backingAudioEl) {
-    try {
-      currentSong.backingAudioEl.currentTime = Math.max(0, Math.min(currentSong.duration, playbackState.currentTime));
-    } catch {
-      // Ignore seek errors before audio metadata is loaded
-    }
-  }
+  seekBackingAudioToSongTime(playbackState.currentTime);
+  syncBackingAudioElement(playbackState.currentTime);
   updateTimelineUI();
 });
 
@@ -6471,7 +7243,7 @@ if (btnRehearsalPopover && rehearsalPopover) {
 
 if (btnCloseRehearsalPopover) {
   btnCloseRehearsalPopover.addEventListener('click', () => {
-    closeAllConservatoryPopovers();
+    closeAllConservatoryPopovers({ returnFocus: true });
   });
 }
 
@@ -6524,12 +7296,155 @@ accompanimentSelect.addEventListener('change', (e) => {
   e.target.blur();
 });
 
-// Phase 10 Popovers & QWERTY Key Label Toggle (Issues #18 & #21)
+// Phase 10 Popovers & QWERTY Key Label Toggle (Issues #18 & #21 & #76)
 if (toggleQwertyLabelsCheckbox) {
   toggleQwertyLabelsCheckbox.addEventListener('change', (e) => {
     userManuallyToggledQwertyLabels = true;
     showQwertyKeyLabels = Boolean(e.target.checked);
     e.target.blur();
+  });
+}
+
+if (toggleMidiCleanupCheckbox) {
+  toggleMidiCleanupCheckbox.addEventListener('change', (e) => {
+    const enabled = Boolean(e.target.checked);
+    midiCleanupGlobalEnabled = enabled;
+    saveMidiCleanupPreference(enabled);
+
+    if (currentSong) {
+      const hadOverride = typeof currentSong.midiCleanupOverride === 'boolean';
+      currentSong.midiCleanupOverride = null;
+      currentSong.hasCustomBundle = Boolean(
+        currentSong.sheetMusicPath ||
+        currentSong.backingAudioPath ||
+        currentSong.youtubeUrl ||
+        currentSong.spotifyUrl ||
+        Math.abs(currentSong.audioOffsetSec || 0) > 0.0001 ||
+        Math.abs((currentSong.audioTempoRatio ?? 1.0) - 1.0) > 0.0001
+      );
+      assignSongTracksAndDifficulty(currentSong.selectedTrackMode || 'auto-piano');
+      if (hadOverride) {
+        persistCurrentSongCalibration();
+      }
+      seedBuiltInDemoInGrimoire();
+      scanWatchedDirectories(false);
+      renderGrimoireSidebar();
+      const st = currentSong.midiCleanStats || { snapped: 0, removed: 0, trimmed: 0 };
+      const fixes = st.snapped + st.removed + st.trimmed;
+      showGrimoireToast(
+        enabled
+          ? `\u2728 Smart MIDI Hygiene ON (${fixes} fix${fixes === 1 ? '' : 'es'} applied)`
+          : '\uD83C\uDFBC Smart MIDI Hygiene OFF (Raw MIDI notes restored)'
+      );
+    } else {
+      seedBuiltInDemoInGrimoire();
+      scanWatchedDirectories(false);
+      renderGrimoireSidebar();
+      showGrimoireToast(enabled ? '\u2728 Smart MIDI Hygiene ON' : '\uD83C\uDFBC Smart MIDI Hygiene OFF (Raw MIDI)');
+    }
+    e.target.blur();
+  });
+}
+
+if (btnSettingsOpenSync) {
+  btnSettingsOpenSync.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeAllConservatoryPopovers();
+    if (audioSyncPopover && currentSong?.backingAudioEl) {
+      updateAudioSyncUI();
+      audioSyncPopover.classList.remove('hidden');
+      if (btnAudioSync) {
+        btnAudioSync.classList.add('active');
+        btnAudioSync.setAttribute('aria-expanded', 'true');
+      }
+    }
+  });
+}
+
+if (btnAudioSync && audioSyncPopover) {
+  btnAudioSync.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willOpen = audioSyncPopover.classList.contains('hidden');
+    closeAllConservatoryPopovers();
+    if (willOpen) {
+      updateAudioSyncUI();
+      audioSyncPopover.classList.remove('hidden');
+      btnAudioSync.classList.add('active');
+      btnAudioSync.setAttribute('aria-expanded', 'true');
+    }
+  });
+}
+
+if (btnCloseAudioSync) {
+  btnCloseAudioSync.addEventListener('click', () => {
+    closeAllConservatoryPopovers({ returnFocus: true });
+  });
+}
+
+[
+  [btnOffsetMinus50, -0.05],
+  [btnOffsetMinus10, -0.01],
+  [btnOffsetPlus10, 0.01],
+  [btnOffsetPlus50, 0.05]
+].forEach(([btn, delta]) => {
+  if (!btn) return;
+  btn.addEventListener('click', (e) => {
+    if (!currentSong) return;
+    applyLiveAudioSyncCalibration({
+      nextOffsetSec: (currentSong.audioOffsetSec || 0) + delta
+    });
+    e.currentTarget.blur();
+  });
+});
+
+[
+  [btnDriftDownHalf, -0.005],
+  [btnDriftDownFine, -0.001],
+  [btnDriftUpFine, 0.001],
+  [btnDriftUpHalf, 0.005]
+].forEach(([btn, delta]) => {
+  if (!btn) return;
+  btn.addEventListener('click', (e) => {
+    if (!currentSong) return;
+    applyLiveAudioSyncCalibration({
+      nextTempoRatio: (currentSong.audioTempoRatio ?? 1.0) + delta
+    });
+    e.currentTarget.blur();
+  });
+});
+
+if (btnSyncAudition) {
+  btnSyncAudition.addEventListener('click', (e) => {
+    startAudioAudition();
+    e.currentTarget.blur();
+  });
+}
+
+if (btnSyncMarkBeat1) {
+  btnSyncMarkBeat1.addEventListener('click', (e) => {
+    handleMarkBeat1Click();
+    e.currentTarget.blur();
+  });
+}
+
+if (btnSyncAutoAlign) {
+  btnSyncAutoAlign.addEventListener('click', (e) => {
+    runAutoAlignFirstOnset();
+    e.currentTarget.blur();
+  });
+}
+
+if (btnSyncReset) {
+  btnSyncReset.addEventListener('click', (e) => {
+    if (!currentSong) return;
+    stopAudioAudition();
+    applyLiveAudioSyncCalibration({
+      nextOffsetSec: 0,
+      nextTempoRatio: 1.0,
+      statusMessage: 'Sync reset to +0.00s Start Offset and 100.0% Drift.'
+    });
+    showGrimoireToast('\u21BA Backing Audio Sync reset to default (+0.00s • 100.0%)');
+    e.currentTarget.blur();
   });
 }
 
@@ -6539,6 +7454,8 @@ if (btnToggleSettings && settingsPopover) {
     const willOpen = settingsPopover.classList.contains('hidden');
     closeAllConservatoryPopovers();
     if (willOpen) {
+      syncMidiCleanupCheckboxUI();
+      updateAudioSyncUI();
       settingsPopover.classList.remove('hidden');
       btnToggleSettings.classList.add('active');
       btnToggleSettings.setAttribute('aria-expanded', 'true');
@@ -6548,7 +7465,7 @@ if (btnToggleSettings && settingsPopover) {
 
 if (btnCloseSettings) {
   btnCloseSettings.addEventListener('click', () => {
-    closeAllConservatoryPopovers();
+    closeAllConservatoryPopovers({ returnFocus: true });
   });
 }
 
@@ -6567,7 +7484,7 @@ if (btnSpellDetails && spellDetailsPopover) {
 
 if (btnCloseSpellDetails) {
   btnCloseSpellDetails.addEventListener('click', () => {
-    closeAllConservatoryPopovers();
+    closeAllConservatoryPopovers({ returnFocus: true });
   });
 }
 
@@ -6577,7 +7494,7 @@ document.addEventListener('click', (e) => {
     settingsPopover &&
     !settingsPopover.classList.contains('hidden') &&
     !settingsPopover.contains(target) &&
-    target !== btnToggleSettings
+    !(btnToggleSettings && btnToggleSettings.contains(target))
   ) {
     closeAllConservatoryPopovers();
   }
@@ -6585,7 +7502,7 @@ document.addEventListener('click', (e) => {
     spellDetailsPopover &&
     !spellDetailsPopover.classList.contains('hidden') &&
     !spellDetailsPopover.contains(target) &&
-    target !== btnSpellDetails
+    !(btnSpellDetails && btnSpellDetails.contains(target))
   ) {
     closeAllConservatoryPopovers();
   }
@@ -6593,7 +7510,16 @@ document.addEventListener('click', (e) => {
     rehearsalPopover &&
     !rehearsalPopover.classList.contains('hidden') &&
     !rehearsalPopover.contains(target) &&
-    target !== btnRehearsalPopover
+    !(btnRehearsalPopover && btnRehearsalPopover.contains(target))
+  ) {
+    closeAllConservatoryPopovers();
+  }
+  if (
+    audioSyncPopover &&
+    !audioSyncPopover.classList.contains('hidden') &&
+    !audioSyncPopover.contains(target) &&
+    !(btnAudioSync && btnAudioSync.contains(target)) &&
+    !(btnSettingsOpenSync && btnSettingsOpenSync.contains(target))
   ) {
     closeAllConservatoryPopovers();
   }
@@ -6740,14 +7666,17 @@ if (btnSpellbookSaveCurrent) {
 }
 
 if (btnSpellbookOpenImports) {
-  btnSpellbookOpenImports.addEventListener('click', () => {
+  btnSpellbookOpenImports.addEventListener('click', async () => {
     try {
       if (!fs.existsSync(IMPORTS_DIR)) {
         fs.mkdirSync(IMPORTS_DIR, { recursive: true });
       }
-      shell.openPath(IMPORTS_DIR);
+      const openErr = await shell.openPath(IMPORTS_DIR);
+      if (openErr) {
+        showGrimoireToast(`Could not open Imports folder: ${openErr}`, 'error');
+      }
     } catch (err) {
-      alert(`Could not open Imports folder: ${err.message}`);
+      showGrimoireToast(`Could not open Imports folder: ${err.message}`, 'error');
     }
   });
 }
@@ -6760,8 +7689,54 @@ if (btnSpellbookDropTest) {
 
 if (btnSpellbookQuestPointer) {
   btnSpellbookQuestPointer.addEventListener('click', () => {
+    const questOrigin = previousSpellbookOrigin === 'tavern' ? 'tavern' : 'highway';
     closeGrimoireSpellbook();
-    openQuestBoardModal();
+    if (questOrigin === 'tavern') {
+      hideTavernMenu();
+    }
+    openQuestBoardModal({ origin: questOrigin, tab: 'bundle' });
+  });
+}
+
+if (spellbookBundleSheetChip) {
+  spellbookBundleSheetChip.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const entry = (selectedSpellbookEntryId && grimoireSpells.get(selectedSpellbookEntryId)) || null;
+    if (!entry?.sheetMusicPath || !fs.existsSync(entry.sheetMusicPath)) {
+      showGrimoireToast('Attached sheet music file could not be found on disk.', 'warning');
+      renderSpellbookSpread();
+      return;
+    }
+    try {
+      const openErr = await shell.openPath(entry.sheetMusicPath);
+      if (openErr) {
+        showGrimoireToast(`Could not open sheet reference: ${openErr}`, 'error');
+      }
+    } catch (err) {
+      showGrimoireToast(`Could not open sheet reference: ${err.message}`, 'error');
+    }
+  });
+}
+
+if (spellbookBundleSpotifyLink) {
+  spellbookBundleSpotifyLink.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const entry = (selectedSpellbookEntryId && grimoireSpells.get(selectedSpellbookEntryId)) || null;
+    const extUrl = entry?.spotifyUrl || entry?.youtubeUrl || '';
+    if (!/^https?:\/\/\S+$/i.test(extUrl)) {
+      showGrimoireToast('Invalid or missing external URL (must start with http:// or https://).', 'warning');
+      return;
+    }
+    shell.openExternal(extUrl);
+  });
+}
+
+if (btnSpellbookBundle) {
+  btnSpellbookBundle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const entry = (selectedSpellbookEntryId && grimoireSpells.get(selectedSpellbookEntryId)) || null;
+    if (!entry || entry.filePath === 'BUILTIN_DEMO') return;
+    openQuestBoardModal({ origin: 'grimoire', tab: 'bundle', targetEntryId: entry.id });
   });
 }
 
@@ -6838,18 +7813,847 @@ if (spellbookSearchInput) {
 }
 
 // ============================================================================
-// PHASE 9: "THE QUEST BOARD" (IN-APP YOUTUBE-TO-MIDI SOURCING & QUICK LINKS)
+// PHASE 9 & ISSUE #76: "THE QUEST BOARD" (SONG BUNDLES & YOUTUBE-TO-MIDI)
 // ============================================================================
 
 let activeQuestChildProcess = null;
 let lastQuestTranscribedMidiPath = null;
+let previousQuestBoardOrigin = 'highway'; // 'highway' | 'tavern' | 'grimoire'
+let previousQuestBoardFocusElement = null;
 
-function openQuestBoardModal() {
+const questBundleState = {
+  targetEntryId: '__new__',
+  notesSourcePath: null,
+  notesBuffer: null,
+  notesFileName: null,
+  sheetSourcePath: null,
+  sheetBuffer: null,
+  sheetFileName: null,
+  sheetCleared: false,
+  audioSourcePath: null,
+  audioBuffer: null,
+  audioFileName: null,
+  audioCleared: false,
+  lastSavedNotesPath: null
+};
+
+function loadBountiesCollapsedPreference() {
+  try {
+    return localStorage.getItem(QUEST_BOUNTIES_COLLAPSED_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function setQuestBountiesCollapsed(collapsed, { persist = true } = {}) {
+  const isCollapsed = Boolean(collapsed);
+  if (dailyBountiesCollapsibleWrap) {
+    dailyBountiesCollapsibleWrap.classList.toggle('collapsed', isCollapsed);
+  }
+  if (btnToggleQuestBounties) {
+    btnToggleQuestBounties.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+  }
+  if (persist) {
+    try {
+      localStorage.setItem(QUEST_BOUNTIES_COLLAPSED_STORAGE_KEY, isCollapsed ? 'true' : 'false');
+    } catch {
+      // Ignore storage write error
+    }
+  }
+}
+
+setQuestBountiesCollapsed(loadBountiesCollapsedPreference(), { persist: false });
+
+if (btnToggleQuestBounties) {
+  btnToggleQuestBounties.addEventListener('click', () => {
+    const currentlyExpanded = btnToggleQuestBounties.getAttribute('aria-expanded') !== 'false';
+    setQuestBountiesCollapsed(currentlyExpanded, { persist: true });
+  });
+}
+
+function setQuestBoardTab(tab = 'bundle', { focusActiveTab = false } = {}) {
+  const isBundle = tab !== 'transcribe';
+  if (btnQuestTabBundle) {
+    btnQuestTabBundle.classList.toggle('active', isBundle);
+    btnQuestTabBundle.setAttribute('aria-selected', isBundle ? 'true' : 'false');
+    btnQuestTabBundle.setAttribute('tabindex', isBundle ? '0' : '-1');
+    if (focusActiveTab && isBundle) btnQuestTabBundle.focus();
+  }
+  if (btnQuestTabTranscribe) {
+    btnQuestTabTranscribe.classList.toggle('active', !isBundle);
+    btnQuestTabTranscribe.setAttribute('aria-selected', !isBundle ? 'true' : 'false');
+    btnQuestTabTranscribe.setAttribute('tabindex', !isBundle ? '0' : '-1');
+    if (focusActiveTab && !isBundle) btnQuestTabTranscribe.focus();
+  }
+  if (questTabPanelBundle) {
+    questTabPanelBundle.classList.toggle('hidden', !isBundle);
+  }
+  if (questTabPanelTranscribe) {
+    questTabPanelTranscribe.classList.toggle('hidden', isBundle);
+  }
+}
+
+function handleQuestTabKeydown(e, currentTab) {
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    e.preventDefault();
+    setQuestBoardTab(currentTab === 'bundle' ? 'transcribe' : 'bundle', { focusActiveTab: true });
+  } else if (e.key === 'Home') {
+    e.preventDefault();
+    setQuestBoardTab('bundle', { focusActiveTab: true });
+  } else if (e.key === 'End') {
+    e.preventDefault();
+    setQuestBoardTab('transcribe', { focusActiveTab: true });
+  }
+}
+
+if (btnQuestTabBundle) {
+  btnQuestTabBundle.addEventListener('click', () => setQuestBoardTab('bundle'));
+  btnQuestTabBundle.addEventListener('keydown', (e) => handleQuestTabKeydown(e, 'bundle'));
+}
+if (btnQuestTabTranscribe) {
+  btnQuestTabTranscribe.addEventListener('click', () => setQuestBoardTab('transcribe'));
+  btnQuestTabTranscribe.addEventListener('keydown', (e) => handleQuestTabKeydown(e, 'transcribe'));
+}
+
+function sanitizeBundleStem(rawTitleOrName, fallback = 'Bundled_Spell') {
+  const noExt = String(rawTitleOrName || '').replace(/\.(mid|midi|musicxml|xml|mxl|wav|mp3|ogg|m4a|flac|pdf)$/i, '');
+  const safe = noExt
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 72);
+  return safe || fallback;
+}
+
+function resolveUniqueBundleStem(baseStem, dir = IMPORTS_DIR, { ignoreFiles = [] } = {}) {
+  const noteExts = ['.mid', '.midi', '.musicxml', '.xml', '.mxl'];
+  const audioExts = ['.wav', '.mp3', '.ogg', '.m4a', '.flac'];
+  const sheetExts = ['.pdf', '.musicxml', '.mxl', '.xml'];
+  const ignoreList = (ignoreFiles || []).filter(Boolean);
+  const isConflict = (candidatePath) => {
+    try {
+      if (!fs.existsSync(candidatePath)) return false;
+      return !ignoreList.some((ignored) => isSameFilePath(candidatePath, ignored));
+    } catch {
+      return false;
+    }
+  };
+
+  let candidate = baseStem;
+  let counter = 2;
+  const stemExists = (stem) => {
+    if (noteExts.some((ext) => isConflict(path.join(dir, `${stem}${ext}`)))) return true;
+    if (audioExts.some((ext) => isConflict(path.join(dir, `${stem}${ext}`)))) return true;
+    if (isConflict(path.join(dir, `${stem}.bundle.json`))) return true;
+    if (sheetExts.some((ext) => isConflict(path.join(IMPORTS_SHEETS_DIR, `${stem}_sheet${ext}`)))) return true;
+    return false;
+  };
+  while (stemExists(candidate) && counter < 999) {
+    candidate = `${baseStem}_${counter}`;
+    counter += 1;
+  }
+  return candidate;
+}
+
+function writePickedFileToDest({ srcPath = null, fallbackBuffer = null, destPath }) {
+  if (!destPath) return null;
+  const parentDir = path.dirname(destPath);
+  if (!fs.existsSync(parentDir)) {
+    fs.mkdirSync(parentDir, { recursive: true });
+  }
+  if (srcPath && fs.existsSync(srcPath)) {
+    if (!isSameFilePath(srcPath, destPath)) {
+      fs.copyFileSync(srcPath, destPath);
+    }
+    return destPath;
+  }
+  if (fallbackBuffer) {
+    fs.writeFileSync(destPath, fallbackBuffer);
+    return destPath;
+  }
+  return null;
+}
+
+function populateQuestBundleTargetSelect(preselectEntryId = '__new__') {
+  if (!questBundleTargetSelect) return;
+  questBundleTargetSelect.innerHTML = '';
+
+  const newOpt = document.createElement('option');
+  newOpt.value = '__new__';
+  newOpt.textContent = '+ Create New Song Bundle in ./Imports';
+  questBundleTargetSelect.appendChild(newOpt);
+
+  const editableEntries = Array.from(grimoireSpells.values())
+    .filter((entry) => entry && entry.filePath && entry.filePath !== 'BUILTIN_DEMO')
+    .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+
+  for (const entry of editableEntries) {
+    const opt = document.createElement('option');
+    opt.value = entry.id;
+    opt.textContent = `${entry.title} (${entry.sourceTag})`;
+    questBundleTargetSelect.appendChild(opt);
+  }
+
+  const hasTarget = preselectEntryId && editableEntries.some((e) => e.id === preselectEntryId);
+  questBundleTargetSelect.value = hasTarget ? preselectEntryId : '__new__';
+}
+
+function applyTargetSelectionToBundleForm(targetId = '__new__') {
+  questBundleState.targetEntryId = targetId || '__new__';
+  questBundleState.notesSourcePath = null;
+  questBundleState.notesBuffer = null;
+  questBundleState.notesFileName = null;
+  questBundleState.sheetSourcePath = null;
+  questBundleState.sheetBuffer = null;
+  questBundleState.sheetFileName = null;
+  questBundleState.sheetCleared = false;
+  questBundleState.audioSourcePath = null;
+  questBundleState.audioBuffer = null;
+  questBundleState.audioFileName = null;
+  questBundleState.audioCleared = false;
+
+  if (btnQuestBundleLoadNow) {
+    btnQuestBundleLoadNow.classList.add('hidden');
+  }
+
+  const entry = questBundleState.targetEntryId !== '__new__'
+    ? grimoireSpells.get(questBundleState.targetEntryId) || null
+    : null;
+
+  if (entry) {
+    if (questBundleTitleInput) questBundleTitleInput.value = entry.title || '';
+    if (questBundleNotesLabel) {
+      questBundleNotesLabel.textContent = `Current: ${entry.fileName}`;
+      questBundleNotesLabel.classList.add('has-file');
+    }
+    if (btnQuestBundlePickNotes) {
+      btnQuestBundlePickNotes.textContent = '\uD83C\uDFB9 Replace MIDI / XML';
+    }
+
+    const hasSheet = Boolean(entry.sheetMusicPath && fs.existsSync(entry.sheetMusicPath));
+    if (questBundleSheetLabel) {
+      questBundleSheetLabel.textContent = hasSheet ? path.basename(entry.sheetMusicPath) : 'Optional';
+      questBundleSheetLabel.classList.toggle('has-file', hasSheet);
+    }
+    if (btnQuestBundleClearSheet) {
+      btnQuestBundleClearSheet.classList.toggle('hidden', !hasSheet);
+    }
+
+    if (questBundleYoutubeUrl) {
+      questBundleYoutubeUrl.value = entry.youtubeUrl || '';
+    }
+
+    const hasAudio = Boolean(entry.backingAudioPath && fs.existsSync(entry.backingAudioPath));
+    if (questBundleAudioLabel) {
+      questBundleAudioLabel.textContent = hasAudio ? path.basename(entry.backingAudioPath) : 'Optional';
+      questBundleAudioLabel.classList.toggle('has-file', hasAudio);
+    }
+    if (btnQuestBundleClearAudio) {
+      btnQuestBundleClearAudio.classList.toggle('hidden', !hasAudio);
+    }
+
+    if (questBundleSpotifyUrl) {
+      questBundleSpotifyUrl.value = entry.spotifyUrl || '';
+    }
+    if (btnSaveSongBundle) {
+      btnSaveSongBundle.textContent = '\uD83D\uDD17 Update Song Bundle';
+    }
+  } else {
+    if (questBundleTitleInput) questBundleTitleInput.value = '';
+    if (questBundleNotesLabel) {
+      questBundleNotesLabel.textContent = 'None selected (required for new bundle)';
+      questBundleNotesLabel.classList.remove('has-file');
+    }
+    if (btnQuestBundlePickNotes) {
+      btnQuestBundlePickNotes.textContent = '\uD83C\uDFB9 Choose MIDI / XML';
+    }
+    if (questBundleSheetLabel) {
+      questBundleSheetLabel.textContent = 'Optional';
+      questBundleSheetLabel.classList.remove('has-file');
+    }
+    if (btnQuestBundleClearSheet) btnQuestBundleClearSheet.classList.add('hidden');
+    if (questBundleYoutubeUrl) questBundleYoutubeUrl.value = '';
+    if (questBundleAudioLabel) {
+      questBundleAudioLabel.textContent = 'Optional';
+      questBundleAudioLabel.classList.remove('has-file');
+    }
+    if (btnQuestBundleClearAudio) btnQuestBundleClearAudio.classList.add('hidden');
+    if (questBundleSpotifyUrl) questBundleSpotifyUrl.value = '';
+    if (btnSaveSongBundle) {
+      btnSaveSongBundle.textContent = '\uD83D\uDD17 Create / Save Song Bundle';
+    }
+  }
+}
+
+if (questBundleTargetSelect) {
+  questBundleTargetSelect.addEventListener('change', (e) => {
+    applyTargetSelectionToBundleForm(e.target.value);
+  });
+}
+
+if (btnQuestBundlePickNotes && questBundleNotesInput) {
+  btnQuestBundlePickNotes.addEventListener('click', () => questBundleNotesInput.click());
+}
+
+if (questBundleNotesInput) {
+  questBundleNotesInput.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    questBundleState.notesFileName = file.name;
+    if (file.path && fs.existsSync(file.path)) {
+      questBundleState.notesSourcePath = file.path;
+      questBundleState.notesBuffer = null;
+    } else {
+      questBundleState.notesSourcePath = null;
+      questBundleState.notesBuffer = Buffer.from(await file.arrayBuffer());
+    }
+    if (questBundleNotesLabel) {
+      questBundleNotesLabel.textContent = file.name;
+      questBundleNotesLabel.classList.add('has-file');
+    }
+    if (questBundleTitleInput && !questBundleTitleInput.value.trim()) {
+      questBundleTitleInput.value = file.name
+        .replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '')
+        .replace(/[_-]+/g, ' ')
+        .trim();
+    }
+    questBundleNotesInput.value = '';
+  });
+}
+
+if (btnQuestBundlePickSheet && questBundleSheetInput) {
+  btnQuestBundlePickSheet.addEventListener('click', () => questBundleSheetInput.click());
+}
+
+if (questBundleSheetInput) {
+  questBundleSheetInput.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    questBundleState.sheetFileName = file.name;
+    questBundleState.sheetCleared = false;
+    if (file.path && fs.existsSync(file.path)) {
+      questBundleState.sheetSourcePath = file.path;
+      questBundleState.sheetBuffer = null;
+    } else {
+      questBundleState.sheetSourcePath = null;
+      questBundleState.sheetBuffer = Buffer.from(await file.arrayBuffer());
+    }
+    if (questBundleSheetLabel) {
+      questBundleSheetLabel.textContent = file.name;
+      questBundleSheetLabel.classList.add('has-file');
+    }
+    if (btnQuestBundleClearSheet) btnQuestBundleClearSheet.classList.remove('hidden');
+    questBundleSheetInput.value = '';
+  });
+}
+
+if (btnQuestBundleClearSheet) {
+  btnQuestBundleClearSheet.addEventListener('click', () => {
+    questBundleState.sheetSourcePath = null;
+    questBundleState.sheetBuffer = null;
+    questBundleState.sheetFileName = null;
+    questBundleState.sheetCleared = true;
+    if (questBundleSheetLabel) {
+      questBundleSheetLabel.textContent = 'Optional (unlinked)';
+      questBundleSheetLabel.classList.remove('has-file');
+    }
+    btnQuestBundleClearSheet.classList.add('hidden');
+  });
+}
+
+if (btnQuestBundlePickAudio && questBundleAudioInput) {
+  btnQuestBundlePickAudio.addEventListener('click', () => questBundleAudioInput.click());
+}
+
+if (questBundleAudioInput) {
+  questBundleAudioInput.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    questBundleState.audioFileName = file.name;
+    questBundleState.audioCleared = false;
+    if (file.path && fs.existsSync(file.path)) {
+      questBundleState.audioSourcePath = file.path;
+      questBundleState.audioBuffer = null;
+    } else {
+      questBundleState.audioSourcePath = null;
+      questBundleState.audioBuffer = Buffer.from(await file.arrayBuffer());
+    }
+    if (questBundleAudioLabel) {
+      questBundleAudioLabel.textContent = file.name;
+      questBundleAudioLabel.classList.add('has-file');
+    }
+    if (btnQuestBundleClearAudio) btnQuestBundleClearAudio.classList.remove('hidden');
+    questBundleAudioInput.value = '';
+  });
+}
+
+if (btnQuestBundleClearAudio) {
+  btnQuestBundleClearAudio.addEventListener('click', () => {
+    questBundleState.audioSourcePath = null;
+    questBundleState.audioBuffer = null;
+    questBundleState.audioFileName = null;
+    questBundleState.audioCleared = true;
+    if (questBundleAudioLabel) {
+      questBundleAudioLabel.textContent = 'Optional (unlinked)';
+      questBundleAudioLabel.classList.remove('has-file');
+    }
+    btnQuestBundleClearAudio.classList.add('hidden');
+  });
+}
+
+function downloadYoutubeAudioOnlyForBundle({ url, outputDir, stem, title = '' }) {
+  return new Promise((resolve, reject) => {
+    const scriptPath = path.join(__dirname, 'python_ml', 'transcribe_quest.py');
+    if (!fs.existsSync(scriptPath)) {
+      reject(new Error(`Python pipeline not found at: ${scriptPath}`));
+      return;
+    }
+
+    const pythonExe = resolvePythonExecutable();
+    const args = [scriptPath, url, '--audio-only', '--output-dir', outputDir, '--stem', stem];
+    if (title) {
+      args.push('--title', title);
+    }
+
+    if (btnRunQuestUrl) btnRunQuestUrl.disabled = true;
+    if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = true;
+    if (btnSaveSongBundle) btnSaveSongBundle.disabled = true;
+
+    if (questLogOutput) {
+      questLogOutput.textContent = `[Bundle Audio] Spawning: ${path.basename(pythonExe)} python_ml/transcribe_quest.py --audio-only --stem ${stem}`;
+    }
+    setQuestStageUI('running', 'Downloading Audio...', 12, `Fetching clean stereo backing audio via yt-dlp for: ${url}`);
+
+    let stdoutBuffer = '';
+    let resolvedBackingPath = null;
+    let resolvedTitle = null;
+    let errorFromStatus = null;
+
+    let child;
+    try {
+      child = spawn(pythonExe, args, { cwd: __dirname, windowsHide: true });
+    } catch (spawnErr) {
+      if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
+      if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
+      if (btnSaveSongBundle) btnSaveSongBundle.disabled = false;
+      reject(spawnErr);
+      return;
+    }
+
+    activeQuestChildProcess = child;
+
+    const processLine = (line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      appendQuestLogLine(trimmed);
+
+      const statusIdx = trimmed.indexOf('[QUEST_STATUS]');
+      if (statusIdx !== -1) {
+        try {
+          const payload = JSON.parse(trimmed.slice(statusIdx + '[QUEST_STATUS]'.length).trim());
+          const pct = typeof payload.progress === 'number' ? payload.progress : 50;
+          const msg = payload.message || 'Downloading audio...';
+          if (payload.stage === 'complete') {
+            resolvedBackingPath = payload.backing_path || null;
+            resolvedTitle = payload.title || null;
+            setQuestStageUI('running', 'Binding Bundle...', 92, msg);
+          } else if (payload.stage === 'error') {
+            errorFromStatus = msg;
+            setQuestStageUI('error', 'Download Error', pct, msg);
+          } else {
+            setQuestStageUI('running', 'Downloading Audio...', pct, msg);
+          }
+        } catch {
+          // Ignore malformed status JSON line
+        }
+      }
+    };
+
+    child.stdout.on('data', (chunk) => {
+      stdoutBuffer += chunk.toString('utf8');
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop() || '';
+      for (const l of lines) processLine(l);
+    });
+
+    child.stderr.on('data', (chunk) => {
+      const text = chunk.toString('utf8').trim();
+      if (text) appendQuestLogLine(`[stderr] ${text}`);
+    });
+
+    child.on('error', (err) => {
+      activeQuestChildProcess = null;
+      if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
+      if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
+      if (btnSaveSongBundle) btnSaveSongBundle.disabled = false;
+      setQuestStageUI('error', 'Spawn Failed', 0, `Could not launch Python: ${err.message}`);
+      reject(err);
+    });
+
+    child.on('close', (code) => {
+      if (stdoutBuffer.trim()) processLine(stdoutBuffer);
+      activeQuestChildProcess = null;
+      if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
+      if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
+      if (btnSaveSongBundle) btnSaveSongBundle.disabled = false;
+
+      if (code === 0 && !errorFromStatus && resolvedBackingPath && fs.existsSync(resolvedBackingPath)) {
+        resolve({ backingPath: resolvedBackingPath, fetchedTitle: resolvedTitle });
+      } else {
+        const errMsg = errorFromStatus || `Backing audio download exited with code ${code}.`;
+        setQuestStageUI('error', 'Download Failed', 0, errMsg);
+        reject(new Error(errMsg));
+      }
+    });
+  });
+}
+
+async function runSaveSongBundle() {
+  if (activeQuestChildProcess) {
+    showGrimoireToast('A Quest Board download or transcription is already running!', 'warning');
+    return;
+  }
+
+  const targetId = questBundleTargetSelect?.value || '__new__';
+  const existingEntry = targetId !== '__new__' ? grimoireSpells.get(targetId) || null : null;
+  const isNew = !existingEntry;
+
+  const customTitle = (questBundleTitleInput?.value || '').trim();
+  const youtubeUrlRaw = (questBundleYoutubeUrl?.value || '').trim();
+  const spotifyUrlRaw = (questBundleSpotifyUrl?.value || '').trim();
+
+  if (youtubeUrlRaw && !/^https?:\/\/\S+$/i.test(youtubeUrlRaw)) {
+    showGrimoireToast('YouTube URL must start with http:// or https://.', 'error');
+    questBundleYoutubeUrl?.focus();
+    return;
+  }
+  if (spotifyUrlRaw && !/^https?:\/\/\S+$/i.test(spotifyUrlRaw)) {
+    showGrimoireToast('Spotify / Bookmark URL must start with http:// or https://.', 'error');
+    questBundleSpotifyUrl?.focus();
+    return;
+  }
+
+  const hasPickedNotes = Boolean(questBundleState.notesSourcePath || questBundleState.notesBuffer);
+  if (isNew && !hasPickedNotes) {
+    showGrimoireToast('Please choose a .mid or .musicxml file for Playable Notes.', 'error');
+    btnQuestBundlePickNotes?.focus();
+    return;
+  }
+
+  try {
+    // Medium #5: Validate selected notes file BEFORE downloading YouTube audio or writing any files to disk
+    let validatedPickedRawBuf = null;
+    let validatedPickedArrayBuf = null;
+    if (hasPickedNotes) {
+      if (questBundleState.notesBuffer) {
+        validatedPickedRawBuf = Buffer.from(questBundleState.notesBuffer);
+      } else if (questBundleState.notesSourcePath && fs.existsSync(questBundleState.notesSourcePath)) {
+        validatedPickedRawBuf = fs.readFileSync(questBundleState.notesSourcePath);
+      } else {
+        throw new Error('Selected notes file could not be read from disk.');
+      }
+
+      if (!validatedPickedRawBuf || validatedPickedRawBuf.length < 16) {
+        throw new Error('Selected notes file is empty or too small to be valid MIDI/MusicXML.');
+      }
+
+      const pickedNameForCheck = questBundleState.notesFileName || path.basename(questBundleState.notesSourcePath || 'notes.mid');
+      validatedPickedArrayBuf = validatedPickedRawBuf.buffer.slice(
+        validatedPickedRawBuf.byteOffset,
+        validatedPickedRawBuf.byteOffset + validatedPickedRawBuf.byteLength
+      );
+
+      let checkMidiData;
+      if (isMusicXmlFileName(pickedNameForCheck)) {
+        const convertedCheck = convertMusicXmlToMidiBuffer(validatedPickedArrayBuf, pickedNameForCheck);
+        checkMidiData = new Midi(convertedCheck.midiArrayBuffer);
+      } else {
+        checkMidiData = new Midi(validatedPickedArrayBuf);
+      }
+
+      const totalCheckNotes = (checkMidiData.tracks || []).reduce((sum, tr) => sum + (tr.notes?.length || 0), 0);
+      if (totalCheckNotes <= 0) {
+        throw new Error('Selected notes file contains no playable notes.');
+      }
+    }
+
+    if (!fs.existsSync(IMPORTS_DIR)) {
+      fs.mkdirSync(IMPORTS_DIR, { recursive: true });
+    }
+    if (!fs.existsSync(IMPORTS_SHEETS_DIR)) {
+      fs.mkdirSync(IMPORTS_SHEETS_DIR, { recursive: true });
+    }
+
+    let destStem = '';
+    let assetStem = '';
+    let destNotesPath = '';
+    let archiveReplacedOldNotesPath = null;
+    let prevBundleUnlinkState = { audioUnlinked: false, sheetUnlinked: false };
+
+    if (isNew) {
+      const pickedName = questBundleState.notesFileName || path.basename(questBundleState.notesSourcePath || 'Bundled_Spell.mid');
+      const notesExt = path.extname(pickedName) || '.mid';
+      const baseStem = sanitizeBundleStem(customTitle || pickedName, 'Bundled_Spell');
+      destStem = resolveUniqueBundleStem(baseStem, IMPORTS_DIR);
+      assetStem = destStem;
+      destNotesPath = path.join(IMPORTS_DIR, `${destStem}${notesExt}`);
+    } else {
+      const existingDir = path.dirname(existingEntry.filePath);
+      const existingExt = path.extname(existingEntry.filePath) || '.mid';
+      const existingBase = path.basename(existingEntry.filePath, existingExt);
+      destStem = sanitizeBundleStem(existingBase, 'Bundled_Spell');
+
+      const existingSidecar = existingEntry.sidecarPath || getSidecarBundlePath(existingEntry.filePath);
+      assetStem = resolveUniqueBundleStem(destStem, IMPORTS_DIR, {
+        ignoreFiles: [
+          existingEntry.filePath,
+          existingEntry.backingAudioPath,
+          existingEntry.sheetMusicPath,
+          existingSidecar
+        ]
+      });
+
+      const prevBundle = resolveBundleForSong({
+        filePath: existingEntry.filePath,
+        fileName: existingEntry.fileName,
+        songId: existingEntry.songId,
+        title: existingEntry.rawTitle || existingEntry.title,
+        store: loadBundlesStore(BUNDLE_STORE_PATH),
+        projectRoot: __dirname
+      });
+      prevBundleUnlinkState = {
+        audioUnlinked: Boolean(prevBundle.audioUnlinked),
+        sheetUnlinked: Boolean(prevBundle.sheetUnlinked)
+      };
+
+      if (hasPickedNotes) {
+        const pickedExt = path.extname(questBundleState.notesFileName || questBundleState.notesSourcePath || existingExt) || existingExt;
+        let candidateNotesPath = path.join(existingDir, `${existingBase}${pickedExt}`);
+        if (!isSameFilePath(candidateNotesPath, existingEntry.filePath) && fs.existsSync(candidateNotesPath)) {
+          const uniqueNotesStem = resolveUniqueBundleStem(existingBase, existingDir, {
+            ignoreFiles: [existingEntry.filePath]
+          });
+          candidateNotesPath = path.join(existingDir, `${uniqueNotesStem}${pickedExt}`);
+        }
+        destNotesPath = candidateNotesPath;
+        if (!isSameFilePath(destNotesPath, existingEntry.filePath)) {
+          archiveReplacedOldNotesPath = existingEntry.filePath;
+        }
+      } else {
+        destNotesPath = existingEntry.filePath;
+      }
+    }
+
+    const hasPickedAudio = Boolean(questBundleState.audioSourcePath || questBundleState.audioBuffer);
+    const youtubeChanged = Boolean(youtubeUrlRaw && (!existingEntry || youtubeUrlRaw !== (existingEntry.youtubeUrl || '')));
+    const shouldDownloadYoutube = Boolean(
+      !hasPickedAudio &&
+      youtubeUrlRaw &&
+      (youtubeChanged || (!questBundleState.audioCleared && (isNew || !existingEntry?.backingAudioPath)))
+    );
+
+    // Fetch YouTube stereo audio BEFORE writing new MIDI/sheet files so failures leave ./Imports clean
+    let downloadedAudioPath = null;
+    let fetchedTitle = null;
+    if (shouldDownloadYoutube) {
+      const dlResult = await downloadYoutubeAudioOnlyForBundle({
+        url: youtubeUrlRaw,
+        outputDir: IMPORTS_DIR,
+        stem: assetStem,
+        title: customTitle
+      });
+      downloadedAudioPath = dlResult.backingPath;
+      fetchedTitle = dlResult.fetchedTitle;
+    }
+
+    if (hasPickedNotes) {
+      writePickedFileToDest({
+        srcPath: questBundleState.notesSourcePath,
+        fallbackBuffer: questBundleState.notesBuffer,
+        destPath: destNotesPath
+      });
+      if (archiveReplacedOldNotesPath && fs.existsSync(archiveReplacedOldNotesPath)) {
+        try {
+          moveFileToArchive(archiveReplacedOldNotesPath);
+        } catch {
+          // Non-fatal if old replaced note remains
+        }
+      }
+    }
+
+    let finalSheetPath = existingEntry?.sheetMusicPath || null;
+    if (questBundleState.sheetSourcePath || questBundleState.sheetBuffer) {
+      const sheetExt = path.extname(questBundleState.sheetFileName || questBundleState.sheetSourcePath || '.pdf') || '.pdf';
+      const destSheetPath = path.join(IMPORTS_SHEETS_DIR, `${assetStem}_sheet${sheetExt}`);
+      finalSheetPath = writePickedFileToDest({
+        srcPath: questBundleState.sheetSourcePath,
+        fallbackBuffer: questBundleState.sheetBuffer,
+        destPath: destSheetPath
+      });
+    } else if (questBundleState.sheetCleared) {
+      finalSheetPath = null;
+    }
+
+    let finalAudioPath = existingEntry?.backingAudioPath || null;
+    if (downloadedAudioPath) {
+      finalAudioPath = downloadedAudioPath;
+    } else if (hasPickedAudio) {
+      const audioExt = path.extname(questBundleState.audioFileName || questBundleState.audioSourcePath || '.wav') || '.wav';
+      const destAudioPath = path.join(IMPORTS_DIR, `${assetStem}${audioExt}`);
+      finalAudioPath = writePickedFileToDest({
+        srcPath: questBundleState.audioSourcePath,
+        fallbackBuffer: questBundleState.audioBuffer,
+        destPath: destAudioPath
+      });
+    } else if (questBundleState.audioCleared) {
+      finalAudioPath = null;
+    }
+
+    const rawNotesBuf = hasPickedNotes && validatedPickedRawBuf ? validatedPickedRawBuf : fs.readFileSync(destNotesPath);
+    const notesArrayBuf = rawNotesBuf.buffer.slice(rawNotesBuf.byteOffset, rawNotesBuf.byteOffset + rawNotesBuf.byteLength);
+    let effectiveShaBuf = rawNotesBuf;
+    if (isMusicXmlFileName(path.basename(destNotesPath))) {
+      const converted = convertMusicXmlToMidiBuffer(notesArrayBuf, path.basename(destNotesPath));
+      effectiveShaBuf = Buffer.from(converted.midiArrayBuffer);
+    }
+    const songId = crypto.createHash('sha1').update(effectiveShaBuf).digest('hex');
+
+    const resolvedTitle = customTitle || fetchedTitle || existingEntry?.title || destStem.replace(/[_-]+/g, ' ').trim();
+
+    if (archiveReplacedOldNotesPath) {
+      removeBundleRecordForSong({
+        storePath: BUNDLE_STORE_PATH,
+        projectRoot: __dirname,
+        filePath: archiveReplacedOldNotesPath,
+        songId: existingEntry?.songId
+      });
+    }
+
+    const nextAudioUnlinked = finalAudioPath
+      ? false
+      : (questBundleState.audioCleared || prevBundleUnlinkState.audioUnlinked);
+    const nextSheetUnlinked = finalSheetPath
+      ? false
+      : (questBundleState.sheetCleared || prevBundleUnlinkState.sheetUnlinked);
+
+    saveBundleRecord({
+      storePath: BUNDLE_STORE_PATH,
+      projectRoot: __dirname,
+      importsDir: IMPORTS_DIR,
+      writeSidecar: true,
+      record: {
+        id: songId,
+        songId,
+        title: resolvedTitle,
+        fileName: path.basename(destNotesPath),
+        notesPath: destNotesPath,
+        sheetMusicPath: finalSheetPath,
+        backingAudioPath: finalAudioPath,
+        audioUnlinked: nextAudioUnlinked,
+        sheetUnlinked: nextSheetUnlinked,
+        youtubeUrl: youtubeUrlRaw || null,
+        spotifyUrl: spotifyUrlRaw || null,
+        audioOffsetSec: existingEntry ? existingEntry.audioOffsetSec : undefined,
+        audioTempoRatio: existingEntry ? existingEntry.audioTempoRatio : undefined,
+        midiCleanupEnabled: existingEntry && typeof existingEntry.midiCleanupEnabled === 'boolean'
+          ? existingEntry.midiCleanupEnabled
+          : undefined
+      }
+    });
+
+    scanWatchedDirectories(false);
+
+    let savedEntry = null;
+    for (const candidate of grimoireSpells.values()) {
+      if (isSameFilePath(candidate.filePath, destNotesPath)) {
+        savedEntry = candidate;
+        break;
+      }
+    }
+
+    populateQuestBundleTargetSelect(savedEntry?.id || '__new__');
+    applyTargetSelectionToBundleForm(savedEntry?.id || '__new__');
+    questBundleState.lastSavedNotesPath = destNotesPath;
+
+    if (btnQuestBundleLoadNow) {
+      btnQuestBundleLoadNow.textContent = `\u25B6 Load "${savedEntry?.title || resolvedTitle}"`;
+      btnQuestBundleLoadNow.classList.remove('hidden');
+    }
+
+    const matchesActiveSong = Boolean(
+      currentSong && (
+        isSameFilePath(currentSong.filePath, destNotesPath) ||
+        (archiveReplacedOldNotesPath && isSameFilePath(currentSong.filePath, archiveReplacedOldNotesPath))
+      )
+    );
+    if (!playbackState.isPlaying && matchesActiveSong) {
+      loadSongFromBuffer(notesArrayBuf, path.basename(destNotesPath), destNotesPath, { quietSuccess: true });
+    } else {
+      renderGrimoireSidebar();
+    }
+
+    setQuestStageUI('complete', 'Bundle Saved!', 100, `Saved "${savedEntry?.title || resolvedTitle}" to ./Imports & Grimoire Bundle Store.`);
+    appendQuestLogLine(
+      `[Bundle Saved] Notes: ${path.basename(destNotesPath)}` +
+      `${finalSheetPath ? ` | Sheet: ${path.basename(finalSheetPath)}` : ''}` +
+      `${finalAudioPath ? ` | Audio: ${path.basename(finalAudioPath)}` : ''}`
+    );
+    showGrimoireToast(`\uD83D\uDD17 Saved Song Bundle: "${savedEntry?.title || resolvedTitle}"!`);
+  } catch (err) {
+    setQuestStageUI('error', 'Bundle Error', 0, `Could not save Song Bundle: ${err.message}`);
+    showGrimoireToast(`Could not save Song Bundle: ${err.message}`, 'error');
+  }
+}
+
+if (btnSaveSongBundle) {
+  btnSaveSongBundle.addEventListener('click', () => {
+    runSaveSongBundle();
+  });
+}
+
+if (btnQuestBundleLoadNow) {
+  btnQuestBundleLoadNow.addEventListener('click', () => {
+    const targetPath = questBundleState.lastSavedNotesPath;
+    if (!targetPath || !fs.existsSync(targetPath)) {
+      showGrimoireToast('Bundled notes file could not be found on disk.', 'error');
+      return;
+    }
+    try {
+      const buf = fs.readFileSync(targetPath);
+      const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+      loadSongFromBuffer(arrayBuf, path.basename(targetPath), targetPath, { quietSuccess: true });
+      previousQuestBoardOrigin = 'highway';
+      closeQuestBoardModal();
+      if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+        previousSpellbookOrigin = 'highway';
+        closeGrimoireSpellbook();
+      }
+      hideTavernMenu();
+      resetPlaybackToStart();
+      showGrimoireToast(`\uD83D\uDD17 Loaded Song Bundle: "${currentSong?.title || path.basename(targetPath)}"!`);
+    } catch (err) {
+      showGrimoireToast(`Failed to load Song Bundle: ${err.message}`, 'error');
+    }
+  });
+}
+
+function openQuestBoardModal({ origin = 'highway', tab = 'bundle', targetEntryId = '__new__' } = {}) {
   pausePlayback();
   closeAllConservatoryPopovers();
+  closeStreakPopover();
+  previousQuestBoardOrigin = origin || 'highway';
+  previousQuestBoardFocusElement = document.activeElement;
+
   renderDailyBountiesBoard();
+  setQuestBountiesCollapsed(loadBountiesCollapsedPreference(), { persist: false });
+  setQuestBoardTab(tab);
+  populateQuestBundleTargetSelect(targetEntryId || '__new__');
+  applyTargetSelectionToBundleForm(targetEntryId || '__new__');
+
   if (questBoardModal) {
     questBoardModal.classList.remove('hidden');
+  }
+  if (btnCloseQuestBoard) {
+    btnCloseQuestBoard.focus();
   }
 }
 
@@ -6857,22 +8661,57 @@ function closeQuestBoardModal() {
   if (questBoardModal) {
     questBoardModal.classList.add('hidden');
   }
+  if (previousQuestBoardOrigin === 'tavern') {
+    showTavernMenu();
+  } else if (previousQuestBoardOrigin === 'grimoire' && grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+    renderSpellbookSpread();
+    if (previousQuestBoardFocusElement && typeof previousQuestBoardFocusElement.focus === 'function' && document.body.contains(previousQuestBoardFocusElement)) {
+      previousQuestBoardFocusElement.focus();
+    } else if (btnSpellbookBundle) {
+      btnSpellbookBundle.focus();
+    }
+  } else if (previousQuestBoardFocusElement && typeof previousQuestBoardFocusElement.focus === 'function' && document.body.contains(previousQuestBoardFocusElement)) {
+    previousQuestBoardFocusElement.focus();
+  } else if (btnPlayPause) {
+    btnPlayPause.focus();
+  }
+  previousQuestBoardFocusElement = null;
 }
 
 /**
- * Resolve the local Python executable, preferring the user's Python 3.14 install
- * before falling back to 'python' on PATH (avoiding the WindowsApps Store stub).
+ * Resolve the local Python executable, preferring active/project virtual environments
+ * and user Python installs before falling back to 'python' / 'python3' on PATH.
  */
 function resolvePythonExecutable() {
-  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
-  const candidates = [
-    path.join(localAppData, 'Python', 'pythoncore-3.14-64', 'python.exe'),
-    path.join(localAppData, 'Programs', 'Python', 'Python314', 'python.exe'),
-    path.join(localAppData, 'Programs', 'Python', 'Python313', 'python.exe'),
-    path.join(localAppData, 'Programs', 'Python', 'Python312', 'python.exe'),
-    path.join(localAppData, 'Programs', 'Python', 'Python311', 'python.exe'),
-    path.join(localAppData, 'Programs', 'Python', 'Python310', 'python.exe')
-  ];
+  const isWin = process.platform === 'win32';
+  const venvRoots = [
+    process.env.VIRTUAL_ENV,
+    path.join(__dirname, 'python_ml', '.venv'),
+    path.join(__dirname, '.venv')
+  ].filter(Boolean);
+
+  const candidates = [];
+  for (const venvRoot of venvRoots) {
+    if (isWin) {
+      candidates.push(path.join(venvRoot, 'Scripts', 'python.exe'));
+    } else {
+      candidates.push(path.join(venvRoot, 'bin', 'python'));
+      candidates.push(path.join(venvRoot, 'bin', 'python3'));
+    }
+  }
+
+  if (isWin) {
+    const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    candidates.push(
+      path.join(localAppData, 'Python', 'pythoncore-3.14-64', 'python.exe'),
+      path.join(localAppData, 'Programs', 'Python', 'Python314', 'python.exe'),
+      path.join(localAppData, 'Programs', 'Python', 'Python313', 'python.exe'),
+      path.join(localAppData, 'Programs', 'Python', 'Python312', 'python.exe'),
+      path.join(localAppData, 'Programs', 'Python', 'Python311', 'python.exe'),
+      path.join(localAppData, 'Programs', 'Python', 'Python310', 'python.exe')
+    );
+  }
+
   for (const candidate of candidates) {
     try {
       if (fs.existsSync(candidate)) {
@@ -6882,7 +8721,7 @@ function resolvePythonExecutable() {
       // Ignore fs check error
     }
   }
-  return 'python';
+  return isWin ? 'python' : 'python3';
 }
 
 function setQuestStageUI(stageType, badgeText, progressPct, messageText) {
@@ -6911,7 +8750,7 @@ function appendQuestLogLine(line) {
  */
 function runQuestBoardTranscriber({ selfTest = false } = {}) {
   if (activeQuestChildProcess) {
-    alert('A Quest Board transcription is already running in the background!');
+    showGrimoireToast('A Quest Board job is already running in the background!', 'warning');
     return;
   }
 
@@ -6919,14 +8758,14 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
   const customTitle = (questCustomTitleInput?.value || '').trim();
 
   if (!selfTest && !rawUrlOrPath) {
-    alert('Please paste a YouTube URL (or local .wav / .mp3 path), or click "⚡ Run ML Self-Test (2s)"!');
+    showGrimoireToast('Please paste a YouTube URL (or local audio path), or click "Run ML Self-Test"!', 'error');
     questYoutubeUrlInput?.focus();
     return;
   }
 
   const scriptPath = path.join(__dirname, 'python_ml', 'transcribe_quest.py');
   if (!fs.existsSync(scriptPath)) {
-    alert(`Python ML script not found at: ${scriptPath}`);
+    showGrimoireToast(`Python ML script not found at: ${scriptPath}`, 'error');
     return;
   }
 
@@ -6947,6 +8786,7 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
 
   if (btnRunQuestUrl) btnRunQuestUrl.disabled = true;
   if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = true;
+  if (btnSaveSongBundle) btnSaveSongBundle.disabled = true;
   if (btnQuestLoadResult) btnQuestLoadResult.classList.add('hidden');
 
   if (questLogOutput) {
@@ -7033,6 +8873,7 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
       activeQuestChildProcess = null;
       if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
       if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
+      if (btnSaveSongBundle) btnSaveSongBundle.disabled = false;
       setQuestStageUI('error', 'Spawn Failed', 0, `Could not launch Python: ${err.message}`);
       appendQuestLogLine(`[Error] ${err.message}`);
     });
@@ -7044,6 +8885,7 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
       activeQuestChildProcess = null;
       if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
       if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
+      if (btnSaveSongBundle) btnSaveSongBundle.disabled = false;
 
       if (code === 0) {
         setTimeout(() => scanWatchedDirectories(true), 150);
@@ -7055,13 +8897,14 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
     activeQuestChildProcess = null;
     if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
     if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
+    if (btnSaveSongBundle) btnSaveSongBundle.disabled = false;
     setQuestStageUI('error', 'Failed', 0, `Failed to start Python transcriber: ${err.message}`);
   }
 }
 
 if (btnOpenQuestBoard) {
   btnOpenQuestBoard.addEventListener('click', () => {
-    openQuestBoardModal();
+    openQuestBoardModal({ origin: 'highway', tab: 'bundle' });
   });
 }
 
@@ -7112,11 +8955,18 @@ if (btnQuestLoadResult) {
       try {
         const buf = fs.readFileSync(lastQuestTranscribedMidiPath);
         const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-        parseMidiBuffer(arrayBuf, path.basename(lastQuestTranscribedMidiPath), lastQuestTranscribedMidiPath);
+        loadSongFromBuffer(arrayBuf, path.basename(lastQuestTranscribedMidiPath), lastQuestTranscribedMidiPath, { quietSuccess: true });
+        previousQuestBoardOrigin = 'highway';
         closeQuestBoardModal();
-        showGrimoireToast(`🔮 Loaded Transcribed Spell: "${path.basename(lastQuestTranscribedMidiPath)}"!`);
+        if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+          previousSpellbookOrigin = 'highway';
+          closeGrimoireSpellbook();
+        }
+        hideTavernMenu();
+        resetPlaybackToStart();
+        showGrimoireToast(`\uD83D\uDD2E Loaded Transcribed Spell: "${path.basename(lastQuestTranscribedMidiPath)}"!`);
       } catch (err) {
-        alert(`Failed to load transcribed MIDI: ${err.message}`);
+        showGrimoireToast(`Failed to load transcribed MIDI: ${err.message}`, 'error');
       }
     }
   });
@@ -7141,14 +8991,17 @@ if (btnLinkYoutube) {
 }
 
 if (btnQuestOpenImports) {
-  btnQuestOpenImports.addEventListener('click', () => {
+  btnQuestOpenImports.addEventListener('click', async () => {
     try {
       if (!fs.existsSync(IMPORTS_DIR)) {
         fs.mkdirSync(IMPORTS_DIR, { recursive: true });
       }
-      shell.openPath(IMPORTS_DIR);
+      const openErr = await shell.openPath(IMPORTS_DIR);
+      if (openErr) {
+        showGrimoireToast(`Could not open Imports folder: ${openErr}`, 'error');
+      }
     } catch (err) {
-      alert(`Could not open Imports folder: ${err.message}`);
+      showGrimoireToast(`Could not open Imports folder: ${err.message}`, 'error');
     }
   });
 }
@@ -7219,13 +9072,28 @@ window.addEventListener('blur', () => {
   }
 });
 
-// Terminate any active background Python transcription child process on window close/reload (Issue #17)
+// Terminate any active background Python transcription child process & audio audition on close/reload (Issue #17, #76)
 window.addEventListener('beforeunload', () => {
-  if (activeQuestChildProcess) {
+  stopAudioAudition();
+  const child = activeQuestChildProcess;
+  if (child) {
     try {
-      activeQuestChildProcess.kill();
+      if (process.platform === 'win32' && child.pid) {
+        const killer = spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+          windowsHide: true,
+          stdio: 'ignore',
+          detached: true
+        });
+        if (typeof killer.unref === 'function') killer.unref();
+      } else {
+        child.kill();
+      }
     } catch {
-      // Ignore kill errors
+      try {
+        child.kill();
+      } catch {
+        // Ignore kill errors
+      }
     }
     activeQuestChildProcess = null;
   }
@@ -7522,6 +9390,7 @@ function hideTavernMenu() {
 function openBardAnnalsModal() {
   pausePlayback();
   closeAllConservatoryPopovers();
+  closeStreakPopover();
   if (!bardAnnalsModal) return;
 
   previousModalFocusElement = document.activeElement;
@@ -7621,6 +9490,7 @@ function closeBardAnnalsModal() {
 function openHowToPlayModal() {
   pausePlayback();
   closeAllConservatoryPopovers();
+  closeStreakPopover();
   previousModalFocusElement = document.activeElement;
   if (howToPlayModal) {
     howToPlayModal.classList.remove('hidden');
@@ -7643,26 +9513,29 @@ function closeHowToPlayModal() {
   }
 }
 
-// Modal Focus Trap Helper (Issue #68, #77 stacked modal support)
+// Modal Focus Trap Helper (Issue #68, #76, #77 stacked modal support sorted by computed z-index)
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Tab') return;
   const activeModals = Array.from(document.querySelectorAll('.modal-backdrop:not(.hidden)'));
+  if (activeModals.length === 0) return;
+  activeModals.sort((a, b) => (Number(getComputedStyle(a).zIndex) || 0) - (Number(getComputedStyle(b).zIndex) || 0));
   const activeModal = activeModals[activeModals.length - 1];
   if (!activeModal) return;
 
-  const focusables = Array.from(activeModal.querySelectorAll('button:not([disabled]), [tabindex]:not([tabindex="-1"]), input:not([disabled]), select:not([disabled])'));
+  const focusables = Array.from(activeModal.querySelectorAll('button:not([disabled]), [tabindex]:not([tabindex="-1"]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'))
+    .filter((el) => !el.closest('.hidden') && el.getClientRects().length > 0);
   if (focusables.length === 0) return;
 
   const first = focusables[0];
   const last = focusables[focusables.length - 1];
 
   if (e.shiftKey) {
-    if (document.activeElement === first) {
+    if (document.activeElement === first || !activeModal.contains(document.activeElement)) {
       e.preventDefault();
       last.focus();
     }
   } else {
-    if (document.activeElement === last) {
+    if (document.activeElement === last || !activeModal.contains(document.activeElement)) {
       e.preventDefault();
       first.focus();
     }
@@ -7708,7 +9581,7 @@ if (btnMenuGrimoire) {
 if (btnMenuQuestBoard) {
   btnMenuQuestBoard.addEventListener('click', () => {
     hideTavernMenu();
-    openQuestBoardModal();
+    openQuestBoardModal({ origin: 'tavern', tab: 'bundle' });
   });
 }
 
@@ -7723,7 +9596,10 @@ if (btnMenuSettings) {
     // Prevent the global document outside-click handler from instantly closing the popover (Issue #67)
     e.stopPropagation();
     hideTavernMenu();
+    closeAllConservatoryPopovers();
     if (settingsPopover) {
+      syncMidiCleanupCheckboxUI();
+      updateAudioSyncUI();
       settingsPopover.classList.remove('hidden');
       if (btnToggleSettings) {
         btnToggleSettings.classList.add('active');

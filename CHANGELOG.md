@@ -9,6 +9,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Issue #76: Grimoire Song Bundle (Sheet Music + MIDI + Backing Audio Sync) & Smart MIDI Hygiene:**
+  - Added `midi-hygiene.js` (`isUtilityTrack()`, `isLeadMelodyTrack()`, `isPianoCandidateTrackSmart()`, `selectAutoPianoTracks()`, `cleanPlayableHandNotes()`): excludes DAW utility/SFX tracks (`Chords`, `Markers`, `Click`), elevates Lead Melody + warm accompaniment over sparse late-song piano fills in GM band MIDIs, safely skips empty/percussion fallback tracks, and non-destructively snaps micro-jittered chord onsets (`<= 26ms`), strips transient ghost glitches (`< 80ms`, `velocity < 48`), caps `> 4`-note GM octave slabs (preserving top melody on RH, root bass on LH, and unique pitch classes), and trims runaway pedal sustains (`> 6.0s`).
+  - Added global and per-song Smart MIDI Hygiene toggling via `#toggle-midi-cleanup` and `#stat-cleaned-chip` without writing extraneous sidecars when unbundled songs follow the global preference.
+  - Added `song-bundle.js` and dual persistence (`grimoire_bundles.json` + portable `<Base>.bundle.json` sidecars) linking Playable Notes (`.mid`/`.musicxml`/`.mxl`), Sheet Music Reference (`.musicxml`/`.pdf` in `./Imports/Sheets`), Backing Audio (`.wav`/`.mp3`/`.m4a`/`.ogg`/`.flac`), YouTube/Spotify bookmark URLs, explicit `audioUnlinked`/`sheetUnlinked` suppression flags, and per-song sync/hygiene calibration with strict path-first & `BUILTIN_DEMO` isolation.
+  - Extended `python_ml/transcribe_quest.py` with `--audio-only` (`yt-dlp` clean stereo backing audio extraction without Basic Pitch ML synthesis), virtualenv-aware `resolvePythonExecutable()`, and Windows `taskkill /t /f` child-tree termination on unload.
+  - Added 2-tab **The Quest Board** (`#btn-quest-tab-bundle` / `#btn-quest-tab-transcribe`) with collapsible Today's Tavern Bounties (`#btn-toggle-quest-bounties`), a Clean Song Bundle Builder (pre-validating notes files prior to YouTube downloads, preventing cross-song asset collisions, and supporting direct Spellbook edit prefill via `#btn-spellbook-bundle`), and WAI-ARIA `ArrowLeft`/`ArrowRight`/`Home`/`End` tab navigation.
+  - Added contextual **Backing Audio Sync Calibrator** (`#btn-audio-sync`, `#audio-sync-popover`, `#btn-settings-open-sync`) in Bar 2 with Start Offset steppers (`-50ms`/`-10ms`/`+10ms`/`+50ms`), 1-tap **Audition 0:00** & **Mark Beat 1**, Web Audio RMS **Auto-Align** onset detection, and **Audio Drift Match** (`95.0%`–`105.0%`) synced cleanly in `animationLoop()`.
+
+### Changed
+- **Issue #76: Bar 2 Responsiveness, Quest Board 2-Tab Layout & Accessibility Polish:**
+  - Refined `#spell-scroll-bar` responsive breakpoints (`@media (max-width: 1460px)` and `1120px` in `styles.css`) so `#audio-sync-anchor` and `.spell-title-group` remain readable alongside transport and Rehearsal Loop controls.
+  - Updated `#grimoire-spellbook-modal` details panel with bundle indicators, Sheet Reference quick-open (`#btn-spellbook-open-sheet`), YouTube/Spotify external reference links, and 1-click `#btn-spellbook-bundle` editing.
+  - Added missing `aria-label` attributes to icon close/clear buttons, `returnFocus` restoration on Conservatory popover dismissal, `closeStreakPopover()` coordination across modals, and visible-only `Tab` focus trapping.
+
+### Added
 - **Issue #40: MusicXML Import to MIDI (`.musicxml`, `.xml`, `.mxl`):**
   - Added pure-JS `musicxml-converter.js` (0 external runtime deps, using `@tonejs/midi` + Node `zlib.inflateRawSync` for compressed `.mxl` ZIP archives via `META-INF/container.xml`).
   - Supports `<score-partwise>` and `<score-timewise>`, Grand Staff `<staff>1` (Right Hand Gold) & `<staff>2` (Left Hand Blue) mapping, extra pitched parts routed to Backing Band (`#playable-track-select`), score-synchronized `<repeat>` / 1st-2nd `<ending>` unrolling, `<tie>`/`<tied>` merging, `<chord/>`, `<backup>`/`<forward>`, `<sound tempo>`/`<metronome>` tempo changes, and `<key>`/`<time>` signatures.
