@@ -526,7 +526,15 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - Created isolated feature branch `feature/issue-62-post-song-breakdown` from `main`.
   - Added `#modal-breakdown-section` in `index.html`, responsive modal scrolling + breakdown styles in `styles.css`, and `measureStats` tracking, `buildPostSongBreakdown()`, `renderPostSongBreakdown()`, and `practiceWeakRegion()` in `renderer.js`.
   - Completed Post-Build Peer Review & QA Audit subagent pass (`No blocking issues found`) and verified syntax with `node --check`.
-- **Current status:** Verified (`"Testing successful"`). Ready to merge into `main` and close Issue #62.
+- **Current status:** Verified (`"Testing successful"`) and merged into `main` in PR #89. Issue #62 closed.
+
+### 2026-11-12 — Session 27: Practice Tempo Control — Slow the Song Down (Issue #63)
+- **What we did:**
+  - Completed Pre-Build Engineering Plan, UI/UX Design Reviewer subagent pass, and 4-point Decision Check before coding (granular steps for both dropdown & Auto-Ramp, clickable `[−]`/`[+]` buttons + `-`/`=` shortcuts, per-song `preferredTempo` persistence, full XP at any tempo).
+  - Created isolated feature branch `feature/issue-63-practice-tempo-control` from `main`.
+  - Updated `index.html`, `styles.css`, and `renderer.js` with `#tempo-control-group`, `#btn-tempo-down`, `#btn-tempo-up`, granular `REHEARSAL_SPEED_PRESETS`, `setPracticeTempo()`, `stepPracticeTempo()`, `preservesPitch = true` on `backingAudioEl`, and per-song `preferredTempo` restore on song load.
+  - Completed Post-Build Peer Review & QA Audit subagent pass and fixed `saveSongPlayHistory()` -> `saveSongStats()` in `setPracticeTempo()`.
+- **Current status:** Verified (`"Testing successful"`). Ready to merge into `main` and close Issue #63.
 
 
 

@@ -143,6 +143,9 @@ const handIsolationSelect = document.getElementById('hand-isolation-select');
 const accompanimentSelect = document.getElementById('accompaniment-select');
 const btnBackingBand = document.getElementById('btn-backing-band');
 const backingBandStateText = document.getElementById('backing-band-state');
+const tempoControlGroup = document.getElementById('tempo-control-group');
+const btnTempoDown = document.getElementById('btn-tempo-down');
+const btnTempoUp = document.getElementById('btn-tempo-up');
 const playbackSpeedSelect = document.getElementById('playback-speed-select');
 const fallSpeedSelect = document.getElementById('fall-speed-select');
 
@@ -392,7 +395,7 @@ const playbackState = {
 };
 
 // Issue #30: Loop Practice Mode (Rehearsal) State
-const REHEARSAL_SPEED_PRESETS = [0.5, 0.75, 1.0, 1.25];
+const REHEARSAL_SPEED_PRESETS = [0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 1.0, 1.25];
 const REHEARSAL_PREROLL_SEC = 0.8;
 const MIN_REHEARSAL_LOOP_SPAN_SEC = 0.5;
 
@@ -953,6 +956,8 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     try {
       backingAudioEl = new Audio(pathToFileURL(backingAudioPath).href);
       backingAudioEl.preload = 'auto';
+      backingAudioEl.preservesPitch = true;
+      backingAudioEl.webkitPreservesPitch = true;
       backingAudioEl.volume = getBackingAudioVolumeFromSlider();
     } catch {
       backingAudioEl = null;
@@ -998,6 +1003,13 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
   btnRestart.disabled = false;
   songProgressSlider.disabled = false;
   clearRehearsalLoop();
+
+  const savedHistory = getSongHistoryRecord({ id: songId, filePath, title: cleanTitle });
+  const restoredTempo = typeof savedHistory?.preferredTempo === 'number'
+    ? savedHistory.preferredTempo
+    : 1.0;
+  setPracticeTempo(restoredTempo, { persist: false, toast: false });
+
   renderGrimoireSidebar();
 }
 
@@ -2451,6 +2463,83 @@ function updateTimelineUI() {
 }
 
 /**
+ * Issue #63: Centralized Practice Tempo setter — syncs highway, MIDI accompaniment,
+ * pitch-preserved backing audio, UI stepper state, and per-song persistence.
+ */
+function setPracticeTempo(rawSpeed, { persist = true, toast = false } = {}) {
+  const num = Number(rawSpeed);
+  const clamped = Number.isFinite(num) ? Math.max(0.5, Math.min(1.25, num)) : 1.0;
+  // Snap to nearest preset in REHEARSAL_SPEED_PRESETS so the dropdown always reflects the active speed
+  let speed = REHEARSAL_SPEED_PRESETS[0];
+  let bestDiff = Infinity;
+  for (const preset of REHEARSAL_SPEED_PRESETS) {
+    const diff = Math.abs(preset - clamped);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      speed = preset;
+    }
+  }
+
+  playbackState.playbackSpeed = speed;
+
+  if (playbackSpeedSelect) {
+    playbackSpeedSelect.value = String(speed);
+  }
+  if (tempoControlGroup) {
+    tempoControlGroup.classList.toggle('tempo-modified', Math.abs(speed - 1.0) > 0.001);
+  }
+  if (btnTempoDown) {
+    btnTempoDown.disabled = speed <= REHEARSAL_SPEED_PRESETS[0] + 0.001;
+  }
+  if (btnTempoUp) {
+    btnTempoUp.disabled = speed >= REHEARSAL_SPEED_PRESETS[REHEARSAL_SPEED_PRESETS.length - 1] - 0.001;
+  }
+
+  if (currentSong?.backingAudioEl) {
+    currentSong.backingAudioEl.preservesPitch = true;
+    currentSong.backingAudioEl.webkitPreservesPitch = true;
+    currentSong.backingAudioEl.playbackRate = speed;
+  }
+
+  if (persist && currentSong) {
+    const key = currentSong.songId || (currentSong.filePath || currentSong.title || 'Demo Spell').toLowerCase();
+    const existing = songPlayHistory[key] || {
+      songId: currentSong.songId || key,
+      title: currentSong.title || 'Untitled Scroll',
+      filePath: currentSong.filePath || null,
+      plays: 0,
+      bestAccuracy: 0,
+      lastAccuracy: 0,
+      bestChain: 0,
+      totalXpEarned: 0,
+      lastPlayed: null,
+      firstPlayed: new Date().toISOString()
+    };
+    existing.preferredTempo = speed;
+    songPlayHistory[key] = existing;
+    saveSongStats();
+  }
+
+  if (toast) {
+    showGrimoireToast(`\u23F1\uFE0F Practice Tempo: ${speed}x`);
+  }
+}
+
+function stepPracticeTempo(delta) {
+  const cur = playbackState.playbackSpeed || 1.0;
+  let idx = REHEARSAL_SPEED_PRESETS.findIndex((s) => Math.abs(s - cur) < 0.001);
+  if (idx === -1) {
+    idx = REHEARSAL_SPEED_PRESETS.findIndex((s) => s >= cur);
+    if (idx === -1) idx = REHEARSAL_SPEED_PRESETS.length - 1;
+  }
+  const nextIdx = Math.max(0, Math.min(REHEARSAL_SPEED_PRESETS.length - 1, idx + delta));
+  const nextSpeed = REHEARSAL_SPEED_PRESETS[nextIdx];
+  if (Math.abs(nextSpeed - cur) > 0.001) {
+    setPracticeTempo(nextSpeed, { persist: true, toast: true });
+  }
+}
+
+/**
  * Synchronize paired .wav / .mp3 backing audio element (Issue #31).
  * Called independently of `audioTriggerEnd >= prevTime` so backing audio immediately
  * pauses when Wait Mode freezes at a chord or when Backing Band is toggled OFF.
@@ -2466,6 +2555,8 @@ function syncBackingAudioElement(currentTime = playbackState.currentTime) {
     currentTime < currentSong.duration;
 
   if (shouldPlay) {
+    audioEl.preservesPitch = true;
+    audioEl.webkitPreservesPitch = true;
     audioEl.playbackRate = playbackState.playbackSpeed;
     if (audioEl.paused) {
       audioEl.currentTime = Math.max(0, currentTime);
@@ -2756,13 +2847,7 @@ function handleRehearsalLoopWrap() {
       (s) => s > playbackState.playbackSpeed + 0.001 && s <= rehearsalLoopState.targetSpeed + 0.001
     );
     if (nextPreset) {
-      playbackState.playbackSpeed = nextPreset;
-      if (playbackSpeedSelect) {
-        playbackSpeedSelect.value = String(nextPreset);
-      }
-      if (currentSong.backingAudioEl) {
-        currentSong.backingAudioEl.playbackRate = nextPreset;
-      }
+      setPracticeTempo(nextPreset, { persist: true, toast: false });
       showGrimoireToast(`\u2728 Clean Pass! Tempo ramped to ${nextPreset}x`);
     } else {
       showGrimoireToast(`\uD83C\uDFC6 Clean Pass #${rehearsalLoopState.cleanPasses} at target ${playbackState.playbackSpeed}x!`);
@@ -5665,6 +5750,16 @@ window.addEventListener('keydown', (e) => {
     toggleRehearsalLoop();
     return;
   }
+  if (key === '-' || key === '_') {
+    e.preventDefault();
+    stepPracticeTempo(-1);
+    return;
+  }
+  if (key === '=' || key === '+') {
+    e.preventDefault();
+    stepPracticeTempo(1);
+    return;
+  }
 
   if (key === 'z' || e.code === 'KeyZ') {
     e.preventDefault();
@@ -6090,9 +6185,23 @@ btnBackingBand.addEventListener('click', () => {
 });
 
 playbackSpeedSelect.addEventListener('change', (e) => {
-  playbackState.playbackSpeed = Number(e.target.value) || 1.0;
+  setPracticeTempo(Number(e.target.value) || 1.0, { persist: true, toast: false });
   e.target.blur();
 });
+
+if (btnTempoDown) {
+  btnTempoDown.addEventListener('click', (e) => {
+    stepPracticeTempo(-1);
+    e.currentTarget.blur();
+  });
+}
+
+if (btnTempoUp) {
+  btnTempoUp.addEventListener('click', (e) => {
+    stepPracticeTempo(1);
+    e.currentTarget.blur();
+  });
+}
 
 fallSpeedSelect.addEventListener('change', (e) => {
   playbackState.fallSpeedPxPerSec = Number(e.target.value) || 260;
