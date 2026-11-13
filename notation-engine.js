@@ -1430,10 +1430,13 @@ function tickToScoreX(scoreData, tick) {
  * Create the canvas-backed VexFlow 5 notation tile renderer with LRU cache & viewport overlay painter.
  */
 function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null } = {}) {
-  const MAX_TILES = 30;
+  const MAX_TILES = 120;
   const tileCache = new Map(); // cacheKey -> tileObject
   const gutterCache = new Map(); // `${vfKeySpec}:${timeSigLabel}:${dpr}` -> { canvas, width, height }
   let parchmentPattern = null;
+  let bgCache = null; // { canvas, width, height, rulerH, dpr, hasImage }
+  let prewarmHandle = null;
+  let activeScoreId = null;
   let txtCanvasInitialized = false;
 
   const makeCanvas = (w, h) => {
@@ -1458,10 +1461,23 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
     }
   };
 
+  const cancelPrewarm = () => {
+    if (prewarmHandle === null) return;
+    if (typeof cancelIdleCallback === 'function' && prewarmHandle.type === 'idle') {
+      cancelIdleCallback(prewarmHandle.id);
+    } else if (typeof clearTimeout === 'function' && prewarmHandle.type === 'timeout') {
+      clearTimeout(prewarmHandle.id);
+    }
+    prewarmHandle = null;
+  };
+
   const clearCache = () => {
+    cancelPrewarm();
+    activeScoreId = null;
     tileCache.clear();
     gutterCache.clear();
     parchmentPattern = null;
+    bgCache = null;
   };
 
   const dispose = () => {
@@ -1843,9 +1859,17 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
         const ys = typeof sn.getYs === 'function' ? sn.getYs() : [built.handTrack === 1 ? TREBLE_STAVE_Y + 45 : BASS_STAVE_Y + 45];
 
         const foldedRef = (ev.noteRefs || []).find((r) => r.wasFolded && Number(r.semitoneShift) !== 0);
+        let minY = Infinity;
+        let maxY = -Infinity;
+        for (let yi = 0; yi < ys.length; yi++) {
+          if (ys[yi] < minY) minY = ys[yi];
+          if (ys[yi] > maxY) maxY = ys[yi];
+        }
         noteOverlays.push({
           scoreX,
           ys,
+          minY: Number.isFinite(minY) ? minY : 0,
+          maxY: Number.isFinite(maxY) ? maxY : 0,
           startTick: ev.startTick,
           endTick: ev.endTick,
           startTime: ev.startTime,
@@ -1918,6 +1942,143 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
     ctx.restore();
   };
 
+  const getOrBakeBackground = (width, height, rulerH, dpr) => {
+    const w = Math.max(1, Math.round(width));
+    const h = Math.max(1, Math.round(height));
+    const hasImage = Boolean(parchmentImage && parchmentImage.complete && parchmentImage.naturalWidth > 0);
+    if (
+      bgCache &&
+      bgCache.width === w &&
+      bgCache.height === h &&
+      bgCache.rulerH === rulerH &&
+      bgCache.dpr === dpr &&
+      bgCache.hasImage === hasImage
+    ) {
+      return bgCache;
+    }
+
+    const bgCanvas = makeCanvas(Math.ceil(w * dpr), Math.ceil(h * dpr));
+    const bctx = bgCanvas.getContext('2d');
+    if (typeof bctx.setTransform === 'function') {
+      bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    // Warm Grimoire Parchment background fill
+    bctx.fillStyle = '#f4ebd9';
+    bctx.fillRect(0, 0, w, h);
+    if (hasImage) {
+      if (!parchmentPattern) {
+        try {
+          parchmentPattern = bctx.createPattern(parchmentImage, 'repeat');
+        } catch {
+          parchmentPattern = null;
+        }
+      }
+      if (parchmentPattern) {
+        bctx.save();
+        bctx.globalAlpha = 0.62;
+        bctx.fillStyle = parchmentPattern;
+        bctx.fillRect(0, 0, w, h);
+        bctx.restore();
+      }
+    }
+
+    // Top walnut/sepia bar-ruler header strip
+    bctx.fillStyle = '#eadcc2';
+    bctx.fillRect(0, 0, w, rulerH);
+    bctx.strokeStyle = 'rgba(110, 86, 58, 0.35)';
+    bctx.lineWidth = 1;
+    bctx.beginPath();
+    bctx.moveTo(0, rulerH);
+    bctx.lineTo(w, rulerH);
+    bctx.stroke();
+
+    bgCache = { canvas: bgCanvas, width: w, height: h, rulerH, dpr, hasImage };
+    return bgCache;
+  };
+
+  const findMeasureIndexByTick = (measures, tick) => {
+    let lo = 0;
+    let hi = measures.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (tick < measures[mid].endTicks) {
+        hi = mid;
+      } else {
+        lo = mid + 1;
+      }
+    }
+    return lo;
+  };
+
+  const findFirstMeasureEndAfterX = (measures, targetX) => {
+    let lo = 0;
+    let hi = measures.length - 1;
+    let ans = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (measures[mid].endX >= targetX) {
+        ans = mid;
+        hi = mid - 1;
+      } else {
+        lo = mid + 1;
+      }
+    }
+    return ans;
+  };
+
+  const findFirstMeasureStartAfterX = (measures, targetX) => {
+    let lo = 0;
+    let hi = measures.length - 1;
+    let ans = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (measures[mid].startX > targetX) {
+        ans = mid;
+        hi = mid - 1;
+      } else {
+        lo = mid + 1;
+      }
+    }
+    return ans;
+  };
+
+  const scheduleLookaheadPrewarm = (scoreData, startIdx, endIdx, dpr) => {
+    if (!scoreData || !scoreData.measures || startIdx > endIdx || prewarmHandle !== null) return;
+    if (scoreData.scoreId !== activeScoreId) return;
+    // Find first uncached measure in lookahead range
+    let targetIdx = -1;
+    for (let i = startIdx; i <= endIdx; i++) {
+      const key = `${scoreData.scoreId}:${dpr}:${i}`;
+      if (!tileCache.has(key)) {
+        targetIdx = i;
+        break;
+      }
+    }
+    if (targetIdx < 0) return;
+
+    const runStep = () => {
+      prewarmHandle = null;
+      if (scoreData.scoreId !== activeScoreId || !scoreData.measures[targetIdx]) return;
+      renderMeasureTile(scoreData, targetIdx, dpr);
+      if (targetIdx + 1 <= endIdx) {
+        scheduleLookaheadPrewarm(scoreData, targetIdx + 1, endIdx, dpr);
+      }
+    };
+
+    if (typeof requestIdleCallback === 'function') {
+      prewarmHandle = {
+        type: 'idle',
+        id: requestIdleCallback(runStep, { timeout: 60 })
+      };
+    } else if (typeof setTimeout === 'function') {
+      prewarmHandle = {
+        type: 'timeout',
+        id: setTimeout(runStep, 16)
+      };
+    }
+  };
+
   /**
    * Draw Warm Grimoire Parchment surface, visible Grand-Staff tiles, Rehearsal Loop ribbon,
    * active/Wait-locked/overdue/folded overlays, fixed Crimson playhead & dynamic left clef gutter.
@@ -1950,35 +2111,9 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
     ctx.rect(rect.x, rect.y, rect.width, rect.height);
     ctx.clip();
 
-    // 1. Warm Grimoire Parchment background fill
-    ctx.fillStyle = '#f4ebd9';
-    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-    if (parchmentImage && parchmentImage.complete && parchmentImage.naturalWidth > 0) {
-      if (!parchmentPattern) {
-        try {
-          parchmentPattern = ctx.createPattern(parchmentImage, 'repeat');
-        } catch {
-          parchmentPattern = null;
-        }
-      }
-      if (parchmentPattern) {
-        ctx.save();
-        ctx.globalAlpha = 0.62;
-        ctx.fillStyle = parchmentPattern;
-        ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-        ctx.restore();
-      }
-    }
-
-    // Top walnut/sepia bar-ruler header strip
-    ctx.fillStyle = '#eadcc2';
-    ctx.fillRect(rect.x, rect.y, rect.width, rulerH);
-    ctx.strokeStyle = 'rgba(110, 86, 58, 0.35)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(rect.x, rect.y + rulerH);
-    ctx.lineTo(rect.x + rect.width, rect.y + rulerH);
-    ctx.stroke();
+    // 1. Pre-baked Warm Grimoire Parchment background + ruler strip (single blit per frame)
+    const bg = getOrBakeBackground(rect.width, rect.height, rulerH, dpr);
+    ctx.drawImage(bg.canvas, rect.x, rect.y, rect.width, rect.height);
 
     if (!scoreData || !scoreData.measures || scoreData.measures.length === 0) {
       // Empty parchment prompt
@@ -1991,9 +2126,14 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
       return;
     }
 
+    if (scoreData.scoreId !== activeScoreId) {
+      cancelPrewarm();
+      activeScoreId = scoreData.scoreId;
+    }
+
     const curTick = scoreData.tempoMap.secToTicks(currentTime);
-    const activeMeasure = scoreData.measures.find((m) => curTick >= m.startTicks && curTick < m.endTicks)
-      || (curTick < scoreData.measures[0].startTicks ? scoreData.measures[0] : scoreData.measures[scoreData.measures.length - 1]);
+    const activeMeasureIdx = findMeasureIndexByTick(scoreData.measures, curTick);
+    const activeMeasure = scoreData.measures[activeMeasureIdx];
 
     const gutter = getOrRenderStickyGutter(activeMeasure.vfKeySpec || scoreData.primaryKeySpec, dpr);
     const gutterWidthPx = Math.min(rect.width * 0.25, gutter.width * renderScale);
@@ -2007,9 +2147,9 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
     const roughLeftScoreX = approxScoreX - (playheadX - rect.x) / renderScale - 160;
     const roughRightScoreX = approxScoreX + (rect.x + rect.width - playheadX) / renderScale + 180;
 
-    let firstIdx = scoreData.measures.findIndex((m) => m.endX >= roughLeftScoreX);
-    if (firstIdx < 0) firstIdx = 0;
-    let lastIdx = scoreData.measures.findIndex((m) => m.startX > roughRightScoreX);
+    let firstIdx = findFirstMeasureEndAfterX(scoreData.measures, roughLeftScoreX);
+    if (firstIdx < 0) firstIdx = scoreData.measures.length - 1;
+    let lastIdx = findFirstMeasureStartAfterX(scoreData.measures, roughRightScoreX);
     if (lastIdx < 0) lastIdx = scoreData.measures.length - 1;
     else lastIdx = Math.min(scoreData.measures.length - 1, lastIdx + 1);
     firstIdx = Math.max(0, firstIdx - 1);
@@ -2019,6 +2159,14 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
       const tile = renderMeasureTile(scoreData, idx, dpr);
       if (tile) visibleTiles.push(tile);
     }
+
+    // Incrementally pre-warm upcoming measures ahead of the viewport during idle time
+    scheduleLookaheadPrewarm(
+      scoreData,
+      lastIdx + 1,
+      Math.min(scoreData.measures.length - 1, lastIdx + 6),
+      dpr
+    );
 
     // Recompute exact score X now that visible measures have populated `renderedTickAnchors`
     const exactScoreX = tickToScoreX(scoreData, curTick);
@@ -2184,8 +2332,8 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
             ? '8↑'
             : (ov.foldShift > 0 ? '8↓' : (ov.handTrack === 1 ? '8↑' : '8↓'));
           const tagY = foldLabel === '8↑'
-            ? drawYOffset + (Math.min(...ov.ys) - 11) * renderScale
-            : drawYOffset + (Math.max(...ov.ys) + 16) * renderScale;
+            ? drawYOffset + (ov.minY - 11) * renderScale
+            : drawYOffset + (ov.maxY + 16) * renderScale;
           ctx.save();
           ctx.fillStyle = '#92400e';
           ctx.font = `bold ${Math.max(8, Math.round(9 * renderScale))}px "Consolas", monospace`;
@@ -2227,20 +2375,27 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
     // 6. Sticky Left Clef & Key Signature Gutter (stays pinned cleanly at left margin)
     ctx.drawImage(gutter.canvas, rect.x, drawYOffset, gutter.width * renderScale, gutter.height * renderScale);
 
-    // 7. Fixed Center Wax-Seal Crimson Playhead Needle
+    // 7. Fixed Center Wax-Seal Crimson Playhead Needle (two-pass halo avoids per-frame shadowBlur)
     ctx.save();
     const headCol = isWaitingForStrike && waitDurationSec > 2.0 ? '#b91c1c' : '#9f1239';
-    ctx.strokeStyle = headCol;
-    ctx.lineWidth = 2.2;
-    ctx.shadowColor = 'rgba(159, 18, 57, 0.35)';
-    ctx.shadowBlur = 6;
+    const haloCol = isWaitingForStrike && waitDurationSec > 2.0 ? 'rgba(185, 28, 28, 0.22)' : 'rgba(159, 18, 57, 0.20)';
+    const lineBottom = rect.y + rect.height - (showSplitDivider ? 6 : 0);
+
+    ctx.strokeStyle = haloCol;
+    ctx.lineWidth = 6;
     ctx.beginPath();
     ctx.moveTo(playheadX, rect.y + rulerH - 2);
-    ctx.lineTo(playheadX, rect.y + rect.height - (showSplitDivider ? 6 : 0));
+    ctx.lineTo(playheadX, lineBottom);
+    ctx.stroke();
+
+    ctx.strokeStyle = headCol;
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(playheadX, rect.y + rulerH - 2);
+    ctx.lineTo(playheadX, lineBottom);
     ctx.stroke();
 
     // Diamond wax-seal pip at top of playhead inside ruler strip
-    ctx.shadowBlur = 0;
     ctx.fillStyle = headCol;
     ctx.beginPath();
     ctx.moveTo(playheadX, rect.y + rulerH + 4);
