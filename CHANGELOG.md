@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Issue #40: MusicXML Import to MIDI (`.musicxml`, `.xml`, `.mxl`):**
+  - Added pure-JS `musicxml-converter.js` (0 external runtime deps, using `@tonejs/midi` + Node `zlib.inflateRawSync` for compressed `.mxl` ZIP archives via `META-INF/container.xml`).
+  - Supports `<score-partwise>` and `<score-timewise>`, Grand Staff `<staff>1` (Right Hand Gold) & `<staff>2` (Left Hand Blue) mapping, extra pitched parts routed to Backing Band (`#playable-track-select`), score-synchronized `<repeat>` / 1st-2nd `<ending>` unrolling, `<tie>`/`<tied>` merging, `<chord/>`, `<backup>`/`<forward>`, `<sound tempo>`/`<metronome>` tempo changes, and `<key>`/`<time>` signatures.
+  - Captures `<harmony>` chord symbols and `<lyric>` counts on `currentSong` metadata for future `#39`/`#43`, and surfaces non-blocking amber warning / crimson error toasts (`#grimoire-toast`) for skipped `<grace/>` notes, simplified `<ornaments>`, or malformed files.
+  - Integrated `.musicxml`, `.xml`, and `.mxl` into `#midi-file-input` (`📜 Import Spell`), Spellbook `📜 Import File`, full-window drag-and-drop (`#global-drop-overlay`), `./Imports` & `./Midi Test Files` folder watcher (`fs.watch` + polling), Key Signature badges (`#stat-key-sig-chip`, `#spellbook-detail-keysig`), and paired backing audio lookup.
+
 - **Issue #24: Bardic Inspiration Meter (Star Power & Combo Shield):**
   - Upgraded `#hud-inspiration-banner` into a clickable pill-gauge (`#hud-inspiration-fill`) showing live charge progress (`+4%` per clean note = 25 clean notes for 100%, `+1%` per fumbled note), ready state, and active burst countdown.
   - Added **Manual 2x XP Surge** (`activateBardicInspirationBurst()` via HUD pill click or `Enter` key): spends a 100% charge for a 10-second `2.0x XP` boost with a draining meter, golden strike-line glow, and pulsing golden Star Power canvas border aura.

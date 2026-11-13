@@ -188,9 +188,9 @@
           <button id="btn-open-quest-board" class="tavern-btn btn-quest-board" title="Open The Quest Board: Paste a YouTube URL to transcribe into MIDI or browse BitMIDI, VGMusic & YouTube">
             &#128302; Quest Board
           </button>
-          <input id="midi-file-input" type="file" accept=".mid,.midi" hidden />
-          <button id="btn-load-midi" class="tavern-btn tavern-btn-primary" title="Upload a local .mid file (or drag & drop onto window)">
-            &#128220; Load .mid
+          <input id="midi-file-input" type="file" accept=".mid,.midi,.xml,.musicxml,.mxl" hidden />
+          <button id="btn-load-midi" class="tavern-btn tavern-btn-primary" title="Import a .mid, .musicxml, .xml, or .mxl file (or drag & drop onto window)">
+            &#128220; Import Spell
           </button>
           <button id="btn-sample-midi" class="tavern-btn" title="Load built-in multi-track sample MIDI">
             &#10024; Demo
@@ -353,6 +353,9 @@
               </span>
               <span class="stat-chip chip-folded" title="Out-of-bounds notes (<C2 or >C7) transposed by +/-12 semitones into 61-key range (36..96)">
                 Octave Folded: <strong id="stat-folded-notes">0</strong>
+              </span>
+              <span id="stat-key-sig-chip" class="stat-chip hidden" title="Score Key Signature">
+                Key: <strong id="stat-key-sig">C Major</strong>
               </span>
             </div>
             <div class="popover-divider"></div>
@@ -702,7 +705,7 @@
         <div class="quest-section-box">
           <div class="quest-section-header">
             <span class="quest-section-title">&#127760; External Bardic Archives (Opens in Browser)</span>
-            <span class="quest-hint-text">Download any <code>.mid</code> into <code>./Imports</code> for instant ingestion!</span>
+            <span class="quest-hint-text">Download any <code>.mid</code>, <code>.musicxml</code>, or <code>.mxl</code> into <code>./Imports</code> for instant ingestion!</span>
           </div>
 
           <div class="quest-links-grid">
@@ -902,6 +905,9 @@
           </div>
 
           <div class="spellbook-header-actions">
+            <button id="btn-spellbook-import-file" class="tavern-btn btn-spellbook-tool" title="Import a .mid, .musicxml, .xml, or .mxl file">
+              &#128220; Import File
+            </button>
             <button id="btn-spellbook-save-current" class="tavern-btn btn-spellbook-tool" title="Save currently active highway spell into The Grimoire">
               &#128190; Save Current
             </button>
@@ -964,6 +970,7 @@
                 <div class="detail-top-block">
                   <div class="detail-tier-row">
                     <span id="spellbook-detail-tier-chip" class="detail-tier-chip">Cantrip</span>
+                    <span id="spellbook-detail-keysig" class="detail-song-source hidden"></span>
                     <span id="spellbook-detail-source" class="detail-song-source">Built-In Conservatory Spell</span>
                   </div>
                   <h3 id="spellbook-detail-title" class="detail-song-title">Select a Spell</h3>
@@ -1093,6 +1100,15 @@
         <button id="btn-delete-confirm-cancel" type="button" class="tavern-btn">Cancel</button>
         <button id="btn-delete-confirm-accept" type="button" class="tavern-btn btn-danger-confirm">&#128230; Move to Archive</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Global Drag & Drop Overlay Veil (Issue #40) -->
+  <div id="global-drop-overlay" class="global-drop-overlay hidden" aria-hidden="true">
+    <div class="global-drop-card">
+      <div class="global-drop-icon">&#128220;</div>
+      <h3>Drop Sheet Music or MIDI Scroll</h3>
+      <p>Supports <code>.mid</code>, <code>.midi</code>, <code>.musicxml</code>, <code>.xml</code>, and compressed <code>.mxl</code></p>
     </div>
   </div>
 
