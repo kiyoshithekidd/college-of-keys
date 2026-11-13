@@ -1437,6 +1437,9 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
   let bgCache = null; // { canvas, width, height, rulerH, dpr, hasImage }
   let prewarmHandle = null;
   let activeScoreId = null;
+  let cameraScoreX = null;
+  let lastRenderNowMs = null;
+  let lastCameraTime = null;
   let txtCanvasInitialized = false;
 
   const makeCanvas = (w, h) => {
@@ -1474,6 +1477,9 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
   const clearCache = () => {
     cancelPrewarm();
     activeScoreId = null;
+    cameraScoreX = null;
+    lastRenderNowMs = null;
+    lastCameraTime = null;
     tileCache.clear();
     gutterCache.clear();
     parchmentPattern = null;
@@ -2129,6 +2135,9 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
     if (scoreData.scoreId !== activeScoreId) {
       cancelPrewarm();
       activeScoreId = scoreData.scoreId;
+      cameraScoreX = null;
+      lastRenderNowMs = null;
+      lastCameraTime = null;
     }
 
     const curTick = scoreData.tempoMap.secToTicks(currentTime);
@@ -2138,14 +2147,20 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
     const gutter = getOrRenderStickyGutter(activeMeasure.vfKeySpec || scoreData.primaryKeySpec, dpr);
     const gutterWidthPx = Math.min(rect.width * 0.25, gutter.width * renderScale);
 
-    // Fixed playhead sits at a balanced readable lead-ahead point right of the sticky clef gutter
+    // Lead-ahead anchor point right of the sticky clef gutter
     const playheadX = Math.round(rect.x + gutterWidthPx + (rect.width - gutterWidthPx) * 0.34);
 
-    // Determine visible measure window centered around estimated playhead x, rendering visible tiles FIRST
-    // so `renderedTickAnchors` are populated before `tickToScoreX(curTick)` locks the camera.
-    let approxScoreX = tickToScoreX(scoreData, curTick);
-    const roughLeftScoreX = approxScoreX - (playheadX - rect.x) / renderScale - 160;
-    const roughRightScoreX = approxScoreX + (rect.x + rect.width - playheadX) / renderScale + 180;
+    // Determine visible measure window centered around smoothed camera (or estimated playhead),
+    // snapping immediately to approxScoreX on seeks, scrubs, or backward Rehearsal Loop wraparounds.
+    const approxScoreX = tickToScoreX(scoreData, curTick);
+    const isTimeJump =
+      cameraScoreX === null ||
+      lastCameraTime === null ||
+      Math.abs(currentTime - lastCameraTime) > 0.35 ||
+      currentTime < lastCameraTime - 0.05;
+    const camCenterScoreX = isTimeJump ? approxScoreX : cameraScoreX;
+    const roughLeftScoreX = camCenterScoreX - (playheadX - rect.x) / renderScale - 160;
+    const roughRightScoreX = camCenterScoreX + (rect.x + rect.width - playheadX) / renderScale + 180;
 
     let firstIdx = findFirstMeasureEndAfterX(scoreData.measures, roughLeftScoreX);
     if (firstIdx < 0) firstIdx = scoreData.measures.length - 1;
@@ -2170,7 +2185,46 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
 
     // Recompute exact score X now that visible measures have populated `renderedTickAnchors`
     const exactScoreX = tickToScoreX(scoreData, curTick);
-    const viewOriginX = playheadX - exactScoreX * renderScale;
+
+    // Smoothly damp cameraScoreX toward exactScoreX so sheet music pans evenly without per-note lurches,
+    // snapping immediately on song load, seek/scrub, or Rehearsal Loop wraparound.
+    const nowMs = typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? performance.now()
+      : Date.now();
+    const dt = lastRenderNowMs !== null ? Math.min(0.1, Math.max(0.001, (nowMs - lastRenderNowMs) / 1000)) : 0.016;
+    const shouldSnap =
+      isTimeJump ||
+      Math.abs(exactScoreX - cameraScoreX) * renderScale > rect.width * 0.45;
+
+    if (shouldSnap) {
+      cameraScoreX = exactScoreX;
+    } else {
+      const diffPx = (exactScoreX - cameraScoreX) * renderScale;
+      if (Math.abs(diffPx) < 0.25) {
+        cameraScoreX = exactScoreX;
+      } else {
+        const smoothAlpha = 1 - Math.exp(-dt * 3.0);
+        cameraScoreX += (exactScoreX - cameraScoreX) * smoothAlpha;
+      }
+    }
+    lastRenderNowMs = nowMs;
+    lastCameraTime = currentTime;
+
+    // Safe corridor clamping keeps the tracking needle away from the clef gutter & right lookahead edge
+    let viewOriginX = playheadX - cameraScoreX * renderScale;
+    let needleX = viewOriginX + exactScoreX * renderScale;
+    const minNeedleX = Math.min(playheadX, rect.x + gutterWidthPx + 24);
+    const maxNeedleX = Math.max(playheadX, rect.x + gutterWidthPx + (rect.width - gutterWidthPx) * 0.55);
+    if (needleX < minNeedleX) {
+      cameraScoreX -= (minNeedleX - needleX) / renderScale;
+      viewOriginX = playheadX - cameraScoreX * renderScale;
+      needleX = viewOriginX + exactScoreX * renderScale;
+    } else if (needleX > maxNeedleX) {
+      cameraScoreX += (needleX - maxNeedleX) / renderScale;
+      viewOriginX = playheadX - cameraScoreX * renderScale;
+      needleX = viewOriginX + exactScoreX * renderScale;
+    }
+    const drawNeedleX = Math.round(needleX);
 
     // 2. Rehearsal Loop A–B Highlight Ribbon
     if (rehearsalLoop && rehearsalLoop.enabled && Number.isFinite(rehearsalLoop.startTime) && Number.isFinite(rehearsalLoop.endTime)) {
@@ -2375,7 +2429,7 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
     // 6. Sticky Left Clef & Key Signature Gutter (stays pinned cleanly at left margin)
     ctx.drawImage(gutter.canvas, rect.x, drawYOffset, gutter.width * renderScale, gutter.height * renderScale);
 
-    // 7. Fixed Center Wax-Seal Crimson Playhead Needle (two-pass halo avoids per-frame shadowBlur)
+    // 7. Notehead-Tracking Wax-Seal Crimson Playhead Needle (two-pass halo avoids per-frame shadowBlur)
     ctx.save();
     const headCol = isWaitingForStrike && waitDurationSec > 2.0 ? '#b91c1c' : '#9f1239';
     const haloCol = isWaitingForStrike && waitDurationSec > 2.0 ? 'rgba(185, 28, 28, 0.22)' : 'rgba(159, 18, 57, 0.20)';
@@ -2384,24 +2438,24 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
     ctx.strokeStyle = haloCol;
     ctx.lineWidth = 6;
     ctx.beginPath();
-    ctx.moveTo(playheadX, rect.y + rulerH - 2);
-    ctx.lineTo(playheadX, lineBottom);
+    ctx.moveTo(drawNeedleX, rect.y + rulerH - 2);
+    ctx.lineTo(drawNeedleX, lineBottom);
     ctx.stroke();
 
     ctx.strokeStyle = headCol;
     ctx.lineWidth = 2.2;
     ctx.beginPath();
-    ctx.moveTo(playheadX, rect.y + rulerH - 2);
-    ctx.lineTo(playheadX, lineBottom);
+    ctx.moveTo(drawNeedleX, rect.y + rulerH - 2);
+    ctx.lineTo(drawNeedleX, lineBottom);
     ctx.stroke();
 
     // Diamond wax-seal pip at top of playhead inside ruler strip
     ctx.fillStyle = headCol;
     ctx.beginPath();
-    ctx.moveTo(playheadX, rect.y + rulerH + 4);
-    ctx.lineTo(playheadX - 5, rect.y + rulerH - 3);
-    ctx.lineTo(playheadX, rect.y + rulerH - 10);
-    ctx.lineTo(playheadX + 5, rect.y + rulerH - 3);
+    ctx.moveTo(drawNeedleX, rect.y + rulerH + 4);
+    ctx.lineTo(drawNeedleX - 5, rect.y + rulerH - 3);
+    ctx.lineTo(drawNeedleX, rect.y + rulerH - 10);
+    ctx.lineTo(drawNeedleX + 5, rect.y + rulerH - 3);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
