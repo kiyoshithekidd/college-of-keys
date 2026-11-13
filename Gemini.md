@@ -504,6 +504,14 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - Implemented `DAILY_BOUNTY_SLOTS`, `ensureDailyQuestsForToday()`, `updateDailyQuestsOnSongComplete()`, `rerollDailyBounty()`, `renderDailyBountiesBoard()`, `renderDailyBountyStationSummary()`, and `#modal-quests-banner` across `index.html`, `styles.css`, and `renderer.js`.
 - **Current status:** Verified (`"testing successful"`) and merged into `main` in PR #86. Issue #53 closed.
 
+### 2026-11-12 — Session 24: Grimoire Favorites: Star Songs and a Favorites Filter (Issue #79)
+- **What we did:**
+  - Created isolated feature branch `feature/issue-79-grimoire-favorites` from `main`.
+  - Added `GRIMOIRE_FAVORITES_STORAGE_KEY` (`collegeOfKeys_grimoire_favorites_v1`), `grimoireFavorites` Set, `loadGrimoireFavorites()`, `saveGrimoireFavorites()`, and `toggleGrimoireFavorite()` in `renderer.js`, and included `isFavorite` in `extractGrimoireEntryFromBuffer()` and `persistGrimoireIndex()` (`grimoire_library.json` + `localStorage`).
+  - Added `.spellbook-card-star-btn` on every Grimoire song card, `#btn-spellbook-favorite-song` in the right-page Spell Details action row, and `#btn-spellbook-favorites-filter` with `#spellbook-fav-count` next to `#spellbook-search-input` in `index.html`, `styles.css`, and `renderer.js`.
+  - Updated `renderSpellbookSpread()`, `navigateToSpellbookTier()`, `loadSelectedSpellbookSong()`, and `deleteSelectedSpellbookSong()` so the Favorites filter displays starred songs across all difficulty tiers and supports searching, loading, and archiving seamlessly.
+- **Current status:** Verified (`"Testing successful"`). Renamed filter/view to **Attuned** (`☆ Attuned`, `Attuned Spells`) and persisted filter state across opens/restarts.
+
 
 
 

@@ -20,6 +20,7 @@ NEVER execute multiple phases at once. Stop at the end of each phase, provide te
 - [x] Phase 14: Delete / Archive Songs from the Grimoire In-App (Issue #77) (Completed & Merged in PR #84)
 - [x] Phase 15: Practice Streak Calendar (Issue #66) (Completed & Merged in PR #85)
 - [x] Phase 16: Daily Quest System (Issue #53) (Completed & Merged in PR #86)
+- [x] Phase 17: Grimoire Favorites — Attuned Spells Filter (Issue #79) (Completed & Verified)
 
 ---
 

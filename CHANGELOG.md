@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Issue #79: Grimoire Favorites (Attuned Spells):**
+  - Added a clickable Star/Attune button (`.spellbook-card-star-btn`) to every Grimoire song card and a matching Star/Attune button (`#btn-spellbook-favorite-song`) to the Spell Details action bar.
+  - Added an **Attuned** filter toggle (`#btn-spellbook-favorites-filter`) with live attuned count badge (`#spellbook-fav-count`) next to the Spellbook search input, showing all starred songs across all difficulty tiers in one view and remembering the filter state across modal opens and restarts.
+  - Persisted attuned favorites per song in `localStorage` (`collegeOfKeys_grimoire_favorites_v1` & `collegeOfKeys_grimoire_v1`) and `grimoire_library.json` (`isFavorite`) via `loadGrimoireFavorites()` and `saveGrimoireFavorites()`, surviving restarts and folder rescans without ever deleting unstarred songs.
+
 - **Issue #53: Daily Quest System (Tavern Bounties):**
   - Added 3 rotating daily bounties per local calendar day (`DAILY_BOUNTY_SLOTS`: Song/Mode, Precision/Combo, and Volume/Endurance) persisted in `bardProfile.dailyQuests` with zero UTC drift.
   - Integrated a live Daily Bounty status summary onto the Tavern Notice Board (`#menu-daily-bounty-summary` on `station-quest`) with a custom transparent Wax-Sealed Bounty Scroll icon (`assets/images/icons/bounty-seal-transparent.png`), plus a **Today's Tavern Bounties** section at the top of `#quest-board-modal` with progress bars and 1 free daily reroll (`#btn-reroll-daily-bounty`).
