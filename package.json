@@ -25,11 +25,14 @@
     "@tonejs/midi": "^2.0.28",
     "@vexflow-fonts/bravura": "^1.0.2",
     "cannon-es": "^0.20.0",
-    "three": "^0.187.0",
+    "three": "^0.170.0",
     "tone": "^14.7.77",
     "vexflow": "^5.0.0"
   },
   "devDependencies": {
     "electron": "^33.2.0"
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
   }
 }
