@@ -518,7 +518,15 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - Created isolated feature branch `feature/issue-30-loop-practice-mode` from `main`.
   - Implemented `rehearsalLoopState`, timeline range/bracket overlays, inline `[A]` / `[B]` / `[🔁 Loop]` controls, `#rehearsal-popover` (Clear A–B, Auto-Ramp Tempo, Target Speed, Pass Status), `0.8s` pre-roll loop wrapping in `animationLoop`, `[` / `]` / `\` keyboard shortcuts, and `LOOP A` / `LOOP B` canvas boundary lines.
   - Completed Post-Build Peer Review & QA Audit subagent pass and fixed outside-click popover dismissal, immediate Set-B wrap edge case, and `.btn-rehearsal-caret.active` styling.
-- **Current status:** Verified (`"Testing successful"`). Ready to merge into `main` and close Issue #30.
+- **Current status:** Verified (`"Testing successful"`) and merged into `main` in PR #88. Issue #30 closed.
+
+### 2026-11-12 — Session 26: Post-Song Breakdown — What Tripped Me Up (Issue #62)
+- **What we did:**
+  - Completed Pre-Build Engineering Plan, UI/UX Design Reviewer subagent pass, and 3-point Decision Check before coding (pad short bars to `>= 2.0s`, jump & pause, player-controlled hands only).
+  - Created isolated feature branch `feature/issue-62-post-song-breakdown` from `main`.
+  - Added `#modal-breakdown-section` in `index.html`, responsive modal scrolling + breakdown styles in `styles.css`, and `measureStats` tracking, `buildPostSongBreakdown()`, `renderPostSongBreakdown()`, and `practiceWeakRegion()` in `renderer.js`.
+  - Completed Post-Build Peer Review & QA Audit subagent pass (`No blocking issues found`) and verified syntax with `node --check`.
+- **Current status:** Verified (`"Testing successful"`). Ready to merge into `main` and close Issue #62.
 
 
 

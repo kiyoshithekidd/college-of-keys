@@ -1068,17 +1068,187 @@ html, body {
 .performance-modal-card {
   width: 100%;
   max-width: 580px;
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
   background: linear-gradient(180deg, #241a14 0%, #130d09 100%);
   border: 2px solid var(--border-gold-bright);
   border-radius: 14px;
-  padding: 22px 26px;
+  padding: 18px 22px;
   box-shadow:
     0 20px 60px rgba(0, 0, 0, 0.85),
     0 0 32px rgba(255, 215, 0, 0.22);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 11px;
   text-align: center;
+}
+
+.performance-modal-card::-webkit-scrollbar {
+  width: 6px;
+}
+
+.performance-modal-card::-webkit-scrollbar-thumb {
+  background: rgba(138, 109, 47, 0.45);
+  border-radius: 999px;
+}
+
+.modal-breakdown-section {
+  background: rgba(16, 12, 9, 0.82);
+  border: 1px solid rgba(138, 109, 47, 0.45);
+  border-radius: 9px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.breakdown-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.breakdown-title {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.breakdown-summary {
+  font-family: 'Consolas', monospace;
+  font-size: 0.72rem;
+  color: #e9d5a1;
+}
+
+.breakdown-sections-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.breakdown-section-pill {
+  background: rgba(30, 22, 16, 0.85);
+  border: 1px solid rgba(138, 109, 47, 0.38);
+  border-radius: 6px;
+  padding: 5px 6px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.breakdown-section-pill:hover {
+  border-color: var(--border-gold-bright);
+  background: rgba(45, 32, 22, 0.92);
+  transform: translateY(-1px);
+}
+
+.breakdown-section-label {
+  font-size: 0.66rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.breakdown-section-pct {
+  font-family: 'Consolas', monospace;
+  font-size: 0.80rem;
+  font-weight: 700;
+  color: var(--text-parchment);
+}
+
+.breakdown-section-bar {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--status-connected);
+}
+
+.breakdown-section-pill.tier-warn .breakdown-section-bar {
+  background: var(--status-waiting);
+}
+
+.breakdown-section-pill.tier-weak .breakdown-section-bar {
+  background: var(--status-error);
+}
+
+.breakdown-weak-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.breakdown-weak-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: rgba(30, 22, 16, 0.72);
+  border: 1px solid rgba(138, 109, 47, 0.35);
+}
+
+.breakdown-weak-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 0.78rem;
+  color: var(--text-parchment);
+}
+
+.breakdown-bar-badge {
+  font-family: 'Consolas', monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(248, 114, 114, 0.16);
+  border: 1px solid rgba(248, 114, 114, 0.45);
+  color: #fca5a5;
+  flex-shrink: 0;
+}
+
+.breakdown-weak-detail {
+  font-family: 'Consolas', monospace;
+  font-size: 0.73rem;
+  color: #e9d5a1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-practice-measure {
+  padding: 3px 9px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: rgba(255, 215, 0, 0.12);
+  border: 1px solid var(--border-gold-bright);
+  color: var(--radiant-gold);
+  border-radius: 999px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.btn-practice-measure:hover {
+  background: rgba(255, 215, 0, 0.24);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+  transform: translateY(-1px);
+}
+
+.breakdown-flawless {
+  font-size: 0.78rem;
+  color: #6ee7b7;
+  text-align: center;
+  padding: 4px 6px;
 }
 
 .modal-header-ornament {
