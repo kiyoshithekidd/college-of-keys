@@ -855,9 +855,12 @@
                 <p id="spellbook-tier-desc" class="page-tier-desc">Fundamentals &amp; melodies (&lt; 1.5 NPS)</p>
               </div>
 
-              <!-- Search inside current tier -->
+              <!-- Search & Attuned filter -->
               <div class="page-search-row">
-                <input id="spellbook-search-input" type="text" class="spellbook-search-field" placeholder="&#128269; Search spells in this tier..." />
+                <input id="spellbook-search-input" type="text" class="spellbook-search-field" placeholder="&#128269; Search tier..." />
+                <button id="btn-spellbook-favorites-filter" type="button" class="btn-spellbook-fav-filter" title="Show only starred Attuned spells across all tiers" aria-pressed="false">
+                  <span class="fav-filter-star">&#9734;</span> Attuned <span id="spellbook-fav-count" class="spellbook-fav-count">0</span>
+                </button>
               </div>
 
               <!-- Scrollable Song List on Left Page -->
@@ -946,6 +949,9 @@
                 <div class="detail-actions-row">
                   <button id="btn-spellbook-load-song" class="tavern-btn tavern-btn-cast btn-spellbook-load" title="Load this spell onto the 61-key Spell Highway and take the stage!">
                     &#9654; Inscribe on Highway (Load Spell)
+                  </button>
+                  <button id="btn-spellbook-favorite-song" type="button" class="btn-icon btn-spellbook-favorite" title="Star this spell as a Favorite" aria-label="Star as Favorite" aria-pressed="false">
+                    &#9734;
                   </button>
                   <button id="btn-spellbook-delete-song" class="btn-icon btn-spellbook-delete hidden" title="Remove spell scroll and move files to ./Archive" aria-label="Archive selected spell">
                     &#128465;

@@ -1360,11 +1360,15 @@ html, body {
 }
 
 .page-search-row {
+  display: flex;
+  align-items: center;
+  gap: 0.32cqw;
   margin: 0.1cqw 0;
 }
 
 .spellbook-search-field {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   background: rgba(255, 252, 244, 0.88);
   border: 1px solid rgba(138, 109, 47, 0.5);
   border-radius: 5px;
@@ -1386,6 +1390,75 @@ html, body {
   background: rgba(255, 255, 255, 0.98);
   border-color: #8a6d2f;
   box-shadow: 0 0 5px rgba(138, 109, 47, 0.35);
+}
+
+.btn-spellbook-fav-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22cqw;
+  padding: 0.24cqw 0.52cqw;
+  border-radius: 5px;
+  border: 1px solid rgba(138, 109, 47, 0.5);
+  background: rgba(255, 252, 244, 0.85);
+  color: #4a2c10;
+  font-family: Georgia, serif;
+  font-size: clamp(8.5px, 0.74cqw, 10.5px);
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-spellbook-fav-filter:hover {
+  background: rgba(255, 243, 210, 0.95);
+  border-color: #b45309;
+  color: #78350f;
+}
+
+.btn-spellbook-fav-filter:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.55);
+}
+
+.btn-spellbook-fav-filter.active {
+  background: linear-gradient(135deg, #b45309 0%, #92400e 100%);
+  border-color: #f59e0b;
+  color: #fffbeb;
+  box-shadow: 0 1px 6px rgba(180, 83, 9, 0.35);
+}
+
+.btn-spellbook-fav-filter .fav-filter-star {
+  color: #d97706;
+  font-size: clamp(9.5px, 0.82cqw, 11.5px);
+  line-height: 1;
+}
+
+.btn-spellbook-fav-filter.active .fav-filter-star {
+  color: #fde047;
+}
+
+.spellbook-fav-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15em;
+  padding: 0 0.28em;
+  border-radius: 999px;
+  background: rgba(138, 109, 47, 0.16);
+  font-family: 'Consolas', monospace;
+  font-size: 0.88em;
+}
+
+.btn-spellbook-fav-filter.active .spellbook-fav-count {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fffbeb;
+}
+
+.tier-ribbon-badge.tier-favorites {
+  background: linear-gradient(135deg, #92400e, #b45309);
+  color: #fef3c7;
+  border-color: #f59e0b;
 }
 
 /* Left Page: Scrollable Alphabetical Song List */
@@ -1440,6 +1513,7 @@ html, body {
 
 .spellbook-song-item-title {
   flex: 1;
+  min-width: 0;
   font-size: clamp(9.5px, 0.82cqw, 11.5px);
   white-space: nowrap;
   overflow: hidden;
@@ -1463,6 +1537,44 @@ html, body {
   font-family: 'Consolas', monospace;
   font-weight: 600;
   flex-shrink: 0;
+}
+
+.spellbook-card-star-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(180, 83, 9, 0.08);
+  border: 1px solid rgba(138, 109, 47, 0.32);
+  color: #8a6d2f;
+  border-radius: 4px;
+  width: clamp(18px, 1.45cqw, 22px);
+  height: clamp(18px, 1.45cqw, 22px);
+  padding: 0;
+  font-size: clamp(10.5px, 0.85cqw, 13px);
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.8;
+  transition: all 0.14s ease;
+}
+
+.spellbook-card-star-btn:hover,
+.spellbook-card-star-btn:focus-visible {
+  opacity: 1;
+  background: rgba(245, 158, 11, 0.2);
+  border-color: #d97706;
+  color: #b45309;
+  transform: scale(1.08);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.5);
+}
+
+.spellbook-card-star-btn.is-favorite {
+  opacity: 1;
+  background: rgba(245, 158, 11, 0.22);
+  border-color: #d97706;
+  color: #d97706;
+  text-shadow: 0 0 4px rgba(245, 158, 11, 0.35);
 }
 
 .spellbook-card-delete-btn {
@@ -1756,6 +1868,9 @@ html, body {
 
 .btn-spellbook-load {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   padding: 0.42cqw 0.85cqw;
   font-size: clamp(9.5px, 0.84cqw, 11.5px);
   font-weight: 700;
@@ -1777,13 +1892,48 @@ html, body {
   transform: translateY(-1px);
 }
 
+.btn-spellbook-favorite {
+  background: rgba(255, 252, 244, 0.65);
+  border: 1px solid rgba(138, 109, 47, 0.45);
+  color: #8a6d2f;
+  border-radius: 5px;
+  width: clamp(24px, 2.05cqw, 30px);
+  height: clamp(24px, 2.05cqw, 30px);
+  font-size: clamp(12px, 0.98cqw, 14px);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.btn-spellbook-favorite:hover:not(:disabled),
+.btn-spellbook-favorite:focus-visible:not(:disabled) {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: #d97706;
+  color: #b45309;
+  transform: scale(1.06);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.5);
+}
+
+.btn-spellbook-favorite.is-favorite {
+  background: rgba(245, 158, 11, 0.24);
+  border-color: #d97706;
+  color: #d97706;
+  text-shadow: 0 0 6px rgba(245, 158, 11, 0.4);
+}
+
+.btn-spellbook-favorite:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .btn-spellbook-delete {
   background: transparent;
   border: 1px solid rgba(138, 109, 47, 0.35);
   color: #991b1b;
   border-radius: 5px;
-  width: clamp(22px, 1.9cqw, 28px);
-  height: clamp(22px, 1.9cqw, 28px);
+  width: clamp(24px, 2.05cqw, 30px);
+  height: clamp(24px, 2.05cqw, 30px);
   font-size: clamp(10px, 0.85cqw, 12px);
   cursor: pointer;
   transition: all 0.15s ease;
