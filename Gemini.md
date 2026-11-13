@@ -561,9 +561,15 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - Created `musicxml-converter.js` and verified it with a Node spike & unit assertion suite covering Grand Staff `.musicxml`, compressed `.mxl` ZIP extraction, `<score-timewise>`, score-level repeat/ending unrolling, ties, tempo changes, and `NOT_MUSICXML` rejection.
   - Updated `index.html`, `styles.css`, and `renderer.js` with `loadSongFromBuffer()`, `#global-drop-overlay`, `.toast-warning`/`.toast-error`, `#btn-spellbook-import-file`, Key Signature badges (`#stat-key-sig-chip`, `#spellbook-detail-keysig`), `./Imports` watcher support, and explicit Staff 1/2 preservation.
   - Completed Post-Build Peer Review & QA Audit subagent pass and resolved all High/Medium findings (`saveActiveSpellToGrimoire()` `.mid` extension fix, modal/menu `z-index` layering for `#grimoire-toast` and `#global-drop-overlay`, `loadSongFromBuffer()` toast preservation, score-level repeat synchronization across parts, `.mxl` ZIP EOCD/size-cap hardening, and `hideGlobalDropOverlay()` on `window.blur`).
-- **Current status:** Built, QA-audited, and verified with `node --check` and Node assertions. Awaiting user UAT (`"Testing successful"`).
+- **Current status:** Verified (`"Testing successful"`) and merged into `main` in PR #93. Issue #40 closed.
 
-
-
-
-
+### 2026-11-12 — Session 31: Grimoire Song Bundle, Backing Audio Sync & Smart MIDI Hygiene (Issue #76)
+- **What we did:**
+  - Completed Pre-Build Engineering Plan and UI/UX Design Reviewer subagent gate before coding on isolated feature branch `feature/issue-76-song-bundle`.
+  - Audited real YouTube-transcribed and GM multi-track MIDIs across `Imports/` and `Midi Test Files/`, uncovering utility helper tracks (`Chords`), sparse late-song piano fills in GM band tracks, micro-jittered chord onsets, transient ghost notes, `>4`-note GM octave slabs, and runaway pedal sustains.
+  - Created `midi-hygiene.js` (`isUtilityTrack`, `isLeadMelodyTrack`, `isPianoCandidateTrackSmart`, `selectAutoPianoTracks`, `cleanPlayableHandNotes`) and integrated toggleable Smart MIDI Hygiene (`#toggle-midi-cleanup`, `#stat-cleaned-chip`) into `renderer.js`.
+  - Created `song-bundle.js` (`grimoire_bundles.json` + portable `<Base>.bundle.json` sidecars), updated `python_ml/transcribe_quest.py` with `--audio-only`, and refactored `#quest-board-modal` into a 2-tab workflow (**Clean Song Bundle** + **AI Audio-to-MIDI Transcribe**) with collapsible Today's Tavern Bounties and Spellbook bundle editing/viewing.
+  - Added Bar 2 contextual **Backing Audio Sync Calibrator** (`#btn-audio-sync`, `#audio-sync-popover`, `#btn-settings-open-sync`) with Start Offset (`-50ms`/`-10ms`/`+10ms`/`+50ms`), async-guarded **Audition 0:00** + **Mark Beat 1**, Web Audio RMS **Auto-Align**, and Drift Match (`95.0%`–`105.0%`).
+  - Completed Post-Build Peer Review & QA Audit subagent pass and resolved High/Medium/Low findings: protected shared `.bundle.json` sidecars during deletion (`collectGrimoireEntryFiles()`), isolated `BUILTIN_DEMO` and duplicate-`songId` paths (`song-bundle.js` & `persistCurrentSongCalibration()`), eliminated 60 FPS startup seek/play stutter (`syncBackingAudioElement()`), guarded async audition/auto-align teardown races, added explicit `audioUnlinked`/`sheetUnlinked` suppression and `updatedAt` sidecar priority, pre-validated notes before YouTube downloads, preserved calibration & prevented cross-song asset collisions via `assetStem` in `runSaveSongBundle()`, delegated `isPianoCandidateTrack()` cleanly, added virtualenv-first Python resolution + Windows `taskkill /t /f`, skipped empty 0-note tracks across `selectAutoPianoTracks()`, and completed WAI-ARIA tab keyboard nav, visible focus trapping, `aria-label`s, and popover focus restoration.
+  - Verified with `node --check` on all JS modules, `python3 -m py_compile python_ml/transcribe_quest.py`, `verify_issue76.js` (all 9 automated check groups passed including real MIDI/WAV fixtures and QA regressions), and `transcribe_quest.py --self-test --audio-only`.
+- **Current status:** Verified (`"Testing successful"`). Merging into `main` via PR and closing Issue #76.

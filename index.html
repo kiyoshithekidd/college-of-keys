@@ -233,7 +233,7 @@
         <div id="midi-status-pill" class="status-pill status-waiting" title="Physical Web MIDI Controller Status">
           <span class="status-dot"></span>
           <span id="midi-status-text">MIDI: Scanning...</span>
-          <button id="btn-rescan-midi" class="btn-icon" title="Rescan MIDI Devices">&#8635;</button>
+          <button id="btn-rescan-midi" class="btn-icon" title="Rescan MIDI Devices" aria-label="Rescan MIDI Devices">&#8635;</button>
         </div>
 
         <div class="popover-anchor">
@@ -245,7 +245,7 @@
           <div id="settings-popover" class="conservatory-popover hidden" role="dialog" aria-label="Audio & Keyboard Settings">
             <div class="popover-header">
               <strong>&#9881; Conservatory Audio &amp; Keyboard Setup</strong>
-              <button id="btn-close-settings" class="btn-icon" title="Close Settings">&#10005;</button>
+              <button id="btn-close-settings" class="btn-icon" title="Close Settings" aria-label="Close Audio & Keyboard Settings">&#10005;</button>
             </div>
 
             <div class="popover-grid">
@@ -278,6 +278,18 @@
                 <select id="playable-track-select" class="tavern-select" disabled>
                   <option value="auto-piano">No Spell Loaded</option>
                 </select>
+              </div>
+
+              <div class="popover-row">
+                <label for="toggle-midi-cleanup" title="Snap micro-jittered chord onsets (&le;26ms), drop ghost glitches, and cap runaway sustains on both hands">Clean Playable Notes</label>
+                <input id="toggle-midi-cleanup" type="checkbox" class="tavern-checkbox" checked />
+              </div>
+
+              <div id="settings-sync-row" class="popover-row hidden">
+                <span>Backing Audio Sync</span>
+                <button id="btn-settings-open-sync" type="button" class="btn-mini-sim" title="Calibrate Backing Audio Start Offset &amp; Tempo Drift">
+                  &#127911; Audio Sync
+                </button>
               </div>
 
               <div class="popover-divider"></div>
@@ -333,7 +345,7 @@
           <div id="spell-details-popover" class="conservatory-popover popover-left hidden" role="dialog" aria-label="Spell Scroll Inspector">
             <div class="popover-header">
               <strong>&#128220; Spell Scroll Inspector</strong>
-              <button id="btn-close-spell-details" class="btn-icon" title="Close Inspector">&#10005;</button>
+              <button id="btn-close-spell-details" class="btn-icon" title="Close Inspector" aria-label="Close Spell Scroll Inspector">&#10005;</button>
             </div>
             <div id="spell-stats-badges" class="spell-stats-badges">
               <span class="stat-chip" title="Notes Per Second (Total Active Playable Notes / Duration)">
@@ -357,6 +369,9 @@
               <span id="stat-key-sig-chip" class="stat-chip hidden" title="Score Key Signature">
                 Key: <strong id="stat-key-sig">C Major</strong>
               </span>
+              <span id="stat-cleaned-chip" class="stat-chip hidden" title="Smart MIDI Hygiene cleanup applied to playable tracks">
+                Hygiene: <strong id="stat-cleaned">Raw</strong>
+              </span>
             </div>
             <div class="popover-divider"></div>
             <div class="popover-row">
@@ -367,6 +382,67 @@
             </div>
           </div>
         </div>
+
+        <!-- Issue #76: Contextual Backing Audio Sync Calibrator (Hidden unless song has backing audio) -->
+        <div id="audio-sync-anchor" class="popover-anchor hidden">
+          <button id="btn-audio-sync" type="button" class="btn-icon btn-audio-sync" aria-expanded="false" aria-controls="audio-sync-popover" title="Calibrate Backing Audio Start Offset, Beat 1 &amp; Tempo Drift">
+            &#127911; <span class="audio-sync-btn-label">Sync</span> <span id="sync-badge-pill" class="sync-badge-pill">+0.00s</span>
+          </button>
+
+          <div id="audio-sync-popover" class="conservatory-popover popover-left audio-sync-popover hidden" role="dialog" aria-label="Backing Audio Sync Calibrator">
+            <div class="popover-header">
+              <strong>&#127911; Backing Audio Sync</strong>
+              <button id="btn-close-audio-sync" type="button" class="btn-icon" title="Close Audio Sync" aria-label="Close Backing Audio Sync">&#10005;</button>
+            </div>
+
+            <div class="sync-control-section">
+              <div class="sync-label-row">
+                <span class="sync-field-label">Start Offset</span>
+                <strong id="sync-offset-readout" class="sync-readout">+0.00s</strong>
+              </div>
+              <div class="sync-stepper-row" role="group" aria-label="Adjust Backing Audio Start Offset">
+                <button id="btn-offset-minus-50" type="button" class="tavern-btn sync-step-btn" title="Shift backing audio 50ms earlier (-0.05s)">-50ms</button>
+                <button id="btn-offset-minus-10" type="button" class="tavern-btn sync-step-btn" title="Shift backing audio 10ms earlier (-0.01s)">-10ms</button>
+                <button id="btn-offset-plus-10" type="button" class="tavern-btn sync-step-btn" title="Shift backing audio 10ms later (+0.01s)">+10ms</button>
+                <button id="btn-offset-plus-50" type="button" class="tavern-btn sync-step-btn" title="Shift backing audio 50ms later (+0.05s)">+50ms</button>
+              </div>
+            </div>
+
+            <div class="sync-actions-grid">
+              <button id="btn-sync-audition" type="button" class="tavern-btn btn-gold-outline sync-action-btn" title="Play backing audio alone from 0:00 so you can hear Beat 1">
+                &#128266; Audition 0:00
+              </button>
+              <button id="btn-sync-mark-beat1" type="button" class="tavern-btn tavern-btn-cast sync-action-btn" title="Audition audio and tap Beat 1 to lock Start Offset">
+                &#127919; Mark Beat 1
+              </button>
+              <button id="btn-sync-auto-align" type="button" class="tavern-btn btn-gold-outline sync-action-btn" title="Detect first audio onset via Web Audio and align to first note">
+                &#9889; Auto-Align
+              </button>
+              <button id="btn-sync-reset" type="button" class="tavern-btn sync-action-btn" title="Reset Start Offset to +0.00s and Drift Match to 100.0%">
+                &#8634; Reset
+              </button>
+            </div>
+
+            <div class="popover-divider"></div>
+
+            <div class="sync-control-section">
+              <div class="sync-label-row">
+                <span class="sync-field-label">Audio Drift Match</span>
+                <strong id="sync-drift-readout" class="sync-readout">100.0%</strong>
+              </div>
+              <div class="sync-stepper-row" role="group" aria-label="Adjust Backing Audio Tempo Drift Ratio">
+                <button id="btn-drift-down-half" type="button" class="tavern-btn sync-step-btn" title="Slow backing audio by 0.5% (-0.005)">-0.5%</button>
+                <button id="btn-drift-down-fine" type="button" class="tavern-btn sync-step-btn" title="Slow backing audio by 0.1% (-0.001)">-0.1%</button>
+                <button id="btn-drift-up-fine" type="button" class="tavern-btn sync-step-btn" title="Speed up backing audio by 0.1% (+0.001)">+0.1%</button>
+                <button id="btn-drift-up-half" type="button" class="tavern-btn sync-step-btn" title="Speed up backing audio by 0.5% (+0.005)">+0.5%</button>
+              </div>
+            </div>
+
+            <div id="sync-status-hint" class="sync-status-hint">
+              Listen &amp; tap Mark Beat 1, or click Auto-Align. Calibration saves per song bundle.
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Center: Primary Playback Transport & Scrubber -->
@@ -374,7 +450,7 @@
         <button id="btn-play-pause" class="tavern-btn tavern-btn-cast" disabled title="Play / Pause the Spell Highway (Spacebar)">
           &#9654; Cast Spell
         </button>
-        <button id="btn-restart" class="tavern-btn" disabled title="Restart Song from Beginning">
+        <button id="btn-restart" class="tavern-btn" disabled title="Restart Song from Beginning" aria-label="Restart Song">
           &#9198;
         </button>
         <div class="timeline-box">
@@ -398,14 +474,14 @@
           <button id="btn-rehearsal-toggle" type="button" class="tavern-btn btn-rehearsal-toggle" disabled title="Toggle Rehearsal Loop ON/OFF (Shortcut: \)" aria-pressed="false">
             &#128257; <span id="rehearsal-toggle-label">Loop</span>
           </button>
-          <button id="btn-rehearsal-popover" type="button" class="tavern-btn btn-rehearsal-caret" disabled title="Rehearsal Loop &amp; Auto-Ramp Options" aria-expanded="false" aria-controls="rehearsal-popover">
+          <button id="btn-rehearsal-popover" type="button" class="tavern-btn btn-rehearsal-caret" disabled title="Rehearsal Loop &amp; Auto-Ramp Options" aria-label="Rehearsal Loop Options" aria-expanded="false" aria-controls="rehearsal-popover">
             &#9662;
           </button>
 
           <div id="rehearsal-popover" class="conservatory-popover rehearsal-popover hidden" role="dialog" aria-label="Rehearsal Loop Settings">
             <div class="popover-header">
               <strong>&#128257; Rehearsal Circle</strong>
-              <button id="btn-close-rehearsal-popover" type="button" class="btn-icon" title="Close Rehearsal Options">&#10005;</button>
+              <button id="btn-close-rehearsal-popover" type="button" class="btn-icon" title="Close Rehearsal Options" aria-label="Close Rehearsal Options">&#10005;</button>
             </div>
             <div class="popover-row">
               <span class="rehearsal-ab-readout">A: <strong id="rehearsal-a-time">&mdash;</strong> &rarr; B: <strong id="rehearsal-b-time">&mdash;</strong></span>
@@ -619,40 +695,138 @@
       </div>
     </div>
 
-    <!-- Phase 9: "The Quest Board" (In-App YouTube-to-MIDI Sourcing & External Archive Quick-Links Modal) -->
+    <!-- Phase 9 & Issue #76: "The Quest Board" (Clean Song Bundles, YouTube-to-MIDI Sourcing & External Archives) -->
     <div id="quest-board-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="quest-board-title">
       <div class="quest-board-card">
         <div class="quest-modal-top-bar">
           <div>
-            <div class="modal-header-ornament">&#9830; BARDIC SOURCING &amp; ML TRANSCRIPTION &#9830;</div>
+            <div class="modal-header-ornament">&#9830; BARDIC SOURCING, SONG BUNDLES &amp; TRANSCRIPTION &#9830;</div>
             <h2 id="quest-board-title" class="modal-main-title">&#128302; The Quest Board</h2>
-            <p class="modal-song-subtitle">Transcribe YouTube audio into playable 61-key MIDI spells or raid external MIDI archives</p>
+            <p class="modal-song-subtitle">Pair clean MIDI/sheet notes with YouTube or local backing audio, or run AI audio-to-MIDI</p>
           </div>
-          <button id="btn-close-quest-board" class="btn-icon quest-close-btn" title="Close The Quest Board">&#10005;</button>
+          <button id="btn-close-quest-board" class="btn-icon quest-close-btn" title="Close The Quest Board" aria-label="Close The Quest Board">&#10005;</button>
         </div>
 
-        <!-- Issue #53: Section 0: Today's Tavern Bounties (Daily Quest System) -->
-        <div class="quest-section-box quest-bounties-section">
-          <div class="quest-section-header">
-            <span class="quest-section-title quest-bounties-heading">
+        <!-- Issue #53 & #76: Collapsible Today's Tavern Bounties (Daily Quest System) -->
+        <div id="quest-bounties-section" class="quest-section-box quest-bounties-section">
+          <div class="quest-section-header quest-bounties-header-bar">
+            <button id="btn-toggle-quest-bounties" type="button" class="btn-bounties-accordion" aria-expanded="true" aria-controls="daily-bounties-collapsible-wrap" title="Expand or collapse Today's Tavern Bounties">
               <img src="./assets/images/icons/bounty-seal-transparent.png" alt="" class="bounty-header-icon" />
-              Today&rsquo;s Tavern Bounties (Auto-Claimed)
-            </span>
-            <div class="quest-bounties-controls">
+              <span class="quest-section-title">Today&rsquo;s Tavern Bounties</span>
               <span id="daily-bounties-progress-pill" class="quest-stage-pill stage-idle">0 / 3 Complete</span>
+              <span id="quest-bounties-caret" class="bounties-caret" aria-hidden="true">&#9662;</span>
+            </button>
+            <div class="quest-bounties-controls">
               <button id="btn-reroll-daily-bounty" type="button" class="tavern-btn btn-gold-outline btn-reroll-bounty" title="Swap one incomplete Daily Bounty (1 free reroll per day)">
                 &#127922; Reroll (1 left)
               </button>
             </div>
           </div>
-          <div id="daily-bounties-list" class="daily-bounties-grid"></div>
+          <div id="daily-bounties-collapsible-wrap" class="daily-bounties-collapsible">
+            <div id="daily-bounties-list" class="daily-bounties-grid"></div>
+          </div>
         </div>
 
-        <!-- Section 1: In-App YouTube / Audio-to-MIDI ML Pipeline -->
-        <div class="quest-section-box">
+        <!-- Issue #76: 2-Tab Mode Switcher -->
+        <div class="quest-tabs-bar" role="tablist" aria-label="Quest Board Workflows">
+          <button id="btn-quest-tab-bundle" type="button" class="quest-tab-btn active" role="tab" aria-selected="true" aria-controls="quest-tab-panel-bundle">
+            &#128279; Clean Song Bundle <span class="quest-tab-pill">MIDI / Sheet + Audio</span>
+          </button>
+          <button id="btn-quest-tab-transcribe" type="button" class="quest-tab-btn" role="tab" aria-selected="false" aria-controls="quest-tab-panel-transcribe">
+            &#10024; AI Audio-to-MIDI Transcribe
+          </button>
+        </div>
+
+        <!-- TAB 1: Clean Song Bundle Builder / Attacher -->
+        <div id="quest-tab-panel-bundle" class="quest-section-box quest-tab-panel" role="tabpanel" aria-labelledby="btn-quest-tab-bundle">
+          <div class="quest-section-header">
+            <span class="quest-section-title">&#127929; Pair Clean Notes + Backing Audio + Sheet Ref (No ML Noise!)</span>
+            <span class="quest-hint-text">Clean notes stay crisp on highway while stereo YouTube/local audio plays behind</span>
+          </div>
+
+          <div class="quest-bundle-grid">
+            <div class="quest-field-wrap">
+              <label for="quest-bundle-target-select">Target Grimoire Spell</label>
+              <select id="quest-bundle-target-select" class="quest-text-input">
+                <option value="__new__">+ Create New Song Bundle in ./Imports</option>
+              </select>
+            </div>
+            <div class="quest-field-wrap">
+              <label for="quest-bundle-title-input">Bundle Display Title</label>
+              <input id="quest-bundle-title-input" type="text" class="quest-text-input" placeholder="e.g. Someone Like You (Piano + Audio)" />
+            </div>
+
+            <div class="quest-field-wrap">
+              <label for="btn-quest-bundle-pick-notes">Playable Notes (<code>.mid</code> / <code>.musicxml</code> / <code>.mxl</code>)</label>
+              <input id="quest-bundle-notes-input" type="file" accept=".mid,.midi,.musicxml,.xml,.mxl" class="hidden" />
+              <div class="quest-file-row">
+                <button id="btn-quest-bundle-pick-notes" type="button" class="tavern-btn btn-gold-outline quest-pick-btn">
+                  &#127929; Choose MIDI / XML
+                </button>
+                <span id="quest-bundle-notes-label" class="quest-file-label">None selected (required for new bundle)</span>
+              </div>
+            </div>
+
+            <div class="quest-field-wrap">
+              <label for="btn-quest-bundle-pick-sheet">Sheet Music Reference (Optional <code>.musicxml</code> / <code>.pdf</code>)</label>
+              <input id="quest-bundle-sheet-input" type="file" accept=".musicxml,.xml,.mxl,.pdf" class="hidden" />
+              <div class="quest-file-row">
+                <button id="btn-quest-bundle-pick-sheet" type="button" class="tavern-btn btn-gold-outline quest-pick-btn">
+                  &#128220; Attach Sheet Ref
+                </button>
+                <span id="quest-bundle-sheet-label" class="quest-file-label">Optional</span>
+                <button id="btn-quest-bundle-clear-sheet" type="button" class="btn-icon hidden" title="Clear attached sheet music reference" aria-label="Clear sheet music reference">&#10005;</button>
+              </div>
+            </div>
+
+            <div class="quest-field-wrap">
+              <label for="quest-bundle-youtube-url">Backing Audio from YouTube URL (<code>yt-dlp --audio-only</code>)</label>
+              <input
+                id="quest-bundle-youtube-url"
+                type="text"
+                class="quest-text-input"
+                placeholder="https://www.youtube.com/watch?v=... (downloads clean stereo audio only)"
+              />
+            </div>
+
+            <div class="quest-field-wrap">
+              <label for="btn-quest-bundle-pick-audio">OR Local Audio File (<code>.wav</code> / <code>.mp3</code> / <code>.m4a</code>)</label>
+              <input id="quest-bundle-audio-input" type="file" accept=".wav,.mp3,.m4a,.ogg,.flac" class="hidden" />
+              <div class="quest-file-row">
+                <button id="btn-quest-bundle-pick-audio" type="button" class="tavern-btn btn-gold-outline quest-pick-btn">
+                  &#127925; Choose Audio
+                </button>
+                <span id="quest-bundle-audio-label" class="quest-file-label">Optional</span>
+                <button id="btn-quest-bundle-clear-audio" type="button" class="btn-icon hidden" title="Clear local audio selection" aria-label="Clear local backing audio">&#10005;</button>
+              </div>
+            </div>
+
+            <div class="quest-field-wrap quest-field-span2">
+              <label for="quest-bundle-spotify-url">Optional Spotify / External Track Bookmark (Browser Link-Out Only)</label>
+              <input
+                id="quest-bundle-spotify-url"
+                type="text"
+                class="quest-text-input"
+                placeholder="https://open.spotify.com/track/... (saved as quick-open reference link in Spellbook)"
+              />
+            </div>
+          </div>
+
+          <div class="quest-action-row">
+            <button id="btn-save-song-bundle" type="button" class="tavern-btn tavern-btn-cast quest-btn-main" title="Copy assets into ./Imports (if external), download YouTube audio if URL entered, and bind bundle metadata">
+              &#128279; Create / Save Song Bundle
+            </button>
+            <button id="btn-quest-bundle-load-now" type="button" class="tavern-btn tavern-btn-primary hidden" title="Load this bundled spell straight onto the Spell Highway!">
+              &#9654; Load Bundle on Highway
+            </button>
+          </div>
+        </div>
+
+        <!-- TAB 2: Existing In-App YouTube / Audio-to-MIDI ML Pipeline -->
+        <div id="quest-tab-panel-transcribe" class="quest-section-box quest-tab-panel hidden" role="tabpanel" aria-labelledby="btn-quest-tab-transcribe">
           <div class="quest-section-header">
             <span class="quest-section-title">&#10024; YouTube-to-MIDI Arcane Transcriber (<code>yt-dlp</code> + Polyphonic Audio-to-MIDI)</span>
-            <span id="quest-status-badge" class="quest-stage-pill stage-idle">Idle &bull; Ready</span>
+            <span class="quest-hint-text">Experimental neural transcription when no MIDI exists</span>
           </div>
 
           <div class="quest-input-grid">
@@ -687,33 +861,35 @@
               &#9654; Load Transcribed Spell Now
             </button>
           </div>
-
-          <!-- Real-Time Progress Bar & Console Stream -->
-          <div id="quest-progress-container" class="quest-progress-container">
-            <div class="quest-progress-labels">
-              <span id="quest-progress-message">Paste a YouTube link or click "⚡ Run ML Self-Test (2s)" to forge a new spell scroll into ./Imports.</span>
-              <strong id="quest-progress-pct">0%</strong>
-            </div>
-            <div class="xp-bar-track quest-progress-track">
-              <div id="quest-progress-fill" class="quest-progress-fill" style="width: 0%;"></div>
-            </div>
-            <pre id="quest-log-output" class="quest-log-output">[Quest Board Ready] Output destination: ./Imports/ (Auto-watched by The Grimoire)</pre>
-          </div>
         </div>
 
-        <!-- Section 2: External MIDI & Audio Archives (1-Click Browser Quick-Links) -->
-        <div class="quest-section-box">
+        <!-- Shared Real-Time Progress Bar & Console Stream -->
+        <div id="quest-progress-container" class="quest-progress-container">
+          <div class="quest-progress-labels">
+            <span id="quest-progress-message">Ready to create a Clean Song Bundle or transcribe audio into ./Imports.</span>
+            <div class="quest-progress-right">
+              <span id="quest-status-badge" class="quest-stage-pill stage-idle">Idle &bull; Ready</span>
+              <strong id="quest-progress-pct">0%</strong>
+            </div>
+          </div>
+          <div class="xp-bar-track quest-progress-track">
+            <div id="quest-progress-fill" class="quest-progress-fill" style="width: 0%;"></div>
+          </div>
+          <pre id="quest-log-output" class="quest-log-output">[Quest Board Ready] Output destination: ./Imports/ (Auto-watched by The Grimoire)</pre>
+        </div>
+
+        <!-- Compact Section 2: External MIDI & Audio Archives (1-Click Browser Quick-Links) -->
+        <div class="quest-section-box quest-links-compact-section">
           <div class="quest-section-header">
-            <span class="quest-section-title">&#127760; External Bardic Archives (Opens in Browser)</span>
-            <span class="quest-hint-text">Download any <code>.mid</code>, <code>.musicxml</code>, or <code>.mxl</code> into <code>./Imports</code> for instant ingestion!</span>
+            <span class="quest-section-title">&#127760; External Bardic Archives</span>
+            <span class="quest-hint-text">Grab clean <code>.mid</code>, <code>.musicxml</code>, or <code>.mxl</code> files into <code>./Imports</code></span>
           </div>
 
-          <div class="quest-links-grid">
+          <div class="quest-links-grid quest-links-compact">
             <button id="btn-link-bitmidi" class="quest-archive-card" title="Open BitMIDI.com in your default web browser">
               <span class="archive-icon">&#127929;</span>
               <div class="archive-info">
                 <strong>BitMIDI</strong>
-                <span>Curated Classical, Pop &amp; Film MIDIs</span>
                 <code>bitmidi.com &#8599;</code>
               </div>
             </button>
@@ -722,7 +898,6 @@
               <span class="archive-icon">&#127918;</span>
               <div class="archive-info">
                 <strong>VGMusic Archive</strong>
-                <span>30,000+ Video Game Multi-Track MIDIs</span>
                 <code>vgmusic.com &#8599;</code>
               </div>
             </button>
@@ -731,7 +906,6 @@
               <span class="archive-icon">&#128250;</span>
               <div class="archive-info">
                 <strong>YouTube</strong>
-                <span>Find any song &amp; paste URL above</span>
                 <code>youtube.com &#8599;</code>
               </div>
             </button>
@@ -756,7 +930,7 @@
               <span class="modal-subtitle">Career Chronicle &amp; Performance Statistics</span>
             </div>
           </div>
-          <button id="btn-close-annals" class="modal-close-btn" title="Close Annals">&times;</button>
+          <button id="btn-close-annals" class="modal-close-btn" title="Close Annals" aria-label="Close The Bardic Annals">&times;</button>
         </div>
 
         <!-- Career Summary Row -->
@@ -843,7 +1017,7 @@
               <span class="modal-subtitle">How to Cast Musical Spells in the College of Keys</span>
             </div>
           </div>
-          <button id="btn-close-how-to-play" class="modal-close-btn" title="Close Orientation">&times;</button>
+          <button id="btn-close-how-to-play" class="modal-close-btn" title="Close Orientation" aria-label="Close Trainer's Guild Orientation">&times;</button>
         </div>
 
         <div class="how-to-play-grid">
@@ -917,7 +1091,7 @@
             <button id="btn-spellbook-drop-test" class="tavern-btn btn-spellbook-tool btn-gold-outline" title="Generate and drop a test MIDI spell into ./Imports to test live ingestion">
               &#9889; Drop Test .mid
             </button>
-            <button id="btn-close-spellbook" class="modal-close-btn spellbook-close-btn" title="Close The Grimoire (Esc)">&times;</button>
+            <button id="btn-close-spellbook" class="modal-close-btn spellbook-close-btn" title="Close The Grimoire (Esc)" aria-label="Close The Grimoire">&times;</button>
           </div>
         </div>
 
@@ -967,66 +1141,81 @@
             <!-- Right Page: Selected Song Details & Highway Inscription CTA -->
             <div class="spellbook-page page-right">
               <div id="spellbook-detail-panel" class="spellbook-detail-panel">
-                <div class="detail-top-block">
-                  <div class="detail-tier-row">
-                    <span id="spellbook-detail-tier-chip" class="detail-tier-chip">Cantrip</span>
-                    <span id="spellbook-detail-keysig" class="detail-song-source hidden"></span>
-                    <span id="spellbook-detail-source" class="detail-song-source">Built-In Conservatory Spell</span>
+                <div class="detail-scroll-body">
+                  <div class="detail-top-block">
+                    <div class="detail-tier-row">
+                      <span id="spellbook-detail-tier-chip" class="detail-tier-chip">Cantrip</span>
+                      <span id="spellbook-detail-keysig" class="detail-song-source hidden"></span>
+                      <span id="spellbook-detail-source" class="detail-song-source">Built-In Conservatory Spell</span>
+                    </div>
+                    <h3 id="spellbook-detail-title" class="detail-song-title">Select a Spell</h3>
+                    <div id="spellbook-detail-file" class="detail-song-file">scroll_demo.mid</div>
                   </div>
-                  <h3 id="spellbook-detail-title" class="detail-song-title">Select a Spell</h3>
-                  <div id="spellbook-detail-file" class="detail-song-file">scroll_demo.mid</div>
+
+                  <div class="detail-parchment-divider"></div>
+
+                  <!-- Musical Metadata Grid -->
+                  <div class="detail-metrics-grid">
+                    <div class="metric-box">
+                      <span class="metric-label">Tempo</span>
+                      <strong id="spellbook-detail-bpm" class="metric-val">120 BPM</strong>
+                    </div>
+                    <div class="metric-box">
+                      <span class="metric-label">Duration</span>
+                      <strong id="spellbook-detail-duration" class="metric-val">3:45</strong>
+                    </div>
+                    <div class="metric-box">
+                      <span class="metric-label">Notes / Sec</span>
+                      <strong id="spellbook-detail-nps" class="metric-val">1.2 NPS</strong>
+                    </div>
+                    <div class="metric-box">
+                      <span class="metric-label">Playable Notes</span>
+                      <strong id="spellbook-detail-notes" class="metric-val">420</strong>
+                    </div>
+                  </div>
+
+                  <!-- Issue #76: Compact 1-Row Grimoire Song Bundle Strip -->
+                  <div id="spellbook-bundle-strip" class="detail-bundle-strip">
+                    <div class="detail-bundle-chips">
+                      <span id="spellbook-bundle-notes-chip" class="bundle-chip chip-notes">&#127929; MIDI</span>
+                      <button id="spellbook-bundle-sheet-chip" type="button" class="bundle-chip chip-sheet hidden" title="Open attached sheet music file">&#128220; Sheet</button>
+                      <span id="spellbook-bundle-audio-chip" class="bundle-chip chip-audio chip-missing">&#128263; Audio</span>
+                      <button id="spellbook-bundle-spotify-link" type="button" class="bundle-chip chip-spotify hidden" title="Open Spotify / reference link in browser">&#8599; Ref</button>
+                    </div>
+                    <button id="btn-spellbook-bundle" type="button" class="btn-spellbook-bundle" title="Attach or manage Backing Audio, Sheet Music &amp; Bundle Sync">
+                      + Bundle
+                    </button>
+                  </div>
+
+                  <!-- Bard Career Stats for this Song -->
+                  <div class="detail-history-box">
+                    <h4 class="history-box-heading">&#10022; Bardic Annals for this Spell &#10022;</h4>
+                    <div class="history-stats-row">
+                      <div class="history-stat">
+                        <span class="history-label">Rehearsals</span>
+                        <strong id="spellbook-detail-plays" class="history-val">0</strong>
+                      </div>
+                      <div class="history-stat">
+                        <span class="history-label">Career XP</span>
+                        <strong id="spellbook-detail-total-xp" class="history-val">0 XP</strong>
+                      </div>
+                      <div class="history-stat">
+                        <span class="history-label">Best Mastery</span>
+                        <strong id="spellbook-detail-best-acc" class="history-val">&mdash;</strong>
+                      </div>
+                      <div class="history-stat">
+                        <span class="history-label">Latest Trial</span>
+                        <strong id="spellbook-detail-last-acc" class="history-val">&mdash;</strong>
+                      </div>
+                    </div>
+                    <div class="history-meta-row">
+                      <span id="spellbook-detail-last-played">Never performed on stage</span>
+                      <span id="spellbook-detail-audio-badge" class="history-audio-tag hidden">&#127925; Backing Audio Synced</span>
+                    </div>
+                  </div>
                 </div>
 
-                <div class="detail-parchment-divider"></div>
-
-                <!-- Musical Metadata Grid -->
-                <div class="detail-metrics-grid">
-                  <div class="metric-box">
-                    <span class="metric-label">Tempo</span>
-                    <strong id="spellbook-detail-bpm" class="metric-val">120 BPM</strong>
-                  </div>
-                  <div class="metric-box">
-                    <span class="metric-label">Duration</span>
-                    <strong id="spellbook-detail-duration" class="metric-val">3:45</strong>
-                  </div>
-                  <div class="metric-box">
-                    <span class="metric-label">Notes / Sec</span>
-                    <strong id="spellbook-detail-nps" class="metric-val">1.2 NPS</strong>
-                  </div>
-                  <div class="metric-box">
-                    <span class="metric-label">Playable Notes</span>
-                    <strong id="spellbook-detail-notes" class="metric-val">420</strong>
-                  </div>
-                </div>
-
-                <!-- Bard Career Stats for this Song -->
-                <div class="detail-history-box">
-                  <h4 class="history-box-heading">&#10022; Bardic Annals for this Spell &#10022;</h4>
-                  <div class="history-stats-row">
-                    <div class="history-stat">
-                      <span class="history-label">Rehearsals</span>
-                      <strong id="spellbook-detail-plays" class="history-val">0</strong>
-                    </div>
-                    <div class="history-stat">
-                      <span class="history-label">Career XP</span>
-                      <strong id="spellbook-detail-total-xp" class="history-val">0 XP</strong>
-                    </div>
-                    <div class="history-stat">
-                      <span class="history-label">Best Mastery</span>
-                      <strong id="spellbook-detail-best-acc" class="history-val">&mdash;</strong>
-                    </div>
-                    <div class="history-stat">
-                      <span class="history-label">Latest Trial</span>
-                      <strong id="spellbook-detail-last-acc" class="history-val">&mdash;</strong>
-                    </div>
-                  </div>
-                  <div class="history-meta-row">
-                    <span id="spellbook-detail-last-played">Never performed on stage</span>
-                    <span id="spellbook-detail-audio-badge" class="history-audio-tag hidden">&#127925; Backing Audio Synced</span>
-                  </div>
-                </div>
-
-                <!-- Primary Action CTA -->
+                <!-- Pinned Primary Action CTA -->
                 <div class="detail-actions-row">
                   <button id="btn-spellbook-load-song" class="tavern-btn tavern-btn-cast btn-spellbook-load" title="Load this spell onto the 61-key Spell Highway and take the stage!">
                     &#9654; Inscribe on Highway (Load Spell)
