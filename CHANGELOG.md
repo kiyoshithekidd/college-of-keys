@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Issue #24: Bardic Inspiration Meter (Star Power & Combo Shield):**
+  - Upgraded `#hud-inspiration-banner` into a clickable pill-gauge (`#hud-inspiration-fill`) showing live charge progress (`+4%` per clean note = 25 clean notes for 100%, `+1%` per fumbled note), ready state, and active burst countdown.
+  - Added **Manual 2x XP Surge** (`activateBardicInspirationBurst()` via HUD pill click or `Enter` key): spends a 100% charge for a 10-second `2.0x XP` boost with a draining meter, golden strike-line glow, and pulsing golden Star Power canvas border aura.
+  - Added **Auto Combo Shield** in `recordSpellChainBreak()`: holding a 100% charge automatically absorbs 1 off-key/missed combo break to save your active Spell Chain (`🛡️ COMBO SAVED!`).
+
 - **Issue #25: d20 Performance Check at Song End (3D Physics Dice Roller):**
   - Added `d20-roller.js` powered by `three` + `cannon-es`: mounts a dark green tavern felt & walnut wood dice tray overlay (`#d20-tray-overlay`) inside `#performance-check-modal`, tosses a numbered gold 20-sided icosahedron (`ConvexPolyhedron`), detects bounce impacts for Tone.js clatter sounds, reads the actual top face (`1..20`) on settle, and disposes cleanly on modal close.
   - Added D&D 5E `d20 + Bardic Accuracy Mod vs Song DC` scoring (`buildD20Outcome`, `computeBardicAccuracyMod`, `getSongPerformanceDC`) with reward XP tiers: Nat 20 (`+150 Bonus XP` + celebratory arpeggio), Critical Success (`+75 XP`), Success (`+35 XP`), Missed DC (`+10 Consolation XP`), and Nat 1 (`+5 Consolation XP` + tomato flavor + sad interval).

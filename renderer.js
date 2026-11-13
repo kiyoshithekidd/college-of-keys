@@ -34,8 +34,11 @@ const FUMBLE_PAUSE_THRESHOLD_SEC = 2.0;  // Pausing > 2.0s in Wait Mode flags a 
 // Phase 5 Constants: LitRPG XP, Combo & Leveling Curve
 const BASE_NOTE_XP = 10;                 // +10 XP base per clean note
 const FUMBLED_NOTE_XP = 2;               // +2 XP base when paused > 2.0s in Wait Mode ("Fumbled Component")
-const BARDIC_INSPIRATION_STREAK = 50;    // 50+ Spell Chain triggers Bardic Inspiration (2.0x XP)
+const BARDIC_INSPIRATION_STREAK = 50;    // 50+ Spell Chain triggers passive Bardic Inspiration (2.0x XP)
 const BARDIC_INSPIRATION_MULT = 2.0;     // 2.0x temporary XP multiplier during Bardic Inspiration
+const INSPIRATION_CHARGE_PER_CLEAN_NOTE = 4;   // 25 clean notes = 100% full charge (Issue #24)
+const INSPIRATION_CHARGE_PER_FUMBLED_NOTE = 1; // Fumbled notes grant minor charge
+const INSPIRATION_BURST_DURATION_SEC = 10.0;   // 10s manual 2x XP Star Power burst
 const LEVEL_1_XP_THRESHOLD = 1000;       // Level 1 requires 1,000 XP
 const LEVEL_XP_SCALE_FACTOR = 1.5;       // Scales by 1.5x per level
 const BARD_PROFILE_STORAGE_KEY = 'collegeOfKeys_bardProfile_v1';
@@ -178,6 +181,7 @@ const hudXpMultiplier = document.getElementById('hud-xp-multiplier');
 const hudLastXpGain = document.getElementById('hud-last-xp-gain');
 const hudInspirationBanner = document.getElementById('hud-inspiration-banner');
 const hudInspirationText = document.getElementById('hud-inspiration-text');
+const hudInspirationFill = document.getElementById('hud-inspiration-fill');
 const btnBoostChain = document.getElementById('btn-boost-chain');
 
 const performanceCheckModal = document.getElementById('performance-check-modal');
@@ -445,7 +449,10 @@ const songSessionStats = {
   lastGainFumbled: false,
   hasShownEndModal: false,
   measureStats: {},
-  d20Outcome: null
+  d20Outcome: null,
+  inspirationCharge: 0,
+  inspirationBurstRemainingSec: 0,
+  lastBurstHudSyncMs: 0
 };
 
 let activeD20Roller = null;
@@ -726,7 +733,7 @@ function handleNoteOn(midi, velocity = 100, source = 'midi') {
 
   // Phase 7: If playing freely (or outside an active strike-zone gate), spawn an immediate key spark burst!
   if (!matchedStrikeZone) {
-    const isInspired = songSessionStats.spellChain >= BARDIC_INSPIRATION_STREAK;
+    const isInspired = isBardicInspirationActive();
     const freeTheme = isInspired ? 'inspired' : (midi >= MIDDLE_C ? 'gold' : 'blue');
     spawnKeyParticleBurst(midi, freeTheme, 14, true);
   }
@@ -1482,7 +1489,27 @@ function resetSongSessionStats() {
   songSessionStats.hasShownEndModal = false;
   songSessionStats.measureStats = {};
   songSessionStats.d20Outcome = null;
+  songSessionStats.inspirationCharge = 0;
+  songSessionStats.inspirationBurstRemainingSec = 0;
+  songSessionStats.lastBurstHudSyncMs = 0;
   updateLitrpgHUD();
+}
+
+function isBardicInspirationActive() {
+  return songSessionStats.inspirationBurstRemainingSec > 0 || songSessionStats.spellChain >= BARDIC_INSPIRATION_STREAK;
+}
+
+function activateBardicInspirationBurst() {
+  if (songSessionStats.inspirationBurstRemainingSec > 0 || songSessionStats.inspirationCharge < 100) {
+    return false;
+  }
+  songSessionStats.inspirationCharge = 0;
+  songSessionStats.inspirationBurstRemainingSec = INSPIRATION_BURST_DURATION_SEC;
+  songSessionStats.lastBurstHudSyncMs = performance.now();
+  spawnFloatingCanvasRune(MIDDLE_C, '⚡ 2x XP BARDIC SURGE!', '#ffd700');
+  showGrimoireToast('⚡ Bardic Inspiration Unleashed! (2.0x XP for 10s)');
+  updateLitrpgHUD();
+  return true;
 }
 
 /**
@@ -1553,8 +1580,17 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll) {
     }
   }
 
+  if (songSessionStats.inspirationBurstRemainingSec <= 0 && !group.wrongKeyDuringRoll) {
+    const chargeGain = noteCount * (isFumbledPause ? INSPIRATION_CHARGE_PER_FUMBLED_NOTE : INSPIRATION_CHARGE_PER_CLEAN_NOTE);
+    const prevCharge = songSessionStats.inspirationCharge;
+    songSessionStats.inspirationCharge = Math.min(100, prevCharge + chargeGain);
+    if (prevCharge < 100 && songSessionStats.inspirationCharge >= 100) {
+      showGrimoireToast('⚡ Bardic Inspiration Charged! Click HUD or press Enter for 2x XP (or auto-shield)');
+    }
+  }
+
   const diffMult = currentSong?.difficulty?.xpMultiplier ?? 1.0;
-  const isInspired = songSessionStats.spellChain >= BARDIC_INSPIRATION_STREAK;
+  const isInspired = isBardicInspirationActive();
   const inspirationMult = isInspired ? BARDIC_INSPIRATION_MULT : 1.0;
   const baseXpPerNote = isFumbledPause ? FUMBLED_NOTE_XP : BASE_NOTE_XP;
 
@@ -1603,13 +1639,29 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll) {
 
 /**
  * Break Spell Chain when an off-key note is struck or a note is missed in Arcade Mode
+ * (or auto-consume a full Bardic Inspiration charge to shield the combo!)
  */
 function recordSpellChainBreak(reasonText = 'Chain Broken! (Off-Key)') {
-  songSessionStats.spellChain = 0;
   songSessionStats.wrongOrMissedNotes++;
   if (rehearsalLoopState.enabled) {
     rehearsalLoopState.passMistakes++;
   }
+
+  if (
+    songSessionStats.inspirationCharge >= 100 &&
+    songSessionStats.inspirationBurstRemainingSec <= 0 &&
+    songSessionStats.spellChain > 0
+  ) {
+    songSessionStats.inspirationCharge = 0;
+    songSessionStats.lastGainText = '🛡️ Combo Saved! (Inspiration Shield)';
+    songSessionStats.lastGainFumbled = false;
+    spawnFloatingCanvasRune(MIDDLE_C, '🛡️ COMBO SAVED!', '#38bdf8');
+    showGrimoireToast(`🛡️ Inspiration Shielded your ${songSessionStats.spellChain} Chain!`);
+    updateLitrpgHUD();
+    return;
+  }
+
+  songSessionStats.spellChain = 0;
   songSessionStats.lastGainText = reasonText;
   songSessionStats.lastGainFumbled = true;
   updateLitrpgHUD();
@@ -1639,7 +1691,9 @@ function updateLitrpgHUD() {
   hudMaxChain.textContent = `Max: ${songSessionStats.maxSpellChain}`;
 
   const diffMult = currentSong?.difficulty?.xpMultiplier ?? 1.0;
-  const isInspired = songSessionStats.spellChain >= BARDIC_INSPIRATION_STREAK;
+  const isInspired = isBardicInspirationActive();
+  const isBurstActive = songSessionStats.inspirationBurstRemainingSec > 0;
+  const isReady = !isBurstActive && songSessionStats.inspirationCharge >= 100;
   const effectiveMult = diffMult * (isInspired ? BARDIC_INSPIRATION_MULT : 1.0);
   hudXpMultiplier.textContent = `${effectiveMult.toFixed(1)}x XP`;
 
@@ -1648,12 +1702,22 @@ function updateLitrpgHUD() {
 
   litrpgHudCard.classList.toggle('bardic-inspiration-active', isInspired);
   hudInspirationBanner.classList.toggle('active', isInspired);
+  hudInspirationBanner.classList.toggle('ready', isReady);
 
-  if (isInspired) {
-    hudInspirationText.textContent = `🔥 BARDIC INSPIRATION ACTIVE! (2.0x XP Boost • ${songSessionStats.spellChain} Chain)`;
+  if (isBurstActive) {
+    const burstPct = Math.max(0, Math.min(100, (songSessionStats.inspirationBurstRemainingSec / INSPIRATION_BURST_DURATION_SEC) * 100));
+    hudInspirationText.textContent = `🔥 BARDIC SURGE! 2.0x XP (${songSessionStats.inspirationBurstRemainingSec.toFixed(1)}s)`;
+    if (hudInspirationFill) hudInspirationFill.style.width = `${burstPct.toFixed(1)}%`;
+  } else if (isReady) {
+    hudInspirationText.textContent = '⚡ INSPIRATION READY — Click or [Enter] (2x XP / Shield)';
+    if (hudInspirationFill) hudInspirationFill.style.width = '100%';
+  } else if (songSessionStats.spellChain >= BARDIC_INSPIRATION_STREAK) {
+    hudInspirationText.textContent = `🔥 50+ CHAIN INSPIRED! (2.0x XP • ${songSessionStats.spellChain} Chain)`;
+    if (hudInspirationFill) hudInspirationFill.style.width = `${songSessionStats.inspirationCharge}%`;
   } else {
-    const needed = Math.max(0, BARDIC_INSPIRATION_STREAK - songSessionStats.spellChain);
-    hudInspirationText.textContent = `✨ ${needed} more chain for Bardic Inspiration (2x XP)`;
+    const notesLeft = Math.max(1, Math.ceil((100 - songSessionStats.inspirationCharge) / INSPIRATION_CHARGE_PER_CLEAN_NOTE));
+    hudInspirationText.textContent = `✨ Inspiration ${songSessionStats.inspirationCharge}% (${notesLeft} clean notes)`;
+    if (hudInspirationFill) hudInspirationFill.style.width = `${songSessionStats.inspirationCharge}%`;
   }
 }
 
@@ -3118,6 +3182,21 @@ function animationLoop(timestamp) {
     const dt = Math.min(0.1, Math.max(0, rawDt));
     const prevTime = playbackState.currentTime;
     let proposedTime = prevTime + dt * playbackState.playbackSpeed;
+
+    if (!playbackState.isWaitingForStrike && songSessionStats.inspirationBurstRemainingSec > 0) {
+      songSessionStats.inspirationBurstRemainingSec = Math.max(0, songSessionStats.inspirationBurstRemainingSec - dt);
+      if (hudInspirationFill) {
+        const burstPct = (songSessionStats.inspirationBurstRemainingSec / INSPIRATION_BURST_DURATION_SEC) * 100;
+        hudInspirationFill.style.width = `${Math.max(0, Math.min(100, burstPct)).toFixed(1)}%`;
+      }
+      if (
+        songSessionStats.inspirationBurstRemainingSec === 0 ||
+        timestamp - songSessionStats.lastBurstHudSyncMs >= 200
+      ) {
+        songSessionStats.lastBurstHudSyncMs = timestamp;
+        updateLitrpgHUD();
+      }
+    }
 
     // Phase 4: Wait Mode Strike-Zone Gating
     if (playbackState.waitMode && playbackState.accompanimentMode !== 'auto-both') {
@@ -5564,7 +5643,7 @@ function renderCanvas() {
   // 3. Draw glowing Strike Zone Line above the 61-key keyboard (with Bardic Inspiration glow at 50+ combo)
   ctx.save();
   const isWaiting = playbackState.isWaitingForStrike;
-  const isInspired = songSessionStats.spellChain >= BARDIC_INSPIRATION_STREAK;
+  const isInspired = isBardicInspirationActive();
   const lineH = isInspired ? 16 : (isWaiting ? 14 : 9);
   const strikeGrad = ctx.createLinearGradient(0, strikeLineY - lineH + 2, 0, strikeLineY + 4);
   if (isInspired) {
@@ -5583,6 +5662,13 @@ function renderCanvas() {
   }
   ctx.fillStyle = strikeGrad;
   ctx.fillRect(0, strikeLineY - lineH + 2, width, lineH);
+
+  if (songSessionStats.inspirationBurstRemainingSec > 0) {
+    const pulse = 0.22 + 0.12 * Math.sin(performance.now() * 0.008);
+    ctx.strokeStyle = `rgba(255, 215, 0, ${pulse.toFixed(2)})`;
+    ctx.lineWidth = 6;
+    ctx.strokeRect(3, 3, width - 6, strikeLineY - 4);
+  }
   ctx.restore();
 
   // 4. Draw 36 White Keys (using pre-allocated cachedKeyGradients)
@@ -5959,6 +6045,13 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     togglePlayback();
     return;
+  }
+
+  if (e.key === 'Enter' && !e.repeat) {
+    if (activateBardicInspirationBurst()) {
+      e.preventDefault();
+      return;
+    }
   }
 
   if (e.repeat) return;
@@ -6450,6 +6543,13 @@ btnPerformanceCheck.addEventListener('click', () => {
   openPerformanceCheckModal();
 });
 
+if (hudInspirationBanner) {
+  hudInspirationBanner.addEventListener('click', (e) => {
+    activateBardicInspirationBurst();
+    e.currentTarget.blur();
+  });
+}
+
 btnBoostChain.addEventListener('click', () => {
   songSessionStats.spellChain += 25;
   if (songSessionStats.spellChain > songSessionStats.maxSpellChain) {
@@ -6458,8 +6558,11 @@ btnBoostChain.addEventListener('click', () => {
   if (songSessionStats.spellChain > bardProfile.bestCareerChain) {
     bardProfile.bestCareerChain = songSessionStats.spellChain;
   }
+  if (songSessionStats.inspirationBurstRemainingSec <= 0) {
+    songSessionStats.inspirationCharge = Math.min(100, songSessionStats.inspirationCharge + 100);
+  }
   const diffMult = currentSong?.difficulty?.xpMultiplier ?? 1.0;
-  const isInspired = songSessionStats.spellChain >= BARDIC_INSPIRATION_STREAK;
+  const isInspired = isBardicInspirationActive();
   const bonusXp = Math.round(25 * BASE_NOTE_XP * diffMult * (isInspired ? BARDIC_INSPIRATION_MULT : 1.0));
   songSessionStats.cleanNotesHit += 25;
   awardBardXp(bonusXp);

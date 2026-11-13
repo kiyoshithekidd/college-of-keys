@@ -543,7 +543,16 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - Created `d20-roller.js` (numbered 5×4 gold icosahedron atlas, opposite faces summing to 21, `CANNON.ConvexPolyhedron` physics, top-face `worldN.y` detection, bounce clatter callbacks, and full WebGL/RAF disposal).
   - Updated `index.html`, `styles.css`, and `renderer.js` with `#d20-tray-overlay`, `#modal-d20-math`, Tone.js bounce/Nat-20/Nat-1 audio, D&D 5E modifier/DC XP tiers, one-roll-per-song persistence, and `prefers-reduced-motion` support.
   - Completed Post-Build Peer Review & QA Audit subagent pass and fixed a stray `/**` comment and `d20DisposeTimer` cleanup race in `renderer.js`.
-- **Current status:** Verified (`"Testing successful"`). Ready to merge into `main` and close Issue #25.
+- **Current status:** Verified (`"Testing successful"`) and merged into `main` in PR #91. Issue #25 closed.
+
+### 2026-11-12 — Session 29: Bardic Inspiration Meter (Issue #24)
+- **What we did:**
+  - Completed Pre-Build Engineering Plan, UI/UX Design Reviewer subagent pass, and 4-point Decision Check before coding (dual-spend: manual 10s 2x XP surge + auto Combo Shield, 25 clean notes per charge, clickable HUD pill + `Enter`, golden canvas Star Power aura).
+  - Created isolated feature branch `feature/issue-24-bardic-inspiration-meter` from `main`.
+  - Upgraded `#hud-inspiration-banner` in `index.html` and `styles.css` into a compact pill-gauge with `#hud-inspiration-fill` and `.ready`/`.active` states.
+  - Implemented `inspirationCharge`, `inspirationBurstRemainingSec`, `isBardicInspirationActive()`, `activateBardicInspirationBurst()`, Auto Combo Shield in `recordSpellChainBreak()`, smooth drain in `animationLoop`, golden canvas border aura in `renderCanvas`, and `Enter` / click activation in `renderer.js`.
+  - Completed Post-Build Peer Review & QA Audit subagent pass (`No blocking issues found`) and verified syntax with `node --check`.
+- **Current status:** Verified (`"Testing successful"`). Ready to merge into `main` and close Issue #24.
 
 
 
