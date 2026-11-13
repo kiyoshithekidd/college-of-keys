@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.2.0] - 2026-11-13
+
+### Fixed
+- **Issue #96: Split View & Score View 60 FPS Performance Optimization (`notation-engine.js`):**
+  - Pre-baked the Warm Grimoire Parchment + ruler strip into an offscreen background buffer (`getOrBakeBackground()`) blitted once per frame instead of re-compositing a full-viewport `CanvasPattern` at 60 FPS.
+  - Expanded the LRU measure tile cache from `30` to `120` tiles, added idle lookahead pre-warming (`scheduleLookaheadPrewarm()`) with `activeScoreId` cancellation, replaced per-frame `ctx.shadowBlur` on the Crimson playhead with a two-pass halo stroke, and switched measure/tick lookups to binary search.
+- **Issue #97: Smooth Notation Camera & Notehead-Tracking Playhead (`notation-engine.js`):**
+  - Replaced rigid per-notehead camera locking with a frame-rate-independent damped camera (`cameraScoreX`) and a notehead-tracking Crimson playhead (`drawNeedleX`) clamped inside a safe corridor (`[gutterRight + 24px, 55% width]`), eliminating sudden scroll-speed surges between sparse and dense bars while keeping instant snapping on seeks and Rehearsal Loop wraparounds.
+- **CommonJS Compatibility:** Pinned `three` to `0.170.0` in `package.json` for Electron 33 CommonJS `require('three')` compatibility in `d20-roller.js`.
+
 ### Added
 - **Issue #39: Epic C — Scrolling Grand-Staff Sheet Music Split View:**
   - Added `notation-engine.js` powered by `vexflow` (`^5.0.0`) and `@vexflow-fonts/bravura` (`^1.0.2`, bundled locally via `@font-face` in `styles.css`): renders Warm Grimoire Parchment (`#f4ebd9` + `./assets/images/notation/parchment-scroll-tile.png`), sticky left clef/key signature gutter (`getOrRenderStickyGutter()`), 30-tile LRU offscreen canvas cache, monotonic `tickToScoreX()` playhead tracking, Wax-Seal Crimson `#9f1239` playhead, multi-tempo/time-signature maps, key-signature normalization (`fromMidiMeta` minor key fix + Krumhansl fallback) with courtesy cancellation naturals on modulation, binary (16th) + triplet (8th tuplet) beat solving, cross-bar `StaveTie` arcs, `8↑`/`8↓` octave-fold tags, Rehearsal Loop `A–B` ribbon, and RH/LH/Wait-locked (`#065f46`)/overdue (`>2.0s` `#b91c1c` pulsing ring) highlights.
