@@ -508,6 +508,19 @@
         </div>
       </div>
 
+      <!-- Stage View Mode Switch (Issue #39) -->
+      <div id="view-mode-segmented" class="view-mode-segmented" role="radiogroup" aria-label="Stage view mode">
+        <button id="btn-view-highway" type="button" class="view-mode-btn active" role="radio" aria-checked="true" tabindex="0" data-view-mode="highway" title="Highway View — Full Falling Notes (Shortcut: 1)">
+          Highway
+        </button>
+        <button id="btn-view-split" type="button" class="view-mode-btn" role="radio" aria-checked="false" tabindex="-1" data-view-mode="split" title="Split View — Scrolling Grand Staff + Falling Highway (Shortcut: 2)">
+          Split
+        </button>
+        <button id="btn-view-score" type="button" class="view-mode-btn" role="radio" aria-checked="false" tabindex="-1" data-view-mode="score" title="Score View — Full Scrolling Grand Staff (Shortcut: 3)">
+          Score
+        </button>
+      </div>
+
       <!-- Right: Wait Mode, Unified 1-Click Practice Mode Selector, Backing Band & Tempo -->
       <div class="highway-routing-controls">
         <button id="btn-wait-mode" class="tavern-btn btn-wait-active" title="Wait Mode pauses falling notes at the strike line until you play the required pitch(es), with 100ms chord roll forgiveness">
@@ -564,36 +577,62 @@
       </div>
     </section>
 
-    <!-- Phase 6 & Issue #69: Workspace Row (Main Spell Highway Stage) -->
+    <!-- Phase 6 & Issue #69: Workspace Row (Main Spell Highway & Sheet Music Stage) -->
     <div id="workspace-row">
-      <!-- Main Stage: Spell Highway + 61-Key Piano Canvas -->
-      <main id="stage-container">
-        <canvas id="spell-canvas"></canvas>
+      <!-- Main Stage: Grand Staff Sheet Music + Spell Highway + 61-Key Piano Canvas -->
+      <main id="stage-container" class="mode-highway">
+        <!-- Issue #39: Non-blocking Quality Banner for Unquantized / Rough YouTube Transcriptions -->
+        <div id="notation-quality-banner" class="notation-quality-banner hidden" role="status" aria-live="polite">
+          <div class="notation-quality-copy">
+            <span class="notation-quality-icon" aria-hidden="true">&#9888;&#65039;</span>
+            <span id="notation-quality-text">Rough audio transcription detected &mdash; notation may look crowded.</span>
+          </div>
+          <div class="notation-quality-actions">
+            <button id="btn-notation-enable-cleanup" type="button" class="tavern-btn tavern-btn-primary hidden">
+              &#10024; Enable Clean Playable Notes
+            </button>
+            <button id="btn-notation-switch-highway" type="button" class="tavern-btn">
+              Switch to Highway
+            </button>
+            <button id="btn-notation-dismiss" type="button" class="btn-icon" title="Dismiss warning and keep reading score" aria-label="Dismiss notation quality warning">
+              &#10005;
+            </button>
+          </div>
+        </div>
+
+        <div id="stage-canvas-wrap">
+          <canvas id="spell-canvas"></canvas>
+
+          <!-- Compact Parchment Overlay Pill (Wait Pause status in Split/Score mode) -->
+          <div id="notation-bezel-overlays" class="notation-bezel-overlays hidden" aria-hidden="true">
+            <span id="notation-wait-pill" class="notation-wait-pill hidden"></span>
+          </div>
+
+          <!-- Phase 10 (Issue #19): Translucent Center Highway HUD Pill -->
+          <div id="highway-center-hud" aria-live="polite">
+            <div class="center-combo-pill">
+              <span class="chain-label">Chain</span>
+              <strong id="hud-spell-chain" class="chain-number">0</strong>
+              <span id="hud-max-chain" class="chain-max">Max: 0</span>
+              <span class="hud-divider">&bull;</span>
+              <span id="hud-xp-multiplier" class="multiplier-pill">1.0x XP</span>
+              <span id="hud-last-xp-gain" class="last-xp-gain">Ready to cast...</span>
+            </div>
+
+            <div id="strike-zone-status" class="strike-status-pill">
+              <span id="strike-status-text">Strike Zone: Ready (100ms Chord Grace Active)</span>
+            </div>
+
+            <button id="hud-inspiration-banner" type="button" class="inspiration-banner" title="Click or press Enter when 100% charged for 10s of 2x XP (or auto-shields 1 combo break)">
+              <span id="hud-inspiration-text" class="inspiration-text">&#10024; Inspiration 0% (25 clean notes)</span>
+              <span class="inspiration-meter-track"><span id="hud-inspiration-fill" class="inspiration-meter-fill" style="width: 0%;"></span></span>
+            </button>
+          </div>
+        </div>
 
         <!-- Phase 6: Live Folder Watcher Toast Notification -->
         <div id="grimoire-toast" class="grimoire-toast hidden">
           <span id="grimoire-toast-text">&#128214; New Spell Ingested into The Grimoire!</span>
-        </div>
-
-        <!-- Phase 10 (Issue #19): Translucent Top-Center Highway HUD Pill (Zero Note-Lane Occlusion!) -->
-        <div id="highway-center-hud" aria-live="polite">
-          <div class="center-combo-pill">
-            <span class="chain-label">Chain</span>
-            <strong id="hud-spell-chain" class="chain-number">0</strong>
-            <span id="hud-max-chain" class="chain-max">Max: 0</span>
-            <span class="hud-divider">&bull;</span>
-            <span id="hud-xp-multiplier" class="multiplier-pill">1.0x XP</span>
-            <span id="hud-last-xp-gain" class="last-xp-gain">Ready to cast...</span>
-          </div>
-
-          <div id="strike-zone-status" class="strike-status-pill">
-            <span id="strike-status-text">Strike Zone: Ready (100ms Chord Grace Active)</span>
-          </div>
-
-          <button id="hud-inspiration-banner" type="button" class="inspiration-banner" title="Click or press Enter when 100% charged for 10s of 2x XP (or auto-shields 1 combo break)">
-            <span id="hud-inspiration-text" class="inspiration-text">&#10024; Inspiration 0% (25 clean notes)</span>
-            <span class="inspiration-meter-track"><span id="hud-inspiration-fill" class="inspiration-meter-fill" style="width: 0%;"></span></span>
-          </button>
         </div>
       </main>
     </div>

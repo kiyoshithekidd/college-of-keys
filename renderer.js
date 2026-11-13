@@ -20,6 +20,12 @@ const { shell } = require('electron');
 const { createD20TrayRoller } = require('./d20-roller');
 const { isMusicXmlFileName, convertMusicXmlToMidiBuffer } = require('./musicxml-converter');
 const { isPianoCandidateTrackSmart, selectAutoPianoTracks, cleanPlayableHandNotes } = require('./midi-hygiene');
+const VexFlow = require('vexflow/bravura');
+const {
+  buildScoreData,
+  assessNotationQuality,
+  createNotationRenderer
+} = require('./notation-engine');
 const {
   BUNDLE_STORE_FILENAME,
   clampAudioOffsetSec,
@@ -114,10 +120,20 @@ const SALAMANDER_SAMPLE_MAP = {
   'C7': 'C7.mp3'
 };
 
-// DOM Elements — Phase 1
+// DOM Elements — Phase 1 & Issue #39 (Stage & Sheet Music View Switch)
 const stageContainer = document.getElementById('stage-container');
+const stageCanvasWrap = document.getElementById('stage-canvas-wrap');
 const canvas = document.getElementById('spell-canvas');
 const ctx = canvas.getContext('2d');
+const viewModeSegmented = document.getElementById('view-mode-segmented');
+const viewModeButtons = viewModeSegmented ? Array.from(viewModeSegmented.querySelectorAll('[data-view-mode]')) : [];
+const notationQualityBanner = document.getElementById('notation-quality-banner');
+const notationQualityText = document.getElementById('notation-quality-text');
+const btnNotationEnableCleanup = document.getElementById('btn-notation-enable-cleanup');
+const btnNotationSwitchHighway = document.getElementById('btn-notation-switch-highway');
+const btnNotationDismiss = document.getElementById('btn-notation-dismiss');
+const notationBezelOverlays = document.getElementById('notation-bezel-overlays');
+const notationWaitPill = document.getElementById('notation-wait-pill');
 const midiStatusPill = document.getElementById('midi-status-pill');
 const midiStatusText = document.getElementById('midi-status-text');
 const btnRescanMidi = document.getElementById('btn-rescan-midi');
@@ -486,6 +502,34 @@ const playbackState = {
   lastFrameTimestamp: null,
   isScrubbing: false
 };
+
+// Issue #39 State: Grand-Staff Sheet Music Renderer & Stage View Mode (Always boots in 'highway')
+const VALID_STAGE_VIEW_MODES = ['highway', 'split', 'score'];
+let stageViewMode = 'highway';
+let cachedNotationPaneHeight = 0;
+let cachedHighwayTopY = 0;
+const dismissedQualitySongIds = new Set();
+const activeWaitNoteIdSet = new Set();
+
+const parchmentTileImg = new Image();
+parchmentTileImg.src = './assets/images/notation/parchment-scroll-tile.png';
+const notationRenderer = createNotationRenderer({
+  vf: VexFlow,
+  parchmentImage: parchmentTileImg
+});
+parchmentTileImg.addEventListener('load', () => {
+  notationRenderer.clearCache();
+});
+if (document.fonts && typeof document.fonts.load === 'function') {
+  document.fonts.load('24px Bravura').then(() => {
+    notationRenderer.clearCache();
+  }).catch(() => {});
+}
+if (document.fonts?.ready) {
+  document.fonts.ready.then(() => {
+    notationRenderer.clearCache();
+  }).catch(() => {});
+}
 
 // Issue #30: Loop Practice Mode (Rehearsal) State
 const REHEARSAL_SPEED_PRESETS = [0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 1.0, 1.25];
@@ -1130,6 +1174,26 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     }
   }
 
+  const headerTempos = (midiData.header.tempos || [])
+    .filter((t) => t && Number.isFinite(Number(t.bpm)) && Number(t.bpm) > 0)
+    .map((t) => ({ ticks: Math.max(0, Math.round(Number(t.ticks) || 0)), bpm: Number(t.bpm) }));
+  const headerTimeSignatures = (midiData.header.timeSignatures || [])
+    .filter((ts) => ts && Array.isArray(ts.timeSignature) && ts.timeSignature.length >= 2)
+    .map((ts) => ({
+      ticks: Math.max(0, Math.round(Number(ts.ticks) || 0)),
+      timeSignature: [Number(ts.timeSignature[0]) || 4, Number(ts.timeSignature[1]) || 4]
+    }));
+  const headerKeySignatures = (midiData.header.keySignatures || [])
+    .filter((ks) => ks && typeof ks.key === 'string' && ks.key.trim().length > 0)
+    .map((ks) => ({
+      ticks: Math.max(0, Math.round(Number(ks.ticks) || 0)),
+      key: ks.key.trim(),
+      scale: ks.scale || 'major',
+      fromMidiMeta: true
+    }));
+
+  notationRenderer.clearCache();
+
   currentSong = {
     songId,
     title: effectiveTitle,
@@ -1143,6 +1207,9 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     beatsPerMeasure,
     duration,
     ppq: midiData.header.ppq || 480,
+    headerTempos,
+    headerTimeSignatures,
+    headerKeySignatures,
     keySignature: musicXmlMeta?.keySignature || null,
     chordMarkers: musicXmlMeta?.chordMarkers || [],
     musicXmlMeta: musicXmlMeta || null,
@@ -1163,7 +1230,10 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     midiCleanStats: { enabled: false, selectionNote: null, snapped: 0, removed: 0, trimmed: 0 },
     hasCustomBundle: Boolean(bundle.hasCustomBundle),
     foldedNotesCount: 0,
-    difficulty: null
+    difficulty: null,
+    notationScore: null,
+    notationQuality: null,
+    noteIdMap: new Map()
   };
 
   populateTrackSelectorDropdown(currentSong);
@@ -1240,6 +1310,9 @@ function foldAndDeduplicateHandNotes(noteArr, handTrack) {
       prevSamePitch.duration = Math.max(0.05, mergedEnd - prevSamePitch.time);
       prevSamePitch.velocity = Math.max(prevSamePitch.velocity, note.velocity);
       prevSamePitch.wasFolded = prevSamePitch.wasFolded || note.wasFolded;
+      if (note.wasFolded && !prevSamePitch.semitoneShift && note.semitoneShift) {
+        prevSamePitch.semitoneShift = note.semitoneShift;
+      }
     } else {
       deduped.push(note);
     }
@@ -1335,9 +1408,134 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
 
   currentSong.difficulty = calculateSpellDifficulty(allPlayable.length, activeDuration);
 
+  const noteIdMap = new Map();
+  for (const n of currentSong.track1Notes) noteIdMap.set(n.id, n);
+  for (const n of currentSong.track2Notes) noteIdMap.set(n.id, n);
+  currentSong.noteIdMap = noteIdMap;
+
+  currentSong.notationScore = buildScoreData(currentSong, { vf: VexFlow });
+  currentSong.notationQuality = assessNotationQuality(currentSong, currentSong.notationScore);
+  notationRenderer.clearCache();
+
   resetSongProgressFlags(playbackState.currentTime, { preserveTriggeredAtTarget: true });
   updateSpellInspectorHUD();
+  updateNotationQualityBanner();
   updateLitrpgHUD();
+}
+
+function updateNotationQualityBanner() {
+  if (!notationQualityBanner) return;
+  const inNotationView = stageViewMode === 'split' || stageViewMode === 'score';
+  const qual = currentSong?.notationQuality;
+  const songKey = currentSong?.songId || currentSong?.fileName;
+  const shouldShow = Boolean(
+    inNotationView &&
+    currentSong &&
+    qual?.isMessy &&
+    !(songKey && dismissedQualitySongIds.has(songKey))
+  );
+
+  const wasHidden = notationQualityBanner.classList.contains('hidden');
+  notationQualityBanner.classList.toggle('hidden', !shouldShow);
+
+  if (shouldShow && notationQualityText) {
+    notationQualityText.textContent = qual.summaryReason || 'Rough audio transcription detected \u2014 notation may appear crowded.';
+  }
+  if (btnNotationEnableCleanup) {
+    const canOfferCleanup = shouldShow && !isEffectiveMidiCleanupEnabled(currentSong);
+    btnNotationEnableCleanup.classList.toggle('hidden', !canOfferCleanup);
+  }
+  if (wasHidden !== !shouldShow) {
+    requestAnimationFrame(() => computeKeyGeometry());
+  }
+}
+
+const lastNotationWaitState = {
+  visible: false,
+  overdue: false,
+  text: ''
+};
+
+function syncNotationWaitOverlayPill(nowMs = performance.now()) {
+  if (!notationBezelOverlays || !notationWaitPill) return;
+  const inNotationView = stageViewMode === 'split' || stageViewMode === 'score';
+  const activeWait = Boolean(
+    inNotationView &&
+    currentSong &&
+    playbackState.isWaitingForStrike &&
+    playbackState.waitMode &&
+    playbackState.activeStrikeGroup
+  );
+
+  if (!activeWait) {
+    if (lastNotationWaitState.visible) {
+      notationBezelOverlays.classList.add('hidden');
+      notationWaitPill.classList.add('hidden');
+      notationWaitPill.classList.remove('overdue');
+      lastNotationWaitState.visible = false;
+      lastNotationWaitState.overdue = false;
+      lastNotationWaitState.text = '';
+    }
+    return;
+  }
+
+  const waitSec = playbackState.waitStartedAtMs !== null
+    ? Math.max(0, (nowMs - playbackState.waitStartedAtMs) / 1000)
+    : 0;
+  const overdue = waitSec > FUMBLE_PAUSE_THRESHOLD_SEC;
+  const missing = Array.from(playbackState.activeStrikeGroup.requiredPitches || [])
+    .filter((p) => !playbackState.activeStrikeGroup.satisfiedPitches?.has(p))
+    .sort((a, b) => a - b)
+    .map(midiToNoteName);
+  const targetText = missing.length > 0
+    ? `${overdue ? '\u26A0' : '\u23F3'} ${missing.join(' + ')} (${waitSec.toFixed(1)}s)`
+    : `${overdue ? '\u26A0' : '\u23F3'} Wait (${waitSec.toFixed(1)}s)`;
+
+  if (!lastNotationWaitState.visible) {
+    notationBezelOverlays.classList.remove('hidden');
+    notationWaitPill.classList.remove('hidden');
+    lastNotationWaitState.visible = true;
+  }
+  if (lastNotationWaitState.overdue !== overdue) {
+    notationWaitPill.classList.toggle('overdue', overdue);
+    lastNotationWaitState.overdue = overdue;
+  }
+  if (lastNotationWaitState.text !== targetText) {
+    notationWaitPill.textContent = targetText;
+    lastNotationWaitState.text = targetText;
+  }
+}
+
+function setStageViewMode(mode, { announceToast = false } = {}) {
+  const nextMode = VALID_STAGE_VIEW_MODES.includes(mode) ? mode : 'highway';
+  const changed = stageViewMode !== nextMode;
+  stageViewMode = nextMode;
+
+  if (stageContainer) {
+    stageContainer.classList.remove('mode-highway', 'mode-split', 'mode-score');
+    stageContainer.classList.add(`mode-${nextMode}`);
+  }
+  document.body.classList.toggle('view-mode-notation', nextMode === 'split' || nextMode === 'score');
+
+  for (const btn of viewModeButtons) {
+    const isActive = btn.dataset.viewMode === nextMode;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-checked', isActive ? 'true' : 'false');
+    btn.tabIndex = isActive ? 0 : -1;
+  }
+
+  updateNotationQualityBanner();
+  syncNotationWaitOverlayPill(performance.now());
+  computeKeyGeometry();
+
+  if (announceToast && changed) {
+    const labels = {
+      highway: 'Highway View',
+      split: 'Split View (Grand Staff + Highway)',
+      score: 'Score View (Full Grand Staff)'
+    };
+    showGrimoireToast(`\uD83C\uDFBC Switched to ${labels[nextMode]}`);
+  }
 }
 
 function updateSpellInspectorHUD() {
@@ -1363,9 +1561,13 @@ function updateSpellInspectorHUD() {
     statBandTracks.textContent = String(currentSong.backingBandTracks.length);
   }
   statFoldedNotes.textContent = String(currentSong.foldedNotesCount);
+  const effectiveKeyLabel = currentSong.keySignature
+    || (currentSong.notationScore
+      ? `${currentSong.notationScore.primaryKeyDisplay}${currentSong.notationScore.keyIsEstimated ? ' (Est.)' : ''}`
+      : null);
   if (statKeySigChip && statKeySig) {
-    if (currentSong.keySignature) {
-      statKeySig.textContent = currentSong.keySignature;
+    if (effectiveKeyLabel) {
+      statKeySig.textContent = effectiveKeyLabel;
       statKeySigChip.classList.remove('hidden');
     } else {
       statKeySigChip.classList.add('hidden');
@@ -5540,8 +5742,11 @@ function unloadCurrentSongToEmptyState() {
   if (songTimeReadout) songTimeReadout.textContent = '0:00 / 0:00';
   clearRehearsalLoop();
 
+  notationRenderer.clearCache();
   syncMidiCleanupCheckboxUI();
   updateAudioSyncUI();
+  updateNotationQualityBanner();
+  syncNotationWaitOverlayPill(performance.now());
   setStrikeStatusBadge('idle', 'Highway Clear \u2014 Open Grimoire to Choose a Spell');
   updateLitrpgHUD();
 }
@@ -5950,17 +6155,41 @@ let cachedKeyGradients = null;
 function computeKeyGeometry() {
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
-  canvas.width = Math.floor(rect.width * dpr);
-  canvas.height = Math.floor(rect.height * dpr);
+  canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+  canvas.height = Math.max(1, Math.floor(rect.height * dpr));
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  const width = rect.width;
-  const height = rect.height;
+  const width = Math.max(1, rect.width);
+  const height = Math.max(1, rect.height);
   cachedCanvasWidth = width;
   cachedCanvasHeight = height;
 
   const keyboardHeight = Math.max(145, Math.min(210, Math.round(height * 0.22)));
-  const keyboardY = height - keyboardHeight;
+  const keyboardY = Math.max(1, height - keyboardHeight);
+
+  let notationHeight = 0;
+  let highwayTopY = 0;
+  if (stageViewMode === 'score') {
+    notationHeight = Math.max(0, keyboardY);
+    highwayTopY = keyboardY;
+  } else if (stageViewMode === 'split') {
+    const maxSplitNotation = Math.max(120, keyboardY - 90);
+    notationHeight = Math.max(
+      0,
+      Math.min(
+        keyboardY,
+        Math.max(Math.min(175, maxSplitNotation), Math.min(maxSplitNotation, Math.round(keyboardY * 0.52)))
+      )
+    );
+    highwayTopY = notationHeight;
+  }
+  cachedNotationPaneHeight = notationHeight;
+  cachedHighwayTopY = highwayTopY;
+
+  if (stageContainer) {
+    stageContainer.style.setProperty('--notation-pane-height', `${notationHeight}px`);
+    stageContainer.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
+  }
 
   whiteKeys.length = 0;
   blackKeys.length = 0;
@@ -6042,62 +6271,59 @@ function computeKeyGeometry() {
  * Track 1 = Radiant Gold (#ffd700), Track 2 = Eldritch Blue (#00e5ff)
  * Also collects active strike-line notes so the 61-key piano can show guide highlights.
  */
-function drawFallingSpellHighway(strikeLineY, width) {
+function drawFallingSpellHighway(strikeLineY, width, highwayTopY = 0, collectOnly = false) {
   const strikeLineGuides = new Map(); // midi -> { handTrack, lockedInWait }
   if (!currentSong) return strikeLineGuides;
 
+  const laneTopY = Math.max(0, highwayTopY);
+  const laneHeight = Math.max(0, strikeLineY - laneTopY);
   const curTime = playbackState.currentTime;
   const fallSpeed = playbackState.fallSpeedPxPerSec;
-  const visibleTimeWindow = (strikeLineY + 40) / fallSpeed;
+  const visibleTimeWindow = collectOnly
+    ? 0.5
+    : Math.max(0.25, (laneHeight + 40) / fallSpeed);
 
   // 1. Draw scrolling horizontal beat/measure grid lines (honoring compound time signatures, Issue #37, Fixes #59)
-  const denominator = Math.max(1, currentSong.timeSigDenominator || 4);
-  const beatDur = (60 / Math.max(30, currentSong.bpm)) * (4 / denominator);
-  const beatsPerMeasure = Math.max(1, currentSong.beatsPerMeasure || currentSong.timeSigNumerator || 4);
-  const firstBeatIdx = Math.max(0, Math.floor(curTime / beatDur));
-  const lastBeatIdx = Math.ceil((curTime + visibleTimeWindow) / beatDur);
+  if (!collectOnly && laneHeight > 0) {
+    const denominator = Math.max(1, currentSong.timeSigDenominator || 4);
+    const beatDur = (60 / Math.max(30, currentSong.bpm)) * (4 / denominator);
+    const beatsPerMeasure = Math.max(1, currentSong.beatsPerMeasure || currentSong.timeSigNumerator || 4);
+    const firstBeatIdx = Math.max(0, Math.floor(curTime / beatDur));
+    const lastBeatIdx = Math.ceil((curTime + visibleTimeWindow) / beatDur);
 
-  ctx.save();
-  for (let b = firstBeatIdx; b <= lastBeatIdx; b++) {
-    const beatTime = b * beatDur;
-    const y = strikeLineY - (beatTime - curTime) * fallSpeed;
-    if (y < 0 || y > strikeLineY) continue;
+    ctx.save();
+    for (let b = firstBeatIdx; b <= lastBeatIdx; b++) {
+      const beatTime = b * beatDur;
+      const y = strikeLineY - (beatTime - curTime) * fallSpeed;
+      if (y < laneTopY || y > strikeLineY) continue;
 
-    const isMeasureLine = b % beatsPerMeasure === 0;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(width, y);
-    ctx.strokeStyle = isMeasureLine
-      ? 'rgba(212, 175, 55, 0.22)'
-      : 'rgba(186, 171, 147, 0.07)';
-    ctx.lineWidth = isMeasureLine ? 1.5 : 1;
-    ctx.stroke();
+      const isMeasureLine = b % beatsPerMeasure === 0;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.strokeStyle = isMeasureLine
+        ? 'rgba(212, 175, 55, 0.22)'
+        : 'rgba(186, 171, 147, 0.07)';
+      ctx.lineWidth = isMeasureLine ? 1.5 : 1;
+      ctx.stroke();
+    }
+    ctx.restore();
   }
-  ctx.restore();
 
-  // 2. Helper to draw a track's falling notes
+  // 2. Helper to draw (or collect strike-line guides for) a track's falling notes
   const drawTrackNotes = (notes, handTrack, primaryHex, topHex, borderHex, glowRgba) => {
     const opacity = getHandVisualOpacity(handTrack);
     if (opacity <= 0.05) return;
 
-    ctx.save();
-    ctx.globalAlpha = opacity;
+    if (!collectOnly) {
+      ctx.save();
+      ctx.globalAlpha = opacity;
+    }
 
     for (const note of notes) {
       const noteEnd = note.time + note.duration;
       if (noteEnd < curTime) continue;
       if (note.time > curTime + visibleTimeWindow) break;
-
-      const geom = keyGeometry[note.midi];
-      if (!geom) continue;
-
-      const rawBottomY = strikeLineY - (note.time - curTime) * fallSpeed;
-      const rawTopY = strikeLineY - (noteEnd - curTime) * fallSpeed;
-
-      const bottomY = Math.min(strikeLineY, rawBottomY);
-      const topY = Math.max(-20, rawTopY);
-      const rectH = Math.max(7, bottomY - topY - 2);
-      if (bottomY <= 0 || topY >= strikeLineY) continue;
 
       const isAtStrikeLine = (note.time <= curTime + 0.02 && noteEnd >= curTime) ||
         (playbackState.isWaitingForStrike && Math.abs(note.time - curTime) <= CHORD_CLUSTER_WINDOW_SEC && !note.satisfied);
@@ -6108,6 +6334,19 @@ function drawFallingSpellHighway(strikeLineY, width) {
           lockedInWait: Boolean(note.lockedInWait)
         });
       }
+
+      if (collectOnly) continue;
+
+      const geom = keyGeometry[note.midi];
+      if (!geom) continue;
+
+      const rawBottomY = strikeLineY - (note.time - curTime) * fallSpeed;
+      const rawTopY = strikeLineY - (noteEnd - curTime) * fallSpeed;
+
+      const bottomY = Math.min(strikeLineY, rawBottomY);
+      const topY = Math.max(laneTopY - 20, rawTopY);
+      const rectH = Math.max(7, bottomY - topY - 2);
+      if (bottomY <= laneTopY || topY >= strikeLineY) continue;
 
       const padX = geom.isBlack ? 1 : 2;
       const x = geom.x + padX;
@@ -6147,7 +6386,9 @@ function drawFallingSpellHighway(strikeLineY, width) {
       }
     }
 
-    ctx.restore();
+    if (!collectOnly) {
+      ctx.restore();
+    }
   };
 
   // Draw Track 2 (Left Hand / Accompaniment — Eldritch Blue)
@@ -6266,13 +6507,15 @@ function spawnFloatingCanvasRune(midi, text, color = '#ffd700') {
 /**
  * Render subtle drifting Tavern Arcane Dust Motes in the Spell Highway background
  */
-function updateAndDrawAmbientMotes(dt, width, strikeLineY) {
-  if (width <= 0 || strikeLineY <= 0) return;
+function updateAndDrawAmbientMotes(dt, width, strikeLineY, topY = 0) {
+  const minY = Math.max(0, topY);
+  const span = strikeLineY - minY;
+  if (width <= 0 || span <= 8) return;
 
   while (ambientMotes.length < 28) {
     ambientMotes.push({
       x: Math.random() * width,
-      y: Math.random() * strikeLineY,
+      y: minY + Math.random() * span,
       vx: (Math.random() - 0.5) * 12,
       vy: -(8 + Math.random() * 16),
       radius: 1.0 + Math.random() * 2.0,
@@ -6288,8 +6531,8 @@ function updateAndDrawAmbientMotes(dt, width, strikeLineY) {
     m.x += (m.vx + Math.sin(m.phase) * 6) * dt;
     m.y += m.vy * dt;
 
-    if (m.y < -10) {
-      m.y = strikeLineY - 4;
+    if (m.y < minY - 10 || m.y > strikeLineY) {
+      m.y = strikeLineY - 4 - Math.random() * Math.min(24, span * 0.2);
       m.x = Math.random() * width;
     }
     if (m.x < 0) m.x = width;
@@ -6433,68 +6676,139 @@ function renderCanvas() {
 
   const width = cachedCanvasWidth;
   const height = cachedCanvasHeight;
+  const dpr = window.devicePixelRatio || 1;
 
   ctx.clearRect(0, 0, width, height);
 
-  if (whiteKeys.length === 0 || !cachedKeyGradients) return;
-  const strikeLineY = whiteKeys[0].y;
-
-  // Phase 7: Ambient drifting arcane dust motes in the Spell Highway background
-  updateAndDrawAmbientMotes(particleDt, width, strikeLineY);
-
-  // 1. Draw vertical octave lane guides in the Spell Highway area
-  ctx.save();
-  for (const wk of whiteKeys) {
-    const semitone = wk.midi % 12;
-    if (semitone === 0 || semitone === 5) {
-      ctx.beginPath();
-      ctx.moveTo(wk.x, 0);
-      ctx.lineTo(wk.x, strikeLineY);
-      ctx.strokeStyle = semitone === 0
-        ? 'rgba(212, 175, 55, 0.16)'
-        : 'rgba(186, 171, 147, 0.07)';
-      ctx.lineWidth = semitone === 0 ? 1.5 : 1;
-      ctx.stroke();
-    }
+  if (whiteKeys.length === 0 || !cachedKeyGradients) {
+    syncNotationWaitOverlayPill(nowMs);
+    return;
   }
-  ctx.restore();
+  const strikeLineY = whiteKeys[0].y;
+  const inNotationView = stageViewMode === 'split' || stageViewMode === 'score';
+  const highwayTopY = stageViewMode === 'highway'
+    ? 0
+    : Math.min(strikeLineY, Math.max(0, cachedHighwayTopY));
+  const highwayHeight = Math.max(0, strikeLineY - highwayTopY);
 
-  // 2. Draw 60 FPS Falling Spell Highway Notes
-  const strikeLineGuides = drawFallingSpellHighway(strikeLineY, width);
+  let strikeLineGuides;
 
-  // 2b. Issue #30: Draw Rehearsal Loop A/B boundary lines on the Spell Highway
-  if (currentSong && rehearsalLoopState.enabled && hasValidRehearsalLoop()) {
-    const pxPerSec = playbackState.fallSpeedPxPerSec;
-    const markers = [
-      { t: rehearsalLoopState.startTime, label: 'LOOP A', color: 'rgba(255, 215, 0, 0.78)' },
-      { t: rehearsalLoopState.endTime, label: 'LOOP B', color: 'rgba(245, 158, 11, 0.88)' }
-    ];
-    for (const m of markers) {
-      const y = strikeLineY - (m.t - playbackState.currentTime) * pxPerSec;
-      if (y >= 4 && y <= strikeLineY) {
-        ctx.save();
-        ctx.strokeStyle = m.color;
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([6, 4]);
+  if (stageViewMode !== 'score' && highwayHeight > 0) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, highwayTopY, width, highwayHeight);
+    ctx.clip();
+
+    // Phase 7: Ambient drifting arcane dust motes in the Spell Highway background
+    updateAndDrawAmbientMotes(particleDt, width, strikeLineY, highwayTopY);
+
+    // 1. Draw vertical octave lane guides in the Spell Highway area
+    ctx.save();
+    for (const wk of whiteKeys) {
+      const semitone = wk.midi % 12;
+      if (semitone === 0 || semitone === 5) {
         ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
+        ctx.moveTo(wk.x, highwayTopY);
+        ctx.lineTo(wk.x, strikeLineY);
+        ctx.strokeStyle = semitone === 0
+          ? 'rgba(212, 175, 55, 0.16)'
+          : 'rgba(186, 171, 147, 0.07)';
+        ctx.lineWidth = semitone === 0 ? 1.5 : 1;
         ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = m.color;
-        ctx.font = 'bold 10px "Consolas", monospace';
-        ctx.textAlign = 'right';
-        ctx.fillText(m.label, width - 8, Math.max(12, y - 4));
-        ctx.restore();
       }
     }
+    ctx.restore();
+
+    // 2. Draw 60 FPS Falling Spell Highway Notes
+    strikeLineGuides = drawFallingSpellHighway(strikeLineY, width, highwayTopY, false);
+
+    // 2b. Issue #30: Draw Rehearsal Loop A/B boundary lines on the Spell Highway
+    if (currentSong && rehearsalLoopState.enabled && hasValidRehearsalLoop()) {
+      const pxPerSec = playbackState.fallSpeedPxPerSec;
+      const markers = [
+        { t: rehearsalLoopState.startTime, label: 'LOOP A', color: 'rgba(255, 215, 0, 0.78)' },
+        { t: rehearsalLoopState.endTime, label: 'LOOP B', color: 'rgba(245, 158, 11, 0.88)' }
+      ];
+      for (const m of markers) {
+        const y = strikeLineY - (m.t - playbackState.currentTime) * pxPerSec;
+        if (y >= highwayTopY + 4 && y <= strikeLineY) {
+          ctx.save();
+          ctx.strokeStyle = m.color;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([6, 4]);
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(width, y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = m.color;
+          ctx.font = 'bold 10px "Consolas", monospace';
+          ctx.textAlign = 'right';
+          ctx.fillText(m.label, width - 8, Math.max(highwayTopY + 12, y - 4));
+          ctx.restore();
+        }
+      }
+    }
+
+    if (songSessionStats.inspirationBurstRemainingSec > 0) {
+      const pulse = 0.22 + 0.12 * Math.sin(nowMs * 0.008);
+      ctx.save();
+      ctx.strokeStyle = `rgba(255, 215, 0, ${pulse.toFixed(2)})`;
+      ctx.lineWidth = 6;
+      ctx.strokeRect(3, highwayTopY + 3, Math.max(4, width - 6), Math.max(4, highwayHeight - 6));
+      ctx.restore();
+    }
+
+    ctx.restore();
+  } else {
+    // Score Mode: Still collect active strike-line piano key guides while sheet music fills the stage
+    strikeLineGuides = drawFallingSpellHighway(strikeLineY, width, strikeLineY, true);
+  }
+
+  // 2c. Issue #39: Draw Scrolling Grand-Staff Sheet Music Viewport in Split & Score modes
+  if (inNotationView && cachedNotationPaneHeight > 40) {
+    const waitDurationSec = playbackState.isWaitingForStrike && playbackState.waitStartedAtMs !== null
+      ? Math.max(0, (nowMs - playbackState.waitStartedAtMs) / 1000)
+      : 0;
+    activeWaitNoteIdSet.clear();
+    if (playbackState.isWaitingForStrike && playbackState.activeStrikeGroup?.notes) {
+      for (const wn of playbackState.activeStrikeGroup.notes) {
+        activeWaitNoteIdSet.add(wn.id);
+      }
+    }
+    notationRenderer.renderNotationViewport(
+      ctx,
+      { x: 0, y: 0, width, height: cachedNotationPaneHeight },
+      {
+        scoreData: currentSong?.notationScore || null,
+        currentTime: playbackState.currentTime,
+        isWaitingForStrike: playbackState.isWaitingForStrike,
+        waitDurationSec,
+        waitMode: playbackState.waitMode,
+        rehearsalLoop: currentSong && rehearsalLoopState.enabled && hasValidRehearsalLoop()
+          ? {
+              enabled: true,
+              startTime: rehearsalLoopState.startTime,
+              endTime: rehearsalLoopState.endTime
+            }
+          : null,
+        rhOpacity: getHandVisualOpacity(1),
+        lhOpacity: getHandVisualOpacity(2),
+        noteLookup: currentSong?.noteIdMap || null,
+        activeWaitNoteIds: activeWaitNoteIdSet.size > 0 ? activeWaitNoteIdSet : null,
+        dpr,
+        showSplitDivider: stageViewMode === 'split'
+      }
+    );
   }
 
   // 3. Draw glowing Strike Zone Line above the 61-key keyboard (with Bardic Inspiration glow at 50+ combo)
   ctx.save();
   const isWaiting = playbackState.isWaitingForStrike;
   const isInspired = isBardicInspirationActive();
-  const lineH = isInspired ? 16 : (isWaiting ? 14 : 9);
+  const lineH = stageViewMode === 'score'
+    ? (isInspired || isWaiting ? 8 : 5)
+    : (isInspired ? 16 : (isWaiting ? 14 : 9));
   const strikeGrad = ctx.createLinearGradient(0, strikeLineY - lineH + 2, 0, strikeLineY + 4);
   if (isInspired) {
     strikeGrad.addColorStop(0, 'rgba(255, 170, 0, 0)');
@@ -6512,13 +6826,6 @@ function renderCanvas() {
   }
   ctx.fillStyle = strikeGrad;
   ctx.fillRect(0, strikeLineY - lineH + 2, width, lineH);
-
-  if (songSessionStats.inspirationBurstRemainingSec > 0) {
-    const pulse = 0.22 + 0.12 * Math.sin(performance.now() * 0.008);
-    ctx.strokeStyle = `rgba(255, 215, 0, ${pulse.toFixed(2)})`;
-    ctx.lineWidth = 6;
-    ctx.strokeRect(3, 3, width - 6, strikeLineY - 4);
-  }
   ctx.restore();
 
   // 4. Draw 36 White Keys (using pre-allocated cachedKeyGradients)
@@ -6610,6 +6917,7 @@ function renderCanvas() {
 
   // 6. Phase 7: Render Strike-Line Shockwaves, Arcane Particle Bursts & Floating XP Runes on top!
   updateAndDrawStrikeParticles(particleDt);
+  syncNotationWaitOverlayPill(nowMs);
 }
 
 /**
@@ -6925,6 +7233,25 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (e.repeat) return;
+
+  if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && tag !== 'SELECT' && !e.target?.isContentEditable) {
+    if (e.code === 'Digit1') {
+      e.preventDefault();
+      setStageViewMode('highway', { announceToast: true });
+      return;
+    }
+    if (e.code === 'Digit2') {
+      e.preventDefault();
+      setStageViewMode('split', { announceToast: true });
+      return;
+    }
+    if (e.code === 'Digit3') {
+      e.preventDefault();
+      setStageViewMode('score', { announceToast: true });
+      return;
+    }
+  }
+
   const key = (e.key || '').toLowerCase();
 
   if (key === '[') {
@@ -7343,6 +7670,99 @@ if (toggleMidiCleanupCheckbox) {
       showGrimoireToast(enabled ? '\u2728 Smart MIDI Hygiene ON' : '\uD83C\uDFBC Smart MIDI Hygiene OFF (Raw MIDI)');
     }
     e.target.blur();
+  });
+}
+
+// Issue #39: Stage View Mode Segmented Switch & Quality Banner Controls
+if (viewModeSegmented && viewModeButtons.length > 0) {
+  for (const btn of viewModeButtons) {
+    btn.addEventListener('click', (e) => {
+      const targetMode = btn.dataset.viewMode;
+      if (targetMode) {
+        setStageViewMode(targetMode);
+      }
+      if (e.detail > 0) {
+        btn.blur();
+      }
+    });
+  }
+
+  viewModeSegmented.addEventListener('keydown', (e) => {
+    const curIndex = viewModeButtons.findIndex((b) => b.dataset.viewMode === stageViewMode);
+    if (curIndex < 0) return;
+    let nextIndex = -1;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      nextIndex = (curIndex + 1) % viewModeButtons.length;
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      nextIndex = (curIndex - 1 + viewModeButtons.length) % viewModeButtons.length;
+    }
+    if (nextIndex >= 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      const targetBtn = viewModeButtons[nextIndex];
+      const nextMode = targetBtn?.dataset.viewMode;
+      if (nextMode) {
+        setStageViewMode(nextMode);
+        targetBtn.focus();
+      }
+    }
+  });
+}
+
+if (btnNotationEnableCleanup) {
+  btnNotationEnableCleanup.addEventListener('click', (e) => {
+    midiCleanupGlobalEnabled = true;
+    saveMidiCleanupPreference(true);
+    if (toggleMidiCleanupCheckbox) {
+      toggleMidiCleanupCheckbox.checked = true;
+    }
+
+    if (currentSong) {
+      const hadOverride = typeof currentSong.midiCleanupOverride === 'boolean';
+      currentSong.midiCleanupOverride = null;
+      currentSong.hasCustomBundle = Boolean(
+        currentSong.sheetMusicPath ||
+        currentSong.backingAudioPath ||
+        currentSong.youtubeUrl ||
+        currentSong.spotifyUrl ||
+        Math.abs(currentSong.audioOffsetSec || 0) > 0.0001 ||
+        Math.abs((currentSong.audioTempoRatio ?? 1.0) - 1.0) > 0.0001
+      );
+      assignSongTracksAndDifficulty(currentSong.selectedTrackMode || 'auto-piano');
+      if (hadOverride) {
+        persistCurrentSongCalibration();
+      }
+      seedBuiltInDemoInGrimoire();
+      scanWatchedDirectories(false);
+      renderGrimoireSidebar();
+      const st = currentSong.midiCleanStats || { snapped: 0, removed: 0, trimmed: 0 };
+      const fixes = st.snapped + st.removed + st.trimmed;
+      showGrimoireToast(`\u2728 Smart MIDI Hygiene ON (${fixes} fix${fixes === 1 ? '' : 'es'} applied)`);
+    } else {
+      seedBuiltInDemoInGrimoire();
+      scanWatchedDirectories(false);
+      renderGrimoireSidebar();
+      showGrimoireToast('\u2728 Smart MIDI Hygiene ON');
+    }
+    e.currentTarget.blur();
+  });
+}
+
+if (btnNotationSwitchHighway) {
+  btnNotationSwitchHighway.addEventListener('click', (e) => {
+    setStageViewMode('highway', { announceToast: true });
+    e.currentTarget.blur();
+  });
+}
+
+if (btnNotationDismiss) {
+  btnNotationDismiss.addEventListener('click', (e) => {
+    const songKey = currentSong?.songId || currentSong?.fileName;
+    if (songKey) {
+      dismissedQualitySongIds.add(songKey);
+    }
+    updateNotationQualityBanner();
+    e.currentTarget.blur();
   });
 }
 
@@ -9056,6 +9476,13 @@ window.addEventListener('resize', () => {
   computeKeyGeometry();
 });
 
+if (typeof ResizeObserver === 'function' && stageCanvasWrap) {
+  const stageResizeObserver = new ResizeObserver(() => {
+    computeKeyGeometry();
+  });
+  stageResizeObserver.observe(stageCanvasWrap);
+}
+
 // Release any held QWERTY or mouse notes if the window loses focus (Alt+Tab) (Issue #16)
 window.addEventListener('blur', () => {
   hideGlobalDropOverlay();
@@ -10257,7 +10684,7 @@ if (tavernVersionTag) {
   }
 }
 
-computeKeyGeometry();
+setStageViewMode('highway');
 loadBardProfile();
 initGrimoireAndWatcher();
 initAudioEngine();

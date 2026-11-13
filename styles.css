@@ -1,3 +1,11 @@
+@font-face {
+  font-family: 'Bravura';
+  src: url('./node_modules/@vexflow-fonts/bravura/bravura.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
 :root {
   --bg-obsidian: #0c0907;
   --bg-tavern-panel: #18130e;
@@ -900,12 +908,60 @@ html, body {
   color: #fcd34d;
 }
 
+/* Issue #39: Stage View Mode Segmented Switch (Highway | Split | Score) */
+.view-mode-segmented {
+  display: inline-flex;
+  align-items: center;
+  background: #120d09;
+  border: 1px solid var(--border-brass);
+  border-radius: 7px;
+  padding: 2px;
+  gap: 2px;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.65);
+  flex-shrink: 0;
+}
+
+.view-mode-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.71rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.14s ease;
+}
+
+.view-mode-btn:hover {
+  color: var(--text-parchment);
+  background: rgba(255, 215, 0, 0.08);
+}
+
+.view-mode-btn:focus-visible {
+  outline: 2px solid var(--radiant-gold);
+  outline-offset: 1px;
+}
+
+.view-mode-btn.active,
+.view-mode-btn[aria-checked="true"] {
+  background: linear-gradient(180deg, #3b2d13 0%, #241b0a 100%);
+  border-color: var(--border-gold-bright);
+  color: var(--radiant-gold);
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.24), inset 0 1px 0 rgba(255, 243, 176, 0.16);
+}
+
 /* Main Stage & Canvas */
 #stage-container {
   position: relative;
   flex: 1;
+  display: flex;
+  flex-direction: column;
   width: 100%;
   height: 100%;
+  min-height: 0;
   overflow: hidden;
   background: #0c0907 url('./assets/images/practice/practice-stage-backdrop.png') center bottom / cover no-repeat;
 }
@@ -915,11 +971,149 @@ html, body {
   outline-offset: -8px;
 }
 
+#stage-canvas-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
 #spell-canvas {
   display: block;
   width: 100%;
   height: 100%;
   cursor: pointer;
+}
+
+/* Issue #39: Non-blocking Quality Banner above Notation Viewport */
+.notation-quality-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 14px;
+  background: linear-gradient(90deg, rgba(66, 39, 12, 0.96) 0%, rgba(44, 27, 11, 0.96) 100%);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.65);
+  color: #fde68a;
+  font-size: 0.76rem;
+  z-index: 12;
+  flex-shrink: 0;
+}
+
+.notation-quality-banner.hidden {
+  display: none;
+}
+
+.notation-quality-copy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.notation-quality-copy span#notation-quality-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notation-quality-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Compact Wait Pill over Parchment Bezel in Split/Score Mode */
+.notation-bezel-overlays {
+  position: absolute;
+  top: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notation-bezel-overlays.hidden {
+  display: none;
+}
+
+.notation-wait-pill {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-family: 'Consolas', monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: rgba(159, 18, 57, 0.92);
+  border: 1px solid #fecdd3;
+  color: #fff1f2;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+.notation-wait-pill.overdue {
+  background: rgba(185, 28, 28, 0.96);
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.65);
+}
+
+.notation-wait-pill.hidden {
+  display: none;
+}
+
+/* Mode-aware docking for #highway-center-hud so it never obscures sheet music notes */
+#stage-container.mode-split #highway-center-hud {
+  top: calc(var(--notation-pane-height, 260px) + 6px);
+  bottom: auto;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  width: max-content;
+  max-width: calc(100% - 20px);
+}
+
+#stage-container.mode-split #highway-center-hud .center-combo-pill {
+  padding: 2px 10px;
+  gap: 6px;
+}
+
+#stage-container.mode-split #highway-center-hud .strike-status-pill {
+  padding: 2px 10px;
+  font-size: 0.71rem;
+}
+
+#stage-container.mode-split #highway-center-hud .inspiration-banner {
+  min-width: 175px;
+  padding: 2px 10px 3px;
+}
+
+#stage-container.mode-score #highway-center-hud {
+  top: auto;
+  bottom: calc(var(--keyboard-height, 150px) + 8px);
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  width: max-content;
+  max-width: calc(100% - 20px);
+}
+
+#stage-container.mode-score #highway-center-hud .center-combo-pill {
+  background: rgba(24, 18, 14, 0.9);
+  padding: 3px 11px;
+}
+
+#stage-container.mode-score #highway-center-hud .strike-status-pill {
+  background: rgba(24, 18, 14, 0.92);
+}
+
+#stage-container.mode-score #highway-center-hud .inspiration-banner {
+  background: rgba(24, 18, 14, 0.9);
+  min-width: 185px;
 }
 
 #qwerty-pill {
@@ -2756,6 +2950,13 @@ html, body {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 18px rgba(239, 68, 68, 0.5);
 }
 
+body.view-mode-notation .grimoire-toast {
+  top: 88px;
+  right: 16px;
+  bottom: auto;
+  left: auto;
+}
+
 .global-drop-overlay {
   position: fixed;
   inset: 0;
@@ -2848,7 +3049,7 @@ html, body {
     inset 0 1px 0 rgba(255, 215, 0, 0.08);
 }
 
-#stage-container::after {
+#stage-container:not(.mode-split):not(.mode-score) #stage-canvas-wrap::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -3329,6 +3530,11 @@ html, body {
   .practice-select {
     max-width: 155px;
   }
+
+  .view-mode-btn {
+    padding: 3px 7px;
+    font-size: 0.69rem;
+  }
 }
 
 @media (max-width: 1280px) {
@@ -3386,27 +3592,27 @@ html, body {
   /* Bar 2: Active spell, transport & routing controls */
   #spell-metadata-panel {
     gap: 4px;
-    flex: 1 1 150px;
-    min-width: 130px;
+    flex: 1 1 115px;
+    min-width: 105px;
     overflow: visible;
-    padding: 2px 6px;
+    padding: 2px 5px;
   }
 
   .spell-title-group {
-    min-width: 56px;
-    flex: 1 1 56px;
+    min-width: 48px;
+    flex: 1 1 48px;
     overflow: hidden;
   }
 
   #spell-name-display {
-    max-width: 140px;
-    font-size: 0.74rem;
+    max-width: 118px;
+    font-size: 0.72rem;
   }
 
   .difficulty-badge {
-    padding: 2px 6px;
-    font-size: 0.66rem;
-    max-width: 132px;
+    padding: 2px 5px;
+    font-size: 0.64rem;
+    max-width: 108px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3427,7 +3633,7 @@ html, body {
   }
 
   .transport-group .tavern-btn-cast {
-    min-width: 70px;
+    min-width: 66px;
   }
 
   .timeline-box {
@@ -3435,11 +3641,11 @@ html, body {
   }
 
   .timeline-slider {
-    width: 50px;
+    width: 44px;
   }
 
   .time-readout {
-    font-size: 0.66rem;
+    font-size: 0.65rem;
   }
 
   #rehearsal-toggle-label {
@@ -3450,6 +3656,11 @@ html, body {
   .btn-rehearsal-toggle,
   .btn-rehearsal-caret {
     padding: 2px 4px;
+  }
+
+  .view-mode-btn {
+    padding: 2px 6px;
+    font-size: 0.66rem;
   }
 
   .highway-routing-controls {
@@ -3466,38 +3677,71 @@ html, body {
   }
 
   .practice-select {
-    max-width: 112px;
-    font-size: 0.68rem;
-    padding: 2px 4px;
+    max-width: 102px;
+    font-size: 0.67rem;
+    padding: 2px 3px;
   }
 
   .tempo-select,
   #playback-speed-select {
-    max-width: 54px;
-    font-size: 0.68rem;
-    padding: 2px 3px;
+    max-width: 50px;
+    font-size: 0.67rem;
+    padding: 2px 2px;
   }
 
   .btn-tempo-step {
     padding: 2px 4px;
     min-width: 18px;
-    font-size: 0.68rem;
+    font-size: 0.67rem;
   }
 
   .tavern-btn {
     padding: 3px 5px;
-    font-size: 0.68rem;
+    font-size: 0.67rem;
   }
 }
 
 @media (max-width: 1120px) {
+  #spell-scroll-bar {
+    padding: 4px 8px 4px 6px;
+    gap: 4px;
+  }
+
+  #spell-metadata-panel {
+    min-width: 92px;
+    flex: 1 1 92px;
+  }
+
   .difficulty-badge {
-    max-width: 104px;
+    max-width: 82px;
+  }
+
+  .timeline-box {
+    padding: 2px 5px;
+  }
+
+  .timeline-slider {
+    width: 38px;
+  }
+
+  .view-mode-btn {
+    padding: 2px 5px;
+    font-size: 0.64rem;
+  }
+
+  .practice-select {
+    max-width: 90px;
   }
 
   .sync-badge-pill {
     font-size: 0.64rem;
     padding: 0 4px;
+  }
+
+  .notation-quality-banner {
+    padding: 5px 10px;
+    gap: 8px;
+    font-size: 0.71rem;
   }
 }
 

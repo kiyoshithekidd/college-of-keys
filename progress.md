@@ -28,6 +28,7 @@ NEVER execute multiple phases at once. Stop at the end of each phase, provide te
 - [x] Phase 22: Bardic Inspiration Meter (Issue #24) (Completed & Verified)
 - [x] Phase 23: MusicXML Import to MIDI (Issue #40) (Completed & Verified)
 - [x] Phase 24: Grimoire Song Bundle, Backing Audio Sync & Smart MIDI Hygiene (Issue #76) (Completed & Verified)
+- [x] Phase 25: Scrolling Grand-Staff Sheet Music Split View (Issue #39) (Completed & Verified)
 
 ---
 
@@ -64,9 +65,9 @@ NEVER execute multiple phases at once. Stop at the end of each phase, provide te
    - *Why:* Prerequisite for clean sheet-music-backed songs and `#76` / `#39` (far cleaner notes than raw YouTube audio transcription).
 10. **#76 — Grimoire Song Bundle: Sheet Music + MIDI + Backing Audio** (`returning-adult`, `gamer-bard`)
     - *Why:* Combines clean MIDI/MusicXML notes with real YouTube full-band backing audio (requires tempo/offset sync spike).
-11. **#61 — Song Difficulty Ladder: Simplified to Full Arrangement** (`casual-player`, `young-learner`, `returning-adult`)
-    - *Why:* Lets a player start a favorite song on an approachable arrangement and voluntarily step up when ready.
-12. **#39 — Epic C: Scrolling Grand-Staff Sheet Music Split View** (`returning-adult`, `young-learner`)
+11. ~~**#61 — Song Difficulty Ladder: Simplified to Full Arrangement**~~ **[BLOCKED / SKIPPED]** (`casual-player`, `young-learner`, `returning-adult`)
+    - *Why blocked:* Algorithmic note-dropping produces sloppy notation/timing on unquantized & ML MIDIs, while manually paired "Easy Piano" files online are frequently transposed/shortened and clash out of key against real Song Bundle backing audio (`#76`). Covered instead by `RH + Auto LH`, `0.5x` Tempo (`#63`), Wait Mode, `A–B Loop` (`#30`), and Smart MIDI Hygiene (`#76`).
+12. ~~**#39 — Epic C: Scrolling Grand-Staff Sheet Music Split View**~~ **[COMPLETED]** (`returning-adult`, `young-learner`)
     - *Why:* Transfers highway muscle memory into real note-reading skill without leaving the tavern vibe.
 
 ### P3 — RPG Depth, Flow & Content Modes

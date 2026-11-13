@@ -21,6 +21,24 @@ const FIFTHS_MINOR = [
   'A Minor', 'E Minor', 'B Minor', 'F# Minor', 'C# Minor', 'G# Minor', 'D# Minor', 'A# Minor'
 ];
 
+const VF_MAJOR_KEYS_BY_FIFTHS = [
+  'Cb', 'Gb', 'Db', 'Ab', 'Eb', 'Bb', 'F',
+  'C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#'
+];
+
+const VF_MINOR_KEYS_BY_FIFTHS = [
+  'Abm', 'Ebm', 'Bbm', 'Fm', 'Cm', 'Gm', 'Dm',
+  'Am', 'Em', 'Bm', 'F#m', 'C#m', 'G#m', 'D#m', 'A#m'
+];
+
+function fifthsAndModeToVfKey(fifths, mode = 'major') {
+  const idx = Math.max(0, Math.min(14, Math.round(Number(fifths) || 0) + 7));
+  const normalizedMode = String(mode || 'major').toLowerCase();
+  return normalizedMode.includes('minor')
+    ? VF_MINOR_KEYS_BY_FIFTHS[idx]
+    : VF_MAJOR_KEYS_BY_FIFTHS[idx];
+}
+
 const HARMONY_KIND_SUFFIX = {
   major: '',
   minor: 'm',
@@ -664,7 +682,11 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
 
   const globalTempoChanges = []; // { ticks, bpm }
   const globalTimeSignatures = []; // { ticks, timeSignature: [num, den] }
+  const globalKeySignatures = []; // { ticks, fifths, mode, vfKeySpec }
+  const globalMeasures = []; // { index, number, startTicks, endTicks, numerator, denominator, fifths, mode, vfKeySpec }
   let primaryKeySignature = null;
+  let primaryKeyFifths = null;
+  let primaryKeyMode = 'major';
   const chordMarkers = []; // { ticks, symbol }
   let lyricCount = 0;
   let skippedGraceNotes = 0;
@@ -696,6 +718,10 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
     let divisions = 1;
     let declaredStaves = 1;
     let measureStartTicks = 0;
+    let currentNum = 4;
+    let currentDen = 4;
+    let currentFifths = 0;
+    let currentMode = 'major';
 
     const staffNotes = new Map(); // staffNum (1, 2, ...) -> note[]
     const activeTies = new Map(); // `${staffNum}:${pitch}` -> noteObj
@@ -729,11 +755,33 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
           }
 
           const keyNode = getChild(child, 'key');
-          if (keyNode && !primaryKeySignature) {
+          if (keyNode) {
             const fifths = parseInt(getText(keyNode, 'fifths') || '0', 10);
             const mode = getText(keyNode, 'mode') || 'major';
             if (Number.isFinite(fifths)) {
-              primaryKeySignature = formatKeySignatureLabel(fifths, mode);
+              if (!primaryKeySignature) {
+                primaryKeySignature = formatKeySignatureLabel(fifths, mode);
+                primaryKeyFifths = fifths;
+                primaryKeyMode = mode;
+              }
+              const vfKeySpec = fifthsAndModeToVfKey(fifths, mode);
+              if (pIdx === 0) {
+                currentFifths = fifths;
+                currentMode = mode;
+                globalKeySignatures.push({
+                  ticks: measureStartTicks,
+                  fifths,
+                  mode,
+                  vfKeySpec
+                });
+              } else if (globalKeySignatures.length === 0) {
+                globalKeySignatures.push({
+                  ticks: 0,
+                  fifths,
+                  mode,
+                  vfKeySpec
+                });
+              }
             }
           }
 
@@ -742,6 +790,8 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
             const beats = parseInt(getText(timeNode, 'beats') || '4', 10);
             const beatType = parseInt(getText(timeNode, 'beat-type') || '4', 10);
             if (Number.isFinite(beats) && beats > 0 && Number.isFinite(beatType) && beatType > 0) {
+              currentNum = beats;
+              currentDen = beatType;
               globalTimeSignatures.push({
                 ticks: measureStartTicks,
                 timeSignature: [beats, beatType]
@@ -877,7 +927,27 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
         }
       }
 
-      measureStartTicks = Math.max(measureStartTicks + 1, maxMeasureEndTicks);
+      const fullBarTicks = Math.max(1, Math.round(ppq * currentNum * (4 / Math.max(1, currentDen))));
+      const nextMeasureStart = maxMeasureEndTicks > measureStartTicks
+        ? maxMeasureEndTicks
+        : (measureStartTicks + fullBarTicks);
+
+      if (pIdx === 0) {
+        globalMeasures.push({
+          index: globalMeasures.length,
+          number: m.attrs.number || String(globalMeasures.length + 1),
+          startTicks: measureStartTicks,
+          endTicks: nextMeasureStart,
+          numerator: currentNum,
+          denominator: currentDen,
+          fifths: currentFifths,
+          mode: currentMode,
+          vfKeySpec: fifthsAndModeToVfKey(currentFifths, currentMode),
+          isPickup: m.attrs.implicit === 'yes' || (nextMeasureStart - measureStartTicks) < (fullBarTicks - Math.max(4, ppq * 0.02))
+        });
+      }
+
+      measureStartTicks = nextMeasureStart;
     }
 
     parsedParts.push({
@@ -913,6 +983,17 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
   }
   if (timeSignatures.length === 0) {
     timeSignatures.push({ ticks: 0, timeSignature: [4, 4] });
+  }
+
+  // Deduplicate key signatures
+  globalKeySignatures.sort((a, b) => a.ticks - b.ticks);
+  const keySignatures = [];
+  for (const ks of globalKeySignatures) {
+    if (keySignatures.length > 0 && keySignatures[keySignatures.length - 1].ticks === ks.ticks) {
+      keySignatures[keySignatures.length - 1] = ks;
+    } else {
+      keySignatures.push(ks);
+    }
   }
 
   // Build @tonejs/midi object
@@ -1022,6 +1103,12 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
     symbol: cm.symbol
   }));
 
+  const measuresWithTime = globalMeasures.map((gm) => ({
+    ...gm,
+    startTime: ticksToSeconds(gm.startTicks, tempoChanges, ppq),
+    endTime: ticksToSeconds(gm.endTicks, tempoChanges, ppq)
+  }));
+
   return {
     midiArrayBuffer,
     warnings,
@@ -1030,6 +1117,13 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
       bpm: tempoChanges[0].bpm,
       timeSignature: `${timeSignatures[0].timeSignature[0]}/${timeSignatures[0].timeSignature[1]}`,
       keySignature: primaryKeySignature,
+      keyFifths: primaryKeyFifths,
+      keyMode: primaryKeyMode,
+      ppq,
+      tempoChanges,
+      timeSignatures,
+      keySignatures,
+      measures: measuresWithTime,
       isGrandStaff,
       partNames: parsedParts.map((p) => p.meta.name),
       chordMarkers: chordMarkersWithTime,
@@ -1043,6 +1137,7 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
 module.exports = {
   isMusicXmlFileName,
   isCompressedMxlFileName,
+  fifthsAndModeToVfKey,
   extractMusicXmlTextFromBuffer,
   convertMusicXmlToMidiBuffer
 };
