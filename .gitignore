@@ -17,7 +17,7 @@ Imports/*.midi
 bard_profile.json
 grimoire_library.json
 Midi Test Files/
-
+Archive/
 
 # Build / packaging outputs
 dist/
