@@ -1079,6 +1079,7 @@ html, body {
 }
 
 .performance-modal-card {
+  position: relative;
   width: 100%;
   max-width: 580px;
   max-height: calc(100vh - 36px);
@@ -1094,6 +1095,53 @@ html, body {
   flex-direction: column;
   gap: 11px;
   text-align: center;
+}
+
+.d20-tray-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  border-radius: 12px;
+  background: rgba(12, 9, 7, 0.88);
+  backdrop-filter: blur(3px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  cursor: pointer;
+}
+
+.d20-tray-overlay.hidden {
+  display: none;
+}
+
+.d20-tray-canvas-host {
+  width: 100%;
+  height: 100%;
+  min-height: 260px;
+  max-height: 400px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 2px solid var(--border-gold-bright);
+  box-shadow: inset 0 0 28px rgba(0, 0, 0, 0.7), 0 0 24px rgba(255, 215, 0, 0.2);
+}
+
+.d20-tray-hint {
+  margin-top: 10px;
+  font-family: Georgia, serif;
+  font-size: 0.9rem;
+  color: var(--radiant-gold);
+  letter-spacing: 0.03em;
+}
+
+.d20-tray-skip {
+  font-family: inherit;
+  font-size: 0.76rem;
+  color: var(--text-muted);
 }
 
 .performance-modal-card::-webkit-scrollbar {
@@ -1323,6 +1371,66 @@ html, body {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
+}
+
+.d20-grade-banner.nat-20 {
+  border-color: #ffd700;
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.16) 0%, rgba(16, 12, 9, 0.88) 100%);
+  box-shadow: 0 0 22px rgba(255, 215, 0, 0.28);
+}
+
+.d20-grade-banner.nat-1 {
+  border-color: var(--status-error);
+  background: linear-gradient(135deg, rgba(248, 114, 114, 0.16) 0%, rgba(16, 12, 9, 0.88) 100%);
+  animation: d20Nat1Shake 0.34s ease-in-out;
+}
+
+@keyframes d20Nat1Shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-5px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+
+.d20-hex.nat-20 {
+  box-shadow: 0 0 26px rgba(255, 215, 0, 0.85), inset 0 0 10px rgba(255, 255, 255, 0.45);
+}
+
+.d20-hex.nat-1 {
+  background: radial-gradient(circle at 30% 30%, #f87272, #7f1d1d);
+  border-color: #fecaca;
+  color: #fff5f5;
+  box-shadow: 0 0 20px rgba(248, 114, 114, 0.55);
+}
+
+.d20-hex.preview-ghost {
+  opacity: 0.65;
+  border-color: var(--border-brass);
+  box-shadow: none;
+}
+
+.d20-math-pill {
+  font-family: 'Consolas', monospace;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #fde68a;
+  background: rgba(212, 175, 55, 0.12);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  border-radius: 999px;
+  padding: 2px 8px;
+  align-self: flex-start;
+  margin: 2px 0;
+}
+
+.d20-math-pill.hidden {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .d20-grade-banner.nat-1 {
+    animation: none;
+  }
 }
 
 .d20-grade-title {

@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Issue #25: d20 Performance Check at Song End (3D Physics Dice Roller):**
+  - Added `d20-roller.js` powered by `three` + `cannon-es`: mounts a dark green tavern felt & walnut wood dice tray overlay (`#d20-tray-overlay`) inside `#performance-check-modal`, tosses a numbered gold 20-sided icosahedron (`ConvexPolyhedron`), detects bounce impacts for Tone.js clatter sounds, reads the actual top face (`1..20`) on settle, and disposes cleanly on modal close.
+  - Added D&D 5E `d20 + Bardic Accuracy Mod vs Song DC` scoring (`buildD20Outcome`, `computeBardicAccuracyMod`, `getSongPerformanceDC`) with reward XP tiers: Nat 20 (`+150 Bonus XP` + celebratory arpeggio), Critical Success (`+75 XP`), Success (`+35 XP`), Missed DC (`+10 Consolation XP`), and Nat 1 (`+5 Consolation XP` + tomato flavor + sad interval).
+  - Enforced one roll per song (`songSessionStats.d20Outcome`), ghosted 0-attempt preview mode, `prefers-reduced-motion` instant physics settle, and click / `Space` / `Enter` fast-settle.
+
 - **Issue #63: Practice Tempo Control (Slow the Song Down):**
   - Expanded `#playback-speed-select` and `REHEARSAL_SPEED_PRESETS` (`#30`) to granular practice steps (`0.5x`, `0.6x`, `0.7x`, `0.75x`, `0.8x`, `0.85x`, `0.9x`, `1.0x`, `1.25x`).
   - Added clickable on-screen **`−`** / **`+`** stepper buttons (`#btn-tempo-down`, `#btn-tempo-up`) flanking `#playback-speed-select` (plus `-` and `=` keyboard shortcuts) with `.tempo-modified` gold highlight when practicing off `1.0x` and responsive shrinking on `1024px–1280px` viewports.

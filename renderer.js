@@ -17,6 +17,7 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { pathToFileURL } = require('url');
 const { shell } = require('electron');
+const { createD20TrayRoller } = require('./d20-roller');
 
 const MIN_MIDI = 36; // C2
 const MAX_MIDI = 96; // C7
@@ -180,8 +181,12 @@ const hudInspirationText = document.getElementById('hud-inspiration-text');
 const btnBoostChain = document.getElementById('btn-boost-chain');
 
 const performanceCheckModal = document.getElementById('performance-check-modal');
+const d20TrayOverlay = document.getElementById('d20-tray-overlay');
+const d20TrayCanvasHost = document.getElementById('d20-tray-canvas-host');
+const d20GradeBanner = document.getElementById('d20-grade-banner');
 const modalSongSubtitle = document.getElementById('modal-song-subtitle');
 const modalD20Badge = document.getElementById('modal-d20-badge');
+const modalD20Math = document.getElementById('modal-d20-math');
 const modalGradeTitle = document.getElementById('modal-grade-title');
 const modalGradeFlavor = document.getElementById('modal-grade-flavor');
 const modalLevelupBanner = document.getElementById('modal-levelup-banner');
@@ -439,8 +444,11 @@ const songSessionStats = {
   lastGainText: 'Strike notes to earn XP',
   lastGainFumbled: false,
   hasShownEndModal: false,
-  measureStats: {}
+  measureStats: {},
+  d20Outcome: null
 };
+
+let activeD20Roller = null;
 
 // Phase 6 State: The Grimoire Spell Library & Folder Watcher
 const grimoireSpells = new Map(); // id -> spellEntry
@@ -1473,6 +1481,7 @@ function resetSongSessionStats() {
   songSessionStats.lastGainFumbled = false;
   songSessionStats.hasShownEndModal = false;
   songSessionStats.measureStats = {};
+  songSessionStats.d20Outcome = null;
   updateLitrpgHUD();
 }
 
@@ -1887,12 +1896,214 @@ function renderPostSongBreakdown(totalAttempts) {
   }
 }
 
+let diceBounceSynth = null;
+
+function playDiceBounceSound(impactSpeed = 3) {
+  try {
+    if (typeof Tone === 'undefined') return;
+    if (Tone.context.state !== 'running') {
+      Tone.context.resume().catch(() => {});
+    }
+    if (!diceBounceSynth) {
+      diceBounceSynth = new Tone.Synth({
+        oscillator: { type: 'triangle' },
+        envelope: { attack: 0.002, decay: 0.04, sustain: 0, release: 0.02 }
+      }).toDestination();
+    }
+    const db = Math.max(-28, Math.min(-8, -24 + impactSpeed * 1.4));
+    diceBounceSynth.volume.value = db;
+    const freq = 150 + Math.random() * 95;
+    diceBounceSynth.triggerAttackRelease(freq, 0.045, Tone.now());
+  } catch {
+    // Ignore audio errors
+  }
+}
+
+function playNat20Flourish() {
+  try {
+    const inst = getActiveInstrument();
+    if (!inst || typeof Tone === 'undefined') return;
+    const now = Tone.now();
+    ['C5', 'E5', 'G5', 'C6'].forEach((note, idx) => {
+      inst.triggerAttackRelease(note, 0.35, now + idx * 0.08, 0.8);
+    });
+  } catch {
+    // Ignore audio errors
+  }
+}
+
+function playNat1TomatoSound() {
+  try {
+    const inst = getActiveInstrument();
+    if (!inst || typeof Tone === 'undefined') return;
+    const now = Tone.now();
+    inst.triggerAttackRelease('F#3', 0.25, now, 0.7);
+    inst.triggerAttackRelease('C3', 0.45, now + 0.18, 0.75);
+  } catch {
+    // Ignore audio errors
+  }
+}
+
+function computeBardicAccuracyMod(accuracyPct) {
+  if (accuracyPct >= 95) return 5;
+  if (accuracyPct >= 90) return 4;
+  if (accuracyPct >= 80) return 3;
+  if (accuracyPct >= 70) return 2;
+  if (accuracyPct >= 60) return 1;
+  return 0;
+}
+
+function getSongPerformanceDC(song) {
+  const mult = song?.difficulty?.xpMultiplier ?? 1.0;
+  if (mult >= 3.0) return 17;
+  if (mult >= 2.2) return 15;
+  if (mult >= 1.6) return 13;
+  if (mult >= 1.25) return 12;
+  return 10;
+}
+
+function buildD20Outcome(dieRoll, accuracyPct, song) {
+  const mod = computeBardicAccuracyMod(accuracyPct);
+  const dc = getSongPerformanceDC(song);
+  const total = dieRoll + mod;
+  const modSign = mod >= 0 ? `+${mod}` : String(mod);
+  const mathText = `d20 (${dieRoll}) ${modSign} Accuracy = ${total} vs DC ${dc}`;
+
+  if (dieRoll === 20) {
+    return {
+      dieRoll,
+      mod,
+      total,
+      dc,
+      tier: 'nat-20',
+      bonusXp: 150,
+      mathText: `${mathText} — CRITICAL! (+150 XP)`,
+      gradeTitle: 'Natural 20 — The Tavern Erupts!',
+      gradeFlavor: 'Thunderous applause! Patrons toss a shower of gold coins onto the stage (+150 Bonus XP).'
+    };
+  }
+  if (dieRoll === 1) {
+    return {
+      dieRoll,
+      mod,
+      total,
+      dc,
+      tier: 'nat-1',
+      bonusXp: 5,
+      mathText: `${mathText} — FUMBLE! (+5 XP)`,
+      gradeTitle: 'Natural 1 — A Tomato Hits the Stage!',
+      gradeFlavor: 'Splat! A heckler in the back row has terrible aim, but you earn +5 Consolation XP.'
+    };
+  }
+  if (total >= dc + 5) {
+    return {
+      dieRoll,
+      mod,
+      total,
+      dc,
+      tier: 'crit-success',
+      bonusXp: 75,
+      mathText: `${mathText} — Standing Ovation! (+75 XP)`,
+      gradeTitle: `Total ${total} vs DC ${dc} — Masterful Encore!`,
+      gradeFlavor: 'The barkeep pours celebratory honey-mead for the whole table (+75 Bonus XP).'
+    };
+  }
+  if (total >= dc) {
+    return {
+      dieRoll,
+      mod,
+      total,
+      dc,
+      tier: 'success',
+      bonusXp: 35,
+      mathText: `${mathText} — Success! (+35 XP)`,
+      gradeTitle: `Total ${total} vs DC ${dc} — Solid Tavern Performance`,
+      gradeFlavor: 'Patrons raise their silver flagons and cheer your arcane melody (+35 Bonus XP).'
+    };
+  }
+  return {
+    dieRoll,
+    mod,
+    total,
+    dc,
+    tier: 'miss',
+    bonusXp: 10,
+    mathText: `${mathText} — Missed DC (+10 XP)`,
+    gradeTitle: `Total ${total} vs DC ${dc} — Tough Crowd`,
+    gradeFlavor: 'A few murmurs in the tavern, but every rehearsal sharpens your craft (+10 Consolation XP).'
+  };
+}
+
+function refreshModalXpSection() {
+  const leveledUp = bardProfile.level > songSessionStats.startingLevel;
+  modalLevelupBanner.classList.toggle('hidden', !leveledUp);
+  if (leveledUp) {
+    modalNewLevel.textContent = `Level ${bardProfile.level}`;
+    modalNewTitle.textContent = bardProfile.title;
+  }
+
+  modalBardLevel.textContent = `LVL ${bardProfile.level}`;
+  modalBardTitle.textContent = bardProfile.title;
+  modalXpNumbers.textContent = `${bardProfile.xpIntoLevel.toLocaleString()} / ${bardProfile.xpForNextLevel.toLocaleString()} XP (Total: ${bardProfile.totalXp.toLocaleString()} XP)`;
+
+  const pct = bardProfile.xpForNextLevel > 0
+    ? Math.min(100, Math.max(0, (bardProfile.xpIntoLevel / bardProfile.xpForNextLevel) * 100))
+    : 0;
+  modalXpBarFill.style.width = `${pct.toFixed(1)}%`;
+  modalStatXp.textContent = `+${songSessionStats.songXpEarned.toLocaleString()} XP`;
+}
+
+function applyD20OutcomeToModal(outcome, isPreview = false) {
+  if (d20GradeBanner) {
+    d20GradeBanner.classList.toggle('nat-20', !isPreview && outcome?.tier === 'nat-20');
+    d20GradeBanner.classList.toggle('nat-1', !isPreview && outcome?.tier === 'nat-1');
+  }
+  if (modalD20Badge) {
+    modalD20Badge.classList.toggle('nat-20', !isPreview && outcome?.tier === 'nat-20');
+    modalD20Badge.classList.toggle('nat-1', !isPreview && outcome?.tier === 'nat-1');
+    modalD20Badge.classList.toggle('preview-ghost', isPreview);
+    modalD20Badge.textContent = isPreview ? '10' : String(outcome.dieRoll);
+  }
+  if (modalD20Math) {
+    if (isPreview || !outcome) {
+      modalD20Math.classList.add('hidden');
+    } else {
+      modalD20Math.textContent = outcome.mathText;
+      modalD20Math.classList.remove('hidden');
+    }
+  }
+  if (isPreview) {
+    modalGradeTitle.textContent = 'Preview Mode — Uncast Scroll';
+    modalGradeFlavor.textContent = 'Strike notes on the Spell Highway to roll a real 3D d20 Performance Check!';
+  } else if (outcome) {
+    modalGradeTitle.textContent = outcome.gradeTitle;
+    modalGradeFlavor.textContent = outcome.gradeFlavor;
+  }
+}
+
+let d20DisposeTimer = null;
+
+function disposeActiveD20Roller() {
+  if (d20DisposeTimer !== null) {
+    clearTimeout(d20DisposeTimer);
+    d20DisposeTimer = null;
+  }
+  if (activeD20Roller) {
+    activeD20Roller.dispose();
+    activeD20Roller = null;
+  }
+  if (d20TrayOverlay) {
+    d20TrayOverlay.classList.add('hidden');
+  }
+}
+
 /**
- * Open the Post-Song "Performance Check" Modal with D20 Grade & LitRPG Breakdown
+ * Open the Post-Song "Performance Check" Modal with 3D Physics D20 Roll & LitRPG Breakdown (Issue #25)
  */
 function openPerformanceCheckModal({ recordPlay = false } = {}) {
   pausePlayback();
   closeAllConservatoryPopovers();
+  disposeActiveD20Roller();
 
   const totalAttempts =
     songSessionStats.cleanNotesHit +
@@ -1904,41 +2115,9 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
     : 1.0;
   const accuracyPct = Math.round(accuracyRatio * 100);
 
-  // Map accuracy % to a D&D 5E D20 Performance Roll (1..20)
-  const d20Roll = totalAttempts === 0
-    ? 10
-    : Math.max(1, Math.min(20, Math.round(accuracyRatio * 20)));
-
-  let gradeTitle = 'Natural 20 — Legendary Virtuoso!';
-  let gradeFlavor = 'The entire tavern erupts in thunderous applause as arcane gold light fills the rafters!';
-
-  if (totalAttempts === 0) {
-    gradeTitle = 'Roll 10 — Uncast Scroll (Preview)';
-    gradeFlavor = 'Strike notes on the Spell Highway to test your Bardic Performance Check!';
-  } else if (d20Roll === 20) {
-    gradeTitle = 'Natural 20 — Legendary Virtuoso!';
-    gradeFlavor = 'Flawless somatic execution! Even the Archmage of the College stands in awe.';
-  } else if (d20Roll >= 17) {
-    gradeTitle = `Roll ${d20Roll} — Masterful Spell-Weaving!`;
-    gradeFlavor = 'Rich harmonies and crisp chord rolls echo across the conservatory hall.';
-  } else if (d20Roll >= 13) {
-    gradeTitle = `Roll ${d20Roll} — Solid Tavern Performance`;
-    gradeFlavor = 'Patrons raise their silver flagons and toss gold coins onto the stage.';
-  } else if (d20Roll >= 8) {
-    gradeTitle = `Roll ${d20Roll} — Apprentice Incantation`;
-    gradeFlavor = 'A few fumbled components, but the arcane melody held together.';
-  } else {
-    gradeTitle = `Roll ${d20Roll} — Wild Magic Surge`;
-    gradeFlavor = 'Use Wait Mode and slow the Tempo to 0.5x or 0.75x to master this scroll!';
-  }
-
   const songName = currentSong ? currentSong.title : 'Practice Session';
   const diffLabel = currentSong?.difficulty?.label || 'Cantrip (1.0x XP)';
   modalSongSubtitle.textContent = `${songName} • ${diffLabel}`;
-
-  modalD20Badge.textContent = String(d20Roll);
-  modalGradeTitle.textContent = gradeTitle;
-  modalGradeFlavor.textContent = gradeFlavor;
 
   // Record song play history & Daily Quests BEFORE rendering XP/Level-Up banner (Issue #52, #53, #67)
   // Only the natural end-of-song path records play history; the manual button does not (Issue #67)
@@ -1978,23 +2157,8 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
     }
   }
 
-  const leveledUp = bardProfile.level > songSessionStats.startingLevel;
-  modalLevelupBanner.classList.toggle('hidden', !leveledUp);
-  if (leveledUp) {
-    modalNewLevel.textContent = `Level ${bardProfile.level}`;
-    modalNewTitle.textContent = bardProfile.title;
-  }
+  refreshModalXpSection();
 
-  modalBardLevel.textContent = `LVL ${bardProfile.level}`;
-  modalBardTitle.textContent = bardProfile.title;
-  modalXpNumbers.textContent = `${bardProfile.xpIntoLevel.toLocaleString()} / ${bardProfile.xpForNextLevel.toLocaleString()} XP (Total: ${bardProfile.totalXp.toLocaleString()} XP)`;
-
-  const pct = bardProfile.xpForNextLevel > 0
-    ? Math.min(100, Math.max(0, (bardProfile.xpIntoLevel / bardProfile.xpForNextLevel) * 100))
-    : 0;
-  modalXpBarFill.style.width = `${pct.toFixed(1)}%`;
-
-  modalStatXp.textContent = `+${songSessionStats.songXpEarned.toLocaleString()} XP`;
   modalStatAccuracy.textContent = totalAttempts === 0 ? '—' : `${accuracyPct}%`;
   const inspiredSuffix = songSessionStats.maxSpellChain >= BARDIC_INSPIRATION_STREAK ? ' 🔥' : '';
   modalStatChain.textContent = `${songSessionStats.maxSpellChain}${inspiredSuffix}`;
@@ -2003,11 +2167,71 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
   modalStatRolls.textContent = `${songSessionStats.cleanChordRolls} Rolls • ${songSessionStats.wrongOrMissedNotes} Off-Key`;
 
   renderPostSongBreakdown(totalAttempts);
-
   performanceCheckModal.classList.remove('hidden');
+
+  if (totalAttempts === 0) {
+    applyD20OutcomeToModal(null, true);
+    return;
+  }
+
+  // One roll per song: if already rolled this session, show settled outcome without re-rolling
+  if (songSessionStats.d20Outcome) {
+    applyD20OutcomeToModal(songSessionStats.d20Outcome, false);
+    return;
+  }
+
+  // Show pending state while the 3D physics die tumbles
+  if (modalD20Badge) {
+    modalD20Badge.textContent = '?';
+    modalD20Badge.classList.remove('nat-20', 'nat-1', 'preview-ghost');
+  }
+  if (modalD20Math) {
+    modalD20Math.classList.add('hidden');
+  }
+  if (d20GradeBanner) {
+    d20GradeBanner.classList.remove('nat-20', 'nat-1');
+  }
+  modalGradeTitle.textContent = 'Rolling Performance Check...';
+  modalGradeFlavor.textContent = 'The golden d20 tumbles across the tavern felt...';
+
+  const reducedMotion = Boolean(
+    typeof window !== 'undefined' &&
+    window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+
+  if (!reducedMotion && d20TrayOverlay) {
+    d20TrayOverlay.classList.remove('hidden');
+  }
+
+  if (d20TrayCanvasHost) {
+    activeD20Roller = createD20TrayRoller(d20TrayCanvasHost, {
+      reducedMotion,
+      onBounce: (impact) => playDiceBounceSound(impact),
+      onSettled: (rolledFace) => {
+        const outcome = buildD20Outcome(rolledFace, accuracyPct, currentSong);
+        songSessionStats.d20Outcome = outcome;
+        if (outcome.bonusXp > 0) {
+          awardBardXp(outcome.bonusXp);
+          refreshModalXpSection();
+        }
+        applyD20OutcomeToModal(outcome, false);
+        if (outcome.tier === 'nat-20') {
+          playNat20Flourish();
+        } else if (outcome.tier === 'nat-1') {
+          playNat1TomatoSound();
+        }
+        d20DisposeTimer = setTimeout(() => {
+          d20DisposeTimer = null;
+          disposeActiveD20Roller();
+        }, reducedMotion ? 0 : 450);
+      }
+    });
+  }
 }
 
 function closePerformanceCheckModal() {
+  disposeActiveD20Roller();
   performanceCheckModal.classList.add('hidden');
 }
 
@@ -5719,6 +5943,11 @@ window.addEventListener('keydown', (e) => {
 
   // Block Spacebar playback and QWERTY piano keys while the Tavern Main Menu or any modal dialog is open (Issue #33, Issue #52, Issue #71)
   if (isTavernMenuVisible || isAnyModalOpen()) {
+    if (activeD20Roller && !activeD20Roller.isSettled() && (e.code === 'Space' || e.key === 'Enter')) {
+      e.preventDefault();
+      activeD20Roller.fastSettle();
+      return;
+    }
     if (isTavernMenuVisible && !hasEnteredTavernSession) {
       enterTavernFromSplash();
       e.preventDefault();
@@ -6209,6 +6438,14 @@ fallSpeedSelect.addEventListener('change', (e) => {
 });
 
 // Phase 5 UI Listeners: Performance Check Modal & +25 Streak Test Shortcut
+if (d20TrayOverlay) {
+  d20TrayOverlay.addEventListener('click', () => {
+    if (activeD20Roller && !activeD20Roller.isSettled()) {
+      activeD20Roller.fastSettle();
+    }
+  });
+}
+
 btnPerformanceCheck.addEventListener('click', () => {
   openPerformanceCheckModal();
 });

@@ -23,6 +23,8 @@
   "license": "MIT",
   "dependencies": {
     "@tonejs/midi": "^2.0.28",
+    "cannon-es": "^0.20.0",
+    "three": "^0.187.0",
     "tone": "^14.7.77"
   },
   "devDependencies": {
