@@ -194,6 +194,10 @@ const modalStatChain = document.getElementById('modal-stat-chain');
 const modalStatClean = document.getElementById('modal-stat-clean');
 const modalStatFumbled = document.getElementById('modal-stat-fumbled');
 const modalStatRolls = document.getElementById('modal-stat-rolls');
+const modalBreakdownSection = document.getElementById('modal-breakdown-section');
+const modalBreakdownSummary = document.getElementById('modal-breakdown-summary');
+const modalSectionBars = document.getElementById('modal-section-bars');
+const modalWeakMeasures = document.getElementById('modal-weak-measures');
 const btnModalReplay = document.getElementById('btn-modal-replay');
 const btnModalClose = document.getElementById('btn-modal-close');
 
@@ -431,7 +435,8 @@ const songSessionStats = {
   cleanChordRolls: 0,
   lastGainText: 'Strike notes to earn XP',
   lastGainFumbled: false,
-  hasShownEndModal: false
+  hasShownEndModal: false,
+  measureStats: {}
 };
 
 // Phase 6 State: The Grimoire Spell Library & Folder Watcher
@@ -1455,7 +1460,36 @@ function resetSongSessionStats() {
   songSessionStats.lastGainText = 'Strike notes to earn XP';
   songSessionStats.lastGainFumbled = false;
   songSessionStats.hasShownEndModal = false;
+  songSessionStats.measureStats = {};
   updateLitrpgHUD();
+}
+
+/**
+ * Compute duration of 1 measure (bar) in seconds using the active song's BPM & time signature (Issue #62).
+ */
+function getSongBarDurationSec() {
+  if (!currentSong) return 2.0;
+  const denominator = Math.max(1, currentSong.timeSigDenominator || 4);
+  const beatDur = (60 / Math.max(30, currentSong.bpm || 120)) * (4 / denominator);
+  const beatsPerMeasure = Math.max(1, currentSong.beatsPerMeasure || currentSong.timeSigNumerator || 4);
+  return Math.max(0.25, beatDur * beatsPerMeasure);
+}
+
+function getMeasureNumberForTime(timeSec) {
+  const barDur = getSongBarDurationSec();
+  return Math.max(1, Math.floor(Math.max(0, timeSec) / barDur) + 1);
+}
+
+function recordMeasureOutcome(timeSec, { clean = 0, fumbled = 0, missed = 0 } = {}) {
+  if (!currentSong) return;
+  const measureNum = getMeasureNumberForTime(timeSec);
+  if (!songSessionStats.measureStats[measureNum]) {
+    songSessionStats.measureStats[measureNum] = { clean: 0, fumbled: 0, missed: 0 };
+  }
+  const bucket = songSessionStats.measureStats[measureNum];
+  bucket.clean += clean;
+  bucket.fumbled += fumbled;
+  bucket.missed += missed;
 }
 
 /**
@@ -1482,8 +1516,10 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll) {
 
   if (isFumbledPause) {
     songSessionStats.fumbledNotesHit += noteCount;
+    recordMeasureOutcome(group.anchorTime, { fumbled: noteCount });
   } else {
     songSessionStats.cleanNotesHit += noteCount;
+    recordMeasureOutcome(group.anchorTime, { clean: noteCount });
   }
 
   if (!group.wrongKeyDuringRoll) {
@@ -1601,6 +1637,245 @@ function updateLitrpgHUD() {
 }
 
 /**
+ * Issue #62: Build 4-section phrase accuracy & top 3 weakest measures from songSessionStats.measureStats
+ */
+function buildPostSongBreakdown() {
+  if (!currentSong || !currentSong.duration) {
+    return { sections: [], weakMeasures: [], totalMeasures: 0 };
+  }
+
+  const barDur = getSongBarDurationSec();
+  const totalMeasures = Math.max(1, Math.ceil(currentSong.duration / barDur));
+  const sectionCount = Math.min(4, totalMeasures);
+  const sections = [];
+
+  for (let i = 0; i < sectionCount; i++) {
+    const startBar = Math.floor((i * totalMeasures) / sectionCount) + 1;
+    const endBar = Math.max(startBar, Math.floor(((i + 1) * totalMeasures) / sectionCount));
+    let clean = 0;
+    let fumbled = 0;
+    let missed = 0;
+    for (let b = startBar; b <= endBar; b++) {
+      const st = songSessionStats.measureStats[b];
+      if (st) {
+        clean += st.clean;
+        fumbled += st.fumbled;
+        missed += st.missed;
+      }
+    }
+    const attempts = clean + fumbled + missed;
+    const accuracyPct = attempts > 0
+      ? Math.round(((clean + fumbled * 0.5) / attempts) * 100)
+      : null;
+    const startSec = (startBar - 1) * barDur;
+    const endSec = Math.min(currentSong.duration, endBar * barDur);
+    const label = startBar === endBar ? `Bar ${startBar}` : `Bars ${startBar}–${endBar}`;
+    sections.push({
+      label,
+      startBar,
+      endBar,
+      startSec,
+      endSec,
+      attempts,
+      mistakes: fumbled + missed,
+      accuracyPct
+    });
+  }
+
+  const weakMeasures = [];
+  for (const [mStr, st] of Object.entries(songSessionStats.measureStats)) {
+    const measure = Number(mStr);
+    const mistakes = st.fumbled + st.missed;
+    if (mistakes <= 0) continue;
+    const attempts = st.clean + st.fumbled + st.missed;
+    const accuracyPct = attempts > 0
+      ? Math.round(((st.clean + st.fumbled * 0.5) / attempts) * 100)
+      : 0;
+    const startSec = (measure - 1) * barDur;
+    const endSec = Math.min(currentSong.duration, measure * barDur);
+    weakMeasures.push({
+      measure,
+      startSec,
+      endSec,
+      clean: st.clean,
+      fumbled: st.fumbled,
+      missed: st.missed,
+      mistakes,
+      attempts,
+      accuracyPct
+    });
+  }
+
+  weakMeasures.sort((a, b) => a.accuracyPct - b.accuracyPct || b.mistakes - a.mistakes || a.measure - b.measure);
+
+  return {
+    sections,
+    weakMeasures: weakMeasures.slice(0, 3),
+    totalMeasures
+  };
+}
+
+/**
+ * Issue #62: 1-tap jump from Post-Song Breakdown into Rehearsal Loop Mode (Issue #30).
+ * Pads single short bars to at least 2.0s, arms A->B loop, jumps to A - 0.8s pre-roll, and pauses.
+ */
+function practiceWeakRegion(startSec, endSec, label = 'Weak Measure') {
+  if (!currentSong || !currentSong.duration) return;
+
+  let a = Math.max(0, Math.min(currentSong.duration, startSec));
+  let b = Math.max(a, Math.min(currentSong.duration, endSec));
+
+  if ((b - a) < 2.0) {
+    b = Math.min(currentSong.duration, a + 2.0);
+  }
+  if ((b - a) < 2.0) {
+    a = Math.max(0, b - 2.0);
+  }
+
+  closePerformanceCheckModal();
+  pausePlayback();
+
+  rehearsalLoopState.startTime = a;
+  rehearsalLoopState.endTime = b;
+  rehearsalLoopState.enabled = (b - a) >= MIN_REHEARSAL_LOOP_SPAN_SEC;
+  rehearsalLoopState.passMistakes = 0;
+  rehearsalLoopState.cleanPasses = 0;
+  rehearsalLoopState.totalPasses = 0;
+
+  const jumpTime = Math.max(0, a - REHEARSAL_PREROLL_SEC);
+  playbackState.currentTime = jumpTime;
+  playbackState.isWaitingForStrike = false;
+  playbackState.waitStartedAtMs = null;
+  playbackState.activeStrikeGroup = null;
+  resetSongProgressFlags(jumpTime);
+
+  if (currentSong.backingAudioEl) {
+    try {
+      currentSong.backingAudioEl.currentTime = jumpTime;
+    } catch {
+      // Ignore seek errors
+    }
+  }
+  syncBackingAudioElement(jumpTime);
+  updateTimelineUI();
+  updateRehearsalUI();
+  showGrimoireToast(`\uD83D\uDD01 Loop armed for ${label} (${formatSeconds(a)} \u2192 ${formatSeconds(b)}) \u2014 Press Space when ready`);
+}
+
+function renderPostSongBreakdown(totalAttempts) {
+  if (!modalBreakdownSection || !modalBreakdownSummary || !modalSectionBars || !modalWeakMeasures) return;
+
+  if (!currentSong || totalAttempts === 0) {
+    modalBreakdownSection.classList.add('hidden');
+    return;
+  }
+
+  const { sections, weakMeasures } = buildPostSongBreakdown();
+  if (sections.length === 0) {
+    modalBreakdownSection.classList.add('hidden');
+    return;
+  }
+
+  modalBreakdownSection.classList.remove('hidden');
+
+  const totalMistakes = songSessionStats.fumbledNotesHit + songSessionStats.wrongOrMissedNotes;
+  modalBreakdownSummary.textContent = totalMistakes === 0
+    ? 'Flawless Run!'
+    : `${totalMistakes} trip${totalMistakes === 1 ? '' : 's'} across ${weakMeasures.length} key bar${weakMeasures.length === 1 ? '' : 's'}`;
+
+  while (modalSectionBars.firstChild) {
+    modalSectionBars.removeChild(modalSectionBars.firstChild);
+  }
+  for (const sec of sections) {
+    const pill = document.createElement('button');
+    pill.type = 'button';
+    pill.className = 'breakdown-section-pill';
+    if (sec.accuracyPct !== null) {
+      if (sec.accuracyPct < 70) pill.classList.add('tier-weak');
+      else if (sec.accuracyPct < 90) pill.classList.add('tier-warn');
+    }
+    pill.title = sec.attempts > 0
+      ? `Click to practice ${sec.label} (${sec.accuracyPct}% accuracy)`
+      : `${sec.label} (No player notes)`;
+
+    const lblEl = document.createElement('span');
+    lblEl.className = 'breakdown-section-label';
+    lblEl.textContent = sec.label;
+
+    const pctEl = document.createElement('span');
+    pctEl.className = 'breakdown-section-pct';
+    pctEl.textContent = sec.accuracyPct === null ? '—' : `${sec.accuracyPct}%`;
+
+    const barEl = document.createElement('div');
+    barEl.className = 'breakdown-section-bar';
+    barEl.style.width = `${sec.accuracyPct === null ? 0 : Math.max(8, sec.accuracyPct)}%`;
+
+    pill.appendChild(lblEl);
+    pill.appendChild(pctEl);
+    pill.appendChild(barEl);
+
+    if (sec.attempts > 0) {
+      pill.addEventListener('click', () => {
+        practiceWeakRegion(sec.startSec, sec.endSec, sec.label);
+      });
+    } else {
+      pill.disabled = true;
+      pill.style.opacity = '0.55';
+      pill.style.cursor = 'default';
+    }
+
+    modalSectionBars.appendChild(pill);
+  }
+
+  while (modalWeakMeasures.firstChild) {
+    modalWeakMeasures.removeChild(modalWeakMeasures.firstChild);
+  }
+
+  if (weakMeasures.length === 0) {
+    const flawless = document.createElement('div');
+    flawless.className = 'breakdown-flawless';
+    flawless.textContent = '✨ No weak bars detected — every measure was clean!';
+    modalWeakMeasures.appendChild(flawless);
+    return;
+  }
+
+  for (const wm of weakMeasures) {
+    const row = document.createElement('div');
+    row.className = 'breakdown-weak-row';
+
+    const info = document.createElement('div');
+    info.className = 'breakdown-weak-info';
+
+    const badge = document.createElement('span');
+    badge.className = 'breakdown-bar-badge';
+    badge.textContent = `Bar ${wm.measure}`;
+
+    const parts = [];
+    if (wm.missed > 0) parts.push(`${wm.missed} miss${wm.missed === 1 ? '' : 'es'}`);
+    if (wm.fumbled > 0) parts.push(`${wm.fumbled} fumbled`);
+    const detail = document.createElement('span');
+    detail.className = 'breakdown-weak-detail';
+    detail.textContent = `${wm.accuracyPct}% • ${parts.join(', ')}`;
+
+    info.appendChild(badge);
+    info.appendChild(detail);
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-practice-measure';
+    btn.textContent = '🔁 Practice This';
+    btn.title = `Loop Bar ${wm.measure} (${formatSeconds(wm.startSec)}–${formatSeconds(wm.endSec)})`;
+    btn.addEventListener('click', () => {
+      practiceWeakRegion(wm.startSec, wm.endSec, `Bar ${wm.measure}`);
+    });
+
+    row.appendChild(info);
+    row.appendChild(btn);
+    modalWeakMeasures.appendChild(row);
+  }
+}
+
+/**
  * Open the Post-Song "Performance Check" Modal with D20 Grade & LitRPG Breakdown
  */
 function openPerformanceCheckModal({ recordPlay = false } = {}) {
@@ -1714,6 +1989,8 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
   modalStatClean.textContent = String(songSessionStats.cleanNotesHit);
   modalStatFumbled.textContent = String(songSessionStats.fumbledNotesHit);
   modalStatRolls.textContent = `${songSessionStats.cleanChordRolls} Rolls • ${songSessionStats.wrongOrMissedNotes} Off-Key`;
+
+  renderPostSongBreakdown(totalAttempts);
 
   performanceCheckModal.classList.remove('hidden');
 }
@@ -1940,6 +2217,7 @@ function evaluateStrikeZoneInput(midi) {
       n.lockedInWait = false;
     }
     playbackState.activeStrikeGroup = null;
+    recordMeasureOutcome(group.anchorTime, { missed: Math.max(1, group.notes.length) });
     recordSpellChainBreak('✗ Missed Note (Arcade)');
     group = getNextUnsatisfiedStrikeGroup();
     if (!group) return false;
@@ -2047,6 +2325,7 @@ function evaluateStrikeZoneInput(midi) {
   } else {
     // Wrong key pressed inside the active strike window (Wait Mode or Arcade Mode) -> breaks Spell Chain! (Issue #11)
     group.wrongKeyDuringRoll = true;
+    recordMeasureOutcome(group.anchorTime, { missed: 1 });
     recordSpellChainBreak(`✗ Chain Broken! (${midiToNoteName(midi)})`);
     spawnKeyParticleBurst(midi, 'fumble', 10, false);
     const missingNames = Array.from(group.requiredPitches)
@@ -2648,6 +2927,7 @@ function animationLoop(timestamp) {
             n.lockedInWait = false;
           }
           playbackState.activeStrikeGroup = null;
+          recordMeasureOutcome(nextArcadeGroup.anchorTime, { missed: Math.max(1, nextArcadeGroup.notes.length) });
           missedPlayerChord = true;
           nextArcadeGroup = getNextUnsatisfiedStrikeGroup();
         }

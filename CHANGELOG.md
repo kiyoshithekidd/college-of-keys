@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Issue #62: Post-Song Breakdown (What Tripped Me Up):**
+  - Added per-measure accuracy tracking (`songSessionStats.measureStats`, `getSongBarDurationSec()`, `getMeasureNumberForTime()`, `recordMeasureOutcome()`) for player-controlled hands across Wait Mode and Arcade Mode.
+  - Added `#modal-breakdown-section` inside `#performance-check-modal` showing 4 clickable phrase-section accuracy pills (`Bars X–Y` with color-coded tier bars) and the top 2–3 weakest measures (or a flawless banner when 0 mistakes occurred), hidden on 0-attempt previews.
+  - Wired 1-tap **`🔁 Practice This`** buttons (`practiceWeakRegion()`) to pad single short bars to at least `2.0s`, close the modal, arm `rehearsalLoopState` (`#30`), jump to `A - 0.8s` pre-roll, sync backing audio, and pause playback so the player can place their hands on the keys before pressing Space.
+
 - **Issue #30: Loop Practice Mode (Rehearsal):**
   - Added inline Rehearsal Loop controls (`[A]`, `[B]`, `🔁 Loop`, and `▾` options popover) to `#spell-scroll-bar` with keyboard shortcuts (`[` Set A, `]` Set B, `\` Toggle Loop) that never collide with QWERTY piano keys.
   - Added visual A–B loop range fill and bracket markers (`#loop-range-fill`, `#loop-marker-a`, `#loop-marker-b`) on the timeline scrubber, plus golden `LOOP A` / `LOOP B` boundary lines on `#spell-canvas`.
