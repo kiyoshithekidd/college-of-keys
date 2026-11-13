@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **Issue #63: Practice Tempo Control (Slow the Song Down):**
+  - Expanded `#playback-speed-select` and `REHEARSAL_SPEED_PRESETS` (`#30`) to granular practice steps (`0.5x`, `0.6x`, `0.7x`, `0.75x`, `0.8x`, `0.85x`, `0.9x`, `1.0x`, `1.25x`).
+  - Added clickable on-screen **`−`** / **`+`** stepper buttons (`#btn-tempo-down`, `#btn-tempo-up`) flanking `#playback-speed-select` (plus `-` and `=` keyboard shortcuts) with `.tempo-modified` gold highlight when practicing off `1.0x` and responsive shrinking on `1024px–1280px` viewports.
+  - Added centralized `setPracticeTempo()` / `stepPracticeTempo()` syncing the Spell Highway, MIDI accompaniment, and `backingAudioEl.playbackRate` with `preservesPitch = true` live mid-playback, and persisted `preferredTempo` per song in `songPlayHistory`.
+
 - **Issue #62: Post-Song Breakdown (What Tripped Me Up):**
   - Added per-measure accuracy tracking (`songSessionStats.measureStats`, `getSongBarDurationSec()`, `getMeasureNumberForTime()`, `recordMeasureOutcome()`) for player-controlled hands across Wait Mode and Arcade Mode.
   - Added `#modal-breakdown-section` inside `#performance-check-modal` showing 4 clickable phrase-section accuracy pills (`Bars X–Y` with color-coded tier bars) and the top 2–3 weakest measures (or a flawless banner when 0 mistakes occurred), hidden on 0-attempt previews.

@@ -205,7 +205,20 @@ html, body {
 }
 
 .tempo-select {
-  max-width: 62px;
+  max-width: 66px;
+}
+
+.tempo-control-group.tempo-modified {
+  border-color: var(--radiant-gold);
+  background: rgba(212, 175, 55, 0.14);
+}
+
+.btn-tempo-step {
+  padding: 3px 7px;
+  min-width: 22px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.1;
 }
 
 .tavern-select:disabled {
@@ -2755,7 +2768,9 @@ html, body {
   /* Bar 2: Active spell, transport & routing controls */
   #spell-metadata-panel {
     gap: 5px;
+    flex: 1 1 auto;
     min-width: 0;
+    overflow: hidden;
   }
 
   .spell-title-group {
@@ -2828,9 +2843,15 @@ html, body {
 
   .tempo-select,
   #playback-speed-select {
-    max-width: 54px;
+    max-width: 60px;
     font-size: 0.7rem;
     padding: 2px 4px;
+  }
+
+  .btn-tempo-step {
+    padding: 2px 5px;
+    min-width: 20px;
+    font-size: 0.7rem;
   }
 
   .tavern-btn {

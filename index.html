@@ -465,15 +465,22 @@
           &#127928; Band: <span id="backing-band-state">ON</span>
         </button>
 
-        <!-- Tempo / Practice Speed -->
-        <div class="control-group" title="Practice Tempo Multiplier">
+        <!-- Tempo / Practice Speed (Issue #63) -->
+        <div id="tempo-control-group" class="control-group tempo-control-group" title="Practice Tempo Multiplier (- / =)">
           <label for="playback-speed-select">Tempo</label>
+          <button id="btn-tempo-down" type="button" class="tavern-btn btn-tempo-step" title="Slow Down Tempo (-)" aria-label="Decrease tempo">&minus;</button>
           <select id="playback-speed-select" class="tavern-select tempo-select">
             <option value="0.5">0.5x</option>
+            <option value="0.6">0.6x</option>
+            <option value="0.7">0.7x</option>
             <option value="0.75">0.75x</option>
+            <option value="0.8">0.8x</option>
+            <option value="0.85">0.85x</option>
+            <option value="0.9">0.9x</option>
             <option value="1" selected>1.0x</option>
             <option value="1.25">1.25x</option>
           </select>
+          <button id="btn-tempo-up" type="button" class="tavern-btn btn-tempo-step" title="Speed Up Tempo (=)" aria-label="Increase tempo">+</button>
         </div>
       </div>
     </section>
