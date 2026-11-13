@@ -18,6 +18,7 @@ const { spawn } = require('child_process');
 const { pathToFileURL } = require('url');
 const { shell } = require('electron');
 const { createD20TrayRoller } = require('./d20-roller');
+const { isMusicXmlFileName, convertMusicXmlToMidiBuffer } = require('./musicxml-converter');
 
 const MIN_MIDI = 36; // C2
 const MAX_MIDI = 96; // C7
@@ -165,6 +166,8 @@ const statT1Notes = document.getElementById('stat-t1-notes');
 const statT2Notes = document.getElementById('stat-t2-notes');
 const statBandTracks = document.getElementById('stat-band-tracks');
 const statFoldedNotes = document.getElementById('stat-folded-notes');
+const statKeySigChip = document.getElementById('stat-key-sig-chip');
+const statKeySig = document.getElementById('stat-key-sig');
 
 // DOM Elements — Phase 5 (LitRPG HUD & Post-Song Performance Check Modal)
 const btnPerformanceCheck = document.getElementById('btn-performance-check');
@@ -222,6 +225,7 @@ const grimoireToastText = document.getElementById('grimoire-toast-text');
 // Issue #69: The Flippable Spellbook Pop-Up Module Elements
 const grimoireSpellbookModal = document.getElementById('grimoire-spellbook-modal');
 const btnCloseSpellbook = document.getElementById('btn-close-spellbook');
+const btnSpellbookImportFile = document.getElementById('btn-spellbook-import-file');
 const btnSpellbookSaveCurrent = document.getElementById('btn-spellbook-save-current');
 const btnSpellbookOpenImports = document.getElementById('btn-spellbook-open-imports');
 const btnSpellbookDropTest = document.getElementById('btn-spellbook-drop-test');
@@ -241,7 +245,9 @@ const spellbookPageNumRight = document.getElementById('spellbook-page-num-right'
 
 // Right Page Details Elements
 const spellbookDetailTierChip = document.getElementById('spellbook-detail-tier-chip');
+const spellbookDetailKeySig = document.getElementById('spellbook-detail-keysig');
 const spellbookDetailSource = document.getElementById('spellbook-detail-source');
+const globalDropOverlay = document.getElementById('global-drop-overlay');
 const spellbookDetailTitle = document.getElementById('spellbook-detail-title');
 const spellbookDetailFile = document.getElementById('spellbook-detail-file');
 const spellbookDetailBpm = document.getElementById('spellbook-detail-bpm');
@@ -877,7 +883,25 @@ function areTracksDuplicates(trackA, trackB) {
   return true;
 }
 
-function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath = null) {
+function loadSongFromBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath = null, { quietSuccess = false } = {}) {
+  if (isMusicXmlFileName(fileName)) {
+    const converted = convertMusicXmlToMidiBuffer(arrayBuffer, fileName);
+    const loaded = parseMidiBuffer(converted.midiArrayBuffer, fileName, filePath, converted.metadata);
+    if (!loaded) return false;
+    if (converted.warnings && converted.warnings.length > 0) {
+      const summary = converted.warnings.length === 1
+        ? converted.warnings[0]
+        : `${converted.warnings[0]} (+${converted.warnings.length - 1} more note${converted.warnings.length > 2 ? 's' : ''})`;
+      showGrimoireToast(`⚠ Imported "${converted.metadata.title}": ${summary}`, 'warning');
+    } else if (!quietSuccess) {
+      showGrimoireToast(`🎼 Imported MusicXML: "${converted.metadata.title}"`, 'success');
+    }
+    return true;
+  }
+  return parseMidiBuffer(arrayBuffer, fileName, filePath);
+}
+
+function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath = null, musicXmlMeta = null) {
   pausePlayback();
 
   const midiData = new Midi(arrayBuffer);
@@ -926,8 +950,8 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     .filter((t) => t.notes.length > 0);
 
   if (rawTracks.length === 0) {
-    alert('This MIDI file contains no playable notes.');
-    return;
+    showGrimoireToast('This file contains no playable notes.', 'error');
+    return false;
   }
 
   for (let i = 0; i < rawTracks.length; i++) {
@@ -943,7 +967,9 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
   }
 
   const duration = Math.max(midiData.duration || 1, 1);
-  const cleanTitle = midiData.name?.trim() || fileName.replace(/\.(mid|midi)$/i, '');
+  const cleanTitle = (musicXmlMeta?.title && musicXmlMeta.title.trim())
+    || midiData.name?.trim()
+    || fileName.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
 
   // If a previous song had a synced backing audio element, stop it before loading new song
   if (currentSong?.backingAudioEl) {
@@ -955,11 +981,11 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     }
   }
 
-  // Check if this .mid file has a paired backing audio track (.wav, .mp3, .ogg, .m4a)
+  // Check if this spell file has a paired backing audio track (.wav, .mp3, .ogg, .m4a)
   let backingAudioPath = null;
   let backingAudioEl = null;
   if (filePath && filePath !== 'BUILTIN_DEMO') {
-    const baseNoExt = filePath.replace(/\.(mid|midi)$/i, '');
+    const baseNoExt = filePath.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
     for (const ext of ['.wav', '.mp3', '.ogg', '.m4a']) {
       if (fs.existsSync(baseNoExt + ext)) {
         backingAudioPath = baseNoExt + ext;
@@ -998,6 +1024,9 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     beatsPerMeasure,
     duration,
     ppq: midiData.header.ppq || 480,
+    keySignature: musicXmlMeta?.keySignature || null,
+    chordMarkers: musicXmlMeta?.chordMarkers || [],
+    musicXmlMeta: musicXmlMeta || null,
     rawTracks,
     selectedTrackMode: 'auto-piano',
     track1Notes: [],
@@ -1026,6 +1055,7 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
   setPracticeTempo(restoredTempo, { persist: false, toast: false });
 
   renderGrimoireSidebar();
+  return true;
 }
 
 function populateTrackSelectorDropdown(song) {
@@ -1111,6 +1141,8 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
     }
 
     if (pianoTracks.length >= 2) {
+      const explicitRh = pianoTracks.find((item) => /Right Hand \(Staff 1\)/i.test(item.t.name));
+      const explicitLh = pianoTracks.find((item) => /Left Hand \(Staff 2\)/i.test(item.t.name));
       const trebleCandidates = pianoTracks
         .filter((item) => item.t.avgPitch >= 62)
         .sort((a, b) => b.t.notes.length - a.t.notes.length);
@@ -1121,7 +1153,10 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
       let rhChoice = null;
       let lhChoice = null;
 
-      if (trebleCandidates.length > 0 && bassCandidates.length > 0) {
+      if (explicitRh && explicitLh) {
+        rhChoice = explicitRh;
+        lhChoice = explicitLh;
+      } else if (trebleCandidates.length > 0 && bassCandidates.length > 0) {
         rhChoice = trebleCandidates[0];
         lhChoice = bassCandidates[0];
       } else {
@@ -1235,6 +1270,14 @@ function updateSpellInspectorHUD() {
     ? '1 (Audio)'
     : String(currentSong.backingBandTracks.length);
   statFoldedNotes.textContent = String(currentSong.foldedNotesCount);
+  if (statKeySigChip && statKeySig) {
+    if (currentSong.keySignature) {
+      statKeySig.textContent = currentSong.keySignature;
+      statKeySigChip.classList.remove('hidden');
+    } else {
+      statKeySigChip.classList.add('hidden');
+    }
+  }
 }
 
 // ============================================================================
@@ -3483,29 +3526,45 @@ function loadBuiltInDemoSpell() {
 /**
  * Show a temporary glowing toast banner when The Grimoire ingests or saves a spell
  */
-function showGrimoireToast(message) {
+function showGrimoireToast(message, variant = 'success') {
   if (!grimoireToast || !grimoireToastText) return;
   grimoireToastText.textContent = message;
-  grimoireToast.classList.remove('hidden');
+  grimoireToast.classList.remove('hidden', 'toast-warning', 'toast-error');
+  if (variant === 'warning') {
+    grimoireToast.classList.add('toast-warning');
+  } else if (variant === 'error') {
+    grimoireToast.classList.add('toast-error');
+  }
 
   if (grimoireToastTimer) {
     clearTimeout(grimoireToastTimer);
   }
+  const durationMs = variant === 'success' ? 4200 : 5800;
   grimoireToastTimer = setTimeout(() => {
     grimoireToast.classList.add('hidden');
-  }, 4200);
+  }, durationMs);
 }
 
 /**
- * Extract lightweight Grimoire card metadata from a MIDI ArrayBuffer
+ * Extract lightweight Grimoire card metadata from a MIDI or MusicXML ArrayBuffer
  */
 function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceTag) {
-  const midiData = new Midi(arrayBuffer);
+  let effectiveBuffer = arrayBuffer;
+  let musicXmlMeta = null;
+  if (isMusicXmlFileName(fileName)) {
+    const converted = convertMusicXmlToMidiBuffer(arrayBuffer, fileName);
+    effectiveBuffer = converted.midiArrayBuffer;
+    musicXmlMeta = converted.metadata;
+  }
+
+  const midiData = new Midi(effectiveBuffer);
   const bpm = midiData.header.tempos.length > 0
     ? Math.round(midiData.header.tempos[0].bpm)
     : 120;
   const duration = Math.max(1, midiData.duration || 1);
-  const cleanTitle = midiData.name?.trim() || fileName.replace(/\.(mid|midi)$/i, '');
+  const cleanTitle = (musicXmlMeta?.title && musicXmlMeta.title.trim())
+    || midiData.name?.trim()
+    || fileName.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
 
   const nonPercTracks = midiData.tracks
     .filter((t) => t.notes.length > 0 && !(t.instrument?.percussion || t.channel === 9))
@@ -3543,9 +3602,14 @@ function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceT
   let track1Raw = [];
   let track2Raw = [];
   if (candidates.length >= 2) {
+    const explicitRh = candidates.find((t) => /Right Hand \(Staff 1\)/i.test(t.name));
+    const explicitLh = candidates.find((t) => /Left Hand \(Staff 2\)/i.test(t.name));
     const treble = candidates.filter((t) => t.avgPitch >= 62).sort((a, b) => b.notes.length - a.notes.length);
     const bass = candidates.filter((t) => t.avgPitch < 62).sort((a, b) => b.notes.length - a.notes.length);
-    if (treble.length > 0 && bass.length > 0) {
+    if (explicitRh && explicitLh) {
+      track1Raw = explicitRh.notes;
+      track2Raw = explicitLh.notes;
+    } else if (treble.length > 0 && bass.length > 0) {
       track1Raw = treble[0].notes;
       track2Raw = bass[0].notes;
     } else {
@@ -3592,7 +3656,7 @@ function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceT
   let backingAudioPath = null;
   if (filePath && filePath !== 'BUILTIN_DEMO') {
     const dir = path.dirname(filePath);
-    const base = fileName.replace(/\.(mid|midi)$/i, '');
+    const base = fileName.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
     for (const ext of ['.mp3', '.wav', '.ogg', '.m4a']) {
       const candidate = path.join(dir, `${base}${ext}`);
       if (fs.existsSync(candidate)) {
@@ -3619,6 +3683,7 @@ function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceT
     badgeClass: diff.badgeClass,
     xpMultiplier: diff.xpMultiplier,
     totalNotes: playableNoteCount,
+    keySignature: musicXmlMeta?.keySignature || null,
     backingAudioPath,
     isFavorite: grimoireFavorites.has(id),
     newlyIngested: false
@@ -3747,6 +3812,7 @@ function persistGrimoireIndex() {
     badgeClass: entry.badgeClass,
     xpMultiplier: entry.xpMultiplier,
     totalNotes: entry.totalNotes,
+    keySignature: entry.keySignature || null,
     backingAudioPath: entry.backingAudioPath,
     isFavorite: Boolean(entry.isFavorite)
   }));
@@ -3765,7 +3831,7 @@ function persistGrimoireIndex() {
 }
 
 /**
- * Scan ./Imports and ./Midi Test Files for any .mid / .midi files.
+ * Scan ./Imports and ./Midi Test Files for any .mid / .midi / .musicxml / .xml / .mxl files.
  * If notifyOnNew is true, triggers a real-time toast and highlights newly detected files!
  */
 function scanWatchedDirectories(notifyOnNew = false) {
@@ -3788,7 +3854,7 @@ function scanWatchedDirectories(notifyOnNew = false) {
   for (const { dir, sourceTag } of dirsToScan) {
     try {
       if (!fs.existsSync(dir)) continue;
-      const files = fs.readdirSync(dir).filter((f) => /\.(mid|midi)$/i.test(f));
+      const files = fs.readdirSync(dir).filter((f) => /\.(mid|midi|musicxml|xml|mxl)$/i.test(f));
 
       for (const file of files) {
         const key = `${sourceTag.toLowerCase()}::${file.toLowerCase()}`;
@@ -3798,9 +3864,9 @@ function scanWatchedDirectories(notifyOnNew = false) {
 
         const existing = grimoireSpells.get(key);
         if (existing && existing.mtimeMs === stat.mtimeMs && existing.fileSize === stat.size) {
-          // If backing audio arrived slightly after the .mid file was indexed, attach it (Issue #13)
+          // If backing audio arrived slightly after the spell file was indexed, attach it (Issue #13)
           if (!existing.backingAudioPath) {
-            const base = file.replace(/\.(mid|midi)$/i, '');
+            const base = file.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
             for (const ext of ['.mp3', '.wav', '.ogg', '.m4a']) {
               const candidate = path.join(dir, `${base}${ext}`);
               if (fs.existsSync(candidate)) {
@@ -3813,17 +3879,27 @@ function scanWatchedDirectories(notifyOnNew = false) {
           continue;
         }
 
-        const buf = fs.readFileSync(fullPath);
-        const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-        const entry = extractGrimoireEntryFromBuffer(arrayBuf, file, fullPath, sourceTag);
-        entry.mtimeMs = stat.mtimeMs;
-        entry.fileSize = stat.size;
-        entry.newlyIngested = notifyOnNew;
+        try {
+          const buf = fs.readFileSync(fullPath);
+          const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+          const entry = extractGrimoireEntryFromBuffer(arrayBuf, file, fullPath, sourceTag);
+          entry.mtimeMs = stat.mtimeMs;
+          entry.fileSize = stat.size;
+          entry.newlyIngested = notifyOnNew;
 
-        grimoireSpells.set(entry.id, entry);
-        changed = true;
-        if (notifyOnNew) {
-          addedNewSpell = { entry, arrayBuf };
+          grimoireSpells.set(entry.id, entry);
+          changed = true;
+          if (notifyOnNew) {
+            addedNewSpell = { entry, arrayBuf };
+          }
+        } catch (fileErr) {
+          if (fileErr?.code === 'NOT_MUSICXML') {
+            // Silently ignore non-MusicXML .xml files (e.g. metadata/config XMLs)
+            continue;
+          }
+          if (notifyOnNew) {
+            showGrimoireToast(`Failed to ingest "${file}": ${fileErr.message}`, 'error');
+          }
         }
       }
     } catch {
@@ -3860,7 +3936,11 @@ function scanWatchedDirectories(notifyOnNew = false) {
       renderSpellbookSpread();
     }
     if (!playbackState.isPlaying) {
-      parseMidiBuffer(arrayBuf, entry.fileName, entry.filePath);
+      try {
+        loadSongFromBuffer(arrayBuf, entry.fileName, entry.filePath, { quietSuccess: true });
+      } catch (err) {
+        showGrimoireToast(`Failed to load "${entry.fileName}": ${err.message}`, 'error');
+      }
     }
   }
 }
@@ -3903,7 +3983,7 @@ function initGrimoireAndWatcher() {
       grimoireWatcher.close();
     }
     grimoireWatcher = fs.watch(IMPORTS_DIR, { persistent: false }, (eventType, filename) => {
-      if (filename && /\.(mid|midi)$/i.test(filename)) {
+      if (filename && /\.(mid|midi|musicxml|xml|mxl)$/i.test(filename)) {
         setTimeout(() => scanWatchedDirectories(true), 180);
       }
     });
@@ -4343,6 +4423,7 @@ function renderSpellbookDetails(entry) {
 
   if (!entry) {
     if (spellbookDetailTierChip) spellbookDetailTierChip.textContent = spellbookFavoritesOnly ? 'Attuned' : tier.levelName;
+    if (spellbookDetailKeySig) spellbookDetailKeySig.classList.add('hidden');
     if (spellbookDetailSource) spellbookDetailSource.textContent = '\u2014';
     if (spellbookDetailTitle) spellbookDetailTitle.textContent = 'No Spell Selected';
     if (spellbookDetailFile) spellbookDetailFile.textContent = '\u2014';
@@ -4370,6 +4451,14 @@ function renderSpellbookDetails(entry) {
 
   if (spellbookDetailTierChip) {
     spellbookDetailTierChip.textContent = `${entry.spellLevel} (${entry.xpMultiplier.toFixed(1)}x XP)`;
+  }
+  if (spellbookDetailKeySig) {
+    if (entry.keySignature) {
+      spellbookDetailKeySig.textContent = entry.keySignature;
+      spellbookDetailKeySig.classList.remove('hidden');
+    } else {
+      spellbookDetailKeySig.classList.add('hidden');
+    }
   }
   if (spellbookDetailSource) {
     spellbookDetailSource.textContent = entry.filePath === 'BUILTIN_DEMO' ? 'Built-In Conservatory Spell' : entry.sourceTag;
@@ -4494,16 +4583,16 @@ function loadGrimoireEntry(entry) {
   }
   try {
     if (!fs.existsSync(entry.filePath)) {
-      alert(`File not found on disk: ${entry.filePath}`);
+      showGrimoireToast(`File not found on disk: ${entry.filePath}`, 'error');
       grimoireSpells.delete(entry.id);
       renderGrimoireSidebar();
       return;
     }
     const buf = fs.readFileSync(entry.filePath);
     const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-    parseMidiBuffer(arrayBuf, entry.fileName, entry.filePath);
+    loadSongFromBuffer(arrayBuf, entry.fileName, entry.filePath);
   } catch (err) {
-    alert(`Failed to load spell from Grimoire: ${err.message}`);
+    showGrimoireToast(`Failed to load spell from Grimoire: ${err.message}`, 'error');
   }
 }
 
@@ -4512,7 +4601,7 @@ function loadGrimoireEntry(entry) {
  */
 function saveActiveSpellToGrimoire() {
   if (!currentSong || !currentSong.rawBuffer) {
-    alert('Load a MIDI file or Demo Spell first!');
+    showGrimoireToast('Load a MIDI or MusicXML spell first!', 'error');
     return;
   }
 
@@ -4520,14 +4609,18 @@ function saveActiveSpellToGrimoire() {
     if (!fs.existsSync(IMPORTS_DIR)) {
       fs.mkdirSync(IMPORTS_DIR, { recursive: true });
     }
-    const safeName = currentSong.fileName.replace(/[^a-zA-Z0-9._ -]/g, '_');
+    let safeName = currentSong.fileName.replace(/[^a-zA-Z0-9._ -]/g, '_');
+    // currentSong.rawBuffer holds converted MIDI bytes when imported from MusicXML
+    if (isMusicXmlFileName(safeName)) {
+      safeName = `${safeName.replace(/\.(musicxml|xml|mxl)$/i, '')}.mid`;
+    }
     const destPath = path.join(IMPORTS_DIR, safeName);
 
     // Copy paired backing audio track into ./Imports before writing .mid (Issue #48)
     if (currentSong.backingAudioPath && fs.existsSync(currentSong.backingAudioPath)) {
       try {
         const ext = path.extname(currentSong.backingAudioPath);
-        const safeBase = safeName.replace(/\.(mid|midi)$/i, '');
+        const safeBase = safeName.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
         const destAudioPath = path.join(IMPORTS_DIR, `${safeBase}${ext}`);
         if (path.resolve(currentSong.backingAudioPath) !== path.resolve(destAudioPath)) {
           fs.copyFileSync(currentSong.backingAudioPath, destAudioPath);
@@ -4540,11 +4633,12 @@ function saveActiveSpellToGrimoire() {
 
     fs.writeFileSync(destPath, currentSong.rawBuffer);
     currentSong.filePath = destPath;
+    currentSong.fileName = safeName;
     scanWatchedDirectories(false);
     showGrimoireToast(`💾 Saved "${currentSong.title}" to The Grimoire (./Imports/${safeName})!`);
     renderGrimoireSidebar();
   } catch (err) {
-    alert(`Could not save spell to Imports/: ${err.message}`);
+    showGrimoireToast(`Could not save spell to Imports/: ${err.message}`, 'error');
   }
 }
 
@@ -4611,7 +4705,7 @@ function collectGrimoireEntryFiles(entry) {
     if (entry.filePath && entry.filePath !== 'BUILTIN_DEMO') {
       try {
         const dir = path.dirname(entry.filePath);
-        const base = path.basename(entry.filePath).replace(/\.(mid|midi)$/i, '');
+        const base = path.basename(entry.filePath).replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
         const pairedExts = ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.musicxml', '.mxl', '.xml', '.pdf'];
         for (const ext of pairedExts) {
           pushCandidate(path.join(dir, `${base}${ext}`));
@@ -5073,13 +5167,16 @@ function tryAutoLoadWorkspaceMidi() {
   for (const dir of searchDirs) {
     try {
       if (!fs.existsSync(dir)) continue;
-      const files = fs.readdirSync(dir);
-      const midiFile = files.find((f) => /\.(mid|midi)$/i.test(f));
-      if (midiFile) {
-        const fullPath = path.join(dir, midiFile);
-        const buf = fs.readFileSync(fullPath);
-        parseMidiBuffer(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), midiFile, fullPath);
-        return;
+      const files = fs.readdirSync(dir).filter((f) => /\.(mid|midi|musicxml|xml|mxl)$/i.test(f));
+      for (const spellFile of files) {
+        try {
+          const fullPath = path.join(dir, spellFile);
+          const buf = fs.readFileSync(fullPath);
+          loadSongFromBuffer(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), spellFile, fullPath);
+          return;
+        } catch {
+          // Skip invalid or non-MusicXML .xml files and try next candidate
+        }
       }
     } catch {
       // Ignore directory read errors
@@ -6179,14 +6276,20 @@ btnLoadMidi.addEventListener('click', () => {
   midiFileInput.click();
 });
 
+if (btnSpellbookImportFile) {
+  btnSpellbookImportFile.addEventListener('click', () => {
+    midiFileInput.click();
+  });
+}
+
 midiFileInput.addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
   try {
     const buffer = await file.arrayBuffer();
-    parseMidiBuffer(buffer, file.name, file.path || null);
+    loadSongFromBuffer(buffer, file.name, file.path || null);
   } catch (err) {
-    alert(`Failed to parse MIDI file: ${err.message}`);
+    showGrimoireToast(`Failed to import "${file.name}": ${err.message}`, 'error');
   }
   midiFileInput.value = '';
 });
@@ -7050,32 +7153,49 @@ if (btnQuestOpenImports) {
   });
 }
 
-// Drag & Drop .mid support on the stage
+// Drag & Drop .mid / .musicxml / .xml / .mxl support anywhere on the window (Issue #40)
+let globalDragDepth = 0;
+
+function hideGlobalDropOverlay() {
+  globalDragDepth = 0;
+  stageContainer.classList.remove('drag-over');
+  if (globalDropOverlay) globalDropOverlay.classList.add('hidden');
+}
+
+window.addEventListener('dragenter', (e) => {
+  e.preventDefault();
+  globalDragDepth += 1;
+  stageContainer.classList.add('drag-over');
+  if (globalDropOverlay) globalDropOverlay.classList.remove('hidden');
+});
+
 window.addEventListener('dragover', (e) => {
   e.preventDefault();
   stageContainer.classList.add('drag-over');
+  if (globalDropOverlay) globalDropOverlay.classList.remove('hidden');
 });
 
 window.addEventListener('dragleave', (e) => {
-  if (e.target === document.body || e.target === stageContainer) {
-    stageContainer.classList.remove('drag-over');
+  globalDragDepth = Math.max(0, globalDragDepth - 1);
+  if (globalDragDepth === 0 || e.relatedTarget === null) {
+    hideGlobalDropOverlay();
   }
 });
 
 window.addEventListener('drop', async (e) => {
   e.preventDefault();
-  stageContainer.classList.remove('drag-over');
+  hideGlobalDropOverlay();
   const file = e.dataTransfer?.files?.[0];
   if (!file) return;
-  if (!/\.(mid|midi)$/i.test(file.name)) {
-    alert('Please drop a valid .mid or .midi file.');
+  if (!/\.(mid|midi|musicxml|xml|mxl)$/i.test(file.name)) {
+    showGrimoireToast('Unsupported file type. Please drop a .mid, .midi, .musicxml, .xml, or .mxl file.', 'error');
     return;
   }
   try {
     const buffer = await file.arrayBuffer();
-    parseMidiBuffer(buffer, file.name, file.path || null);
+    loadSongFromBuffer(buffer, file.name, file.path || null);
   } catch (err) {
-    alert(`Failed to parse MIDI file: ${err.message}`);
+    showGrimoireToast(`Failed to import "${file.name}": ${err.message}`, 'error');
   }
 });
 
@@ -7085,6 +7205,7 @@ window.addEventListener('resize', () => {
 
 // Release any held QWERTY or mouse notes if the window loses focus (Alt+Tab) (Issue #16)
 window.addEventListener('blur', () => {
+  hideGlobalDropOverlay();
   for (const [k, midi] of Array.from(pressedQwertyKeys.entries())) {
     pressedQwertyKeys.delete(k);
     handleNoteOff(midi);
@@ -7128,7 +7249,7 @@ function restoreLastSong() {
     }
     if (!fs.existsSync(lastPath)) return false;
     const buf = fs.readFileSync(lastPath);
-    parseMidiBuffer(
+    loadSongFromBuffer(
       buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
       path.basename(lastPath),
       lastPath

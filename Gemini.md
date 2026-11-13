@@ -552,7 +552,16 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - Upgraded `#hud-inspiration-banner` in `index.html` and `styles.css` into a compact pill-gauge with `#hud-inspiration-fill` and `.ready`/`.active` states.
   - Implemented `inspirationCharge`, `inspirationBurstRemainingSec`, `isBardicInspirationActive()`, `activateBardicInspirationBurst()`, Auto Combo Shield in `recordSpellChainBreak()`, smooth drain in `animationLoop`, golden canvas border aura in `renderCanvas`, and `Enter` / click activation in `renderer.js`.
   - Completed Post-Build Peer Review & QA Audit subagent pass (`No blocking issues found`) and verified syntax with `node --check`.
-- **Current status:** Verified (`"Testing successful"`). Ready to merge into `main` and close Issue #24.
+- **Current status:** Verified (`"Testing successful"`) and merged into `main` in PR #92. Issue #24 closed.
+
+### 2026-11-12 — Session 30: MusicXML Import to MIDI (Issue #40)
+- **What we did:**
+  - Completed Pre-Build Engineering Plan, UI/UX Design Reviewer subagent pass, and 5-point Decision Check before coding (pure-JS converter with `@tonejs/midi` + `zlib.inflateRawSync`, auto-pick Piano + route extra parts to Backing Band, linear repeat/ending unrolling + baked tempo map, in-memory conversion without duplicate `.mid` files in `./Imports`, silent `<harmony>`/`<lyric>` metadata + warn/skip ornaments/grace notes).
+  - Created isolated feature branch `feature/issue-40-musicxml-import` from `main`.
+  - Created `musicxml-converter.js` and verified it with a Node spike & unit assertion suite covering Grand Staff `.musicxml`, compressed `.mxl` ZIP extraction, `<score-timewise>`, score-level repeat/ending unrolling, ties, tempo changes, and `NOT_MUSICXML` rejection.
+  - Updated `index.html`, `styles.css`, and `renderer.js` with `loadSongFromBuffer()`, `#global-drop-overlay`, `.toast-warning`/`.toast-error`, `#btn-spellbook-import-file`, Key Signature badges (`#stat-key-sig-chip`, `#spellbook-detail-keysig`), `./Imports` watcher support, and explicit Staff 1/2 preservation.
+  - Completed Post-Build Peer Review & QA Audit subagent pass and resolved all High/Medium findings (`saveActiveSpellToGrimoire()` `.mid` extension fix, modal/menu `z-index` layering for `#grimoire-toast` and `#global-drop-overlay`, `loadSongFromBuffer()` toast preservation, score-level repeat synchronization across parts, `.mxl` ZIP EOCD/size-cap hardening, and `hideGlobalDropOverlay()` on `window.blur`).
+- **Current status:** Built, QA-audited, and verified with `node --check` and Node assertions. Awaiting user UAT (`"Testing successful"`).
 
 
 

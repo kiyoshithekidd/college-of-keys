@@ -2505,7 +2505,7 @@ html, body {
 }
 
 .grimoire-toast {
-  position: absolute;
+  position: fixed;
   bottom: 225px;
   left: 20px;
   background: linear-gradient(90deg, rgba(16, 185, 129, 0.95) 0%, rgba(15, 118, 110, 0.95) 100%);
@@ -2516,8 +2516,60 @@ html, body {
   padding: 8px 16px;
   border-radius: 999px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 18px rgba(54, 211, 153, 0.5);
-  z-index: 25;
+  z-index: 1500;
   pointer-events: none;
+  max-width: min(560px, calc(100vw - 40px));
+}
+
+.grimoire-toast.toast-warning {
+  background: linear-gradient(90deg, rgba(217, 119, 6, 0.96) 0%, rgba(146, 64, 14, 0.96) 100%);
+  border-color: #fde68a;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 18px rgba(245, 158, 11, 0.5);
+}
+
+.grimoire-toast.toast-error {
+  background: linear-gradient(90deg, rgba(220, 38, 38, 0.96) 0%, rgba(153, 27, 27, 0.96) 100%);
+  border-color: #fecaca;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 18px rgba(239, 68, 68, 0.5);
+}
+
+.global-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1600;
+  background: rgba(11, 14, 23, 0.82);
+  backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.global-drop-card {
+  padding: 28px 40px;
+  border-radius: 18px;
+  border: 2px dashed var(--radiant-gold);
+  background: linear-gradient(160deg, rgba(26, 30, 46, 0.96) 0%, rgba(14, 17, 27, 0.98) 100%);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 36px rgba(255, 215, 0, 0.28);
+  text-align: center;
+  color: #f8fafc;
+}
+
+.global-drop-icon {
+  font-size: 2.5rem;
+  margin-bottom: 8px;
+}
+
+.global-drop-card h3 {
+  margin: 0 0 6px;
+  font-size: 1.2rem;
+  color: var(--radiant-gold);
+}
+
+.global-drop-card p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #cbd5e1;
 }
 
 /* ============================================================================
