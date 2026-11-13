@@ -521,15 +521,22 @@
     <!-- Phase 5: Post-Song "Performance Check" Modal -->
     <div id="performance-check-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div class="performance-modal-card">
+        <!-- Issue #25: Full-Card Translucent 3D Physics Dice Tray Overlay -->
+        <div id="d20-tray-overlay" class="d20-tray-overlay hidden" title="Click or press Space to settle immediately">
+          <div id="d20-tray-canvas-host" class="d20-tray-canvas-host"></div>
+          <div class="d20-tray-hint">&#127922; Rolling Performance Check&hellip; <span class="d20-tray-skip">(Click or Space to settle)</span></div>
+        </div>
+
         <div class="modal-header-ornament">&#9830; ARCANE PERFORMANCE CHECK &#9830;</div>
         <h2 id="modal-title" class="modal-main-title">Spell Casting Complete!</h2>
         <p id="modal-song-subtitle" class="modal-song-subtitle">Ballad of the Silver Flagon &bull; Cantrip (1.0x XP)</p>
 
         <!-- D20 Performance Roll & Grade -->
-        <div class="d20-grade-banner">
-          <div id="modal-d20-badge" class="d20-hex">20</div>
-          <div class="d20-grade-info">
+        <div id="d20-grade-banner" class="d20-grade-banner">
+          <div id="modal-d20-badge" class="d20-hex" aria-hidden="true">20</div>
+          <div class="d20-grade-info" aria-live="polite">
             <span class="d20-Roll-label">D&amp;D 5E Performance Check</span>
+            <span id="modal-d20-math" class="d20-math-pill hidden"></span>
             <strong id="modal-grade-title" class="d20-grade-title">Natural 20 &mdash; Legendary Virtuoso!</strong>
             <span id="modal-grade-flavor" class="d20-grade-flavor">The entire tavern erupts in thunderous applause as arcane light fills the rafters.</span>
           </div>

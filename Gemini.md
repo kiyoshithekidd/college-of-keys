@@ -534,7 +534,16 @@ When selecting upcoming enhancements from the GitHub backlog, items that exhibit
   - Created isolated feature branch `feature/issue-63-practice-tempo-control` from `main`.
   - Updated `index.html`, `styles.css`, and `renderer.js` with `#tempo-control-group`, `#btn-tempo-down`, `#btn-tempo-up`, granular `REHEARSAL_SPEED_PRESETS`, `setPracticeTempo()`, `stepPracticeTempo()`, `preservesPitch = true` on `backingAudioEl`, and per-song `preferredTempo` restore on song load.
   - Completed Post-Build Peer Review & QA Audit subagent pass and fixed `saveSongPlayHistory()` -> `saveSongStats()` in `setPracticeTempo()`.
-- **Current status:** Verified (`"Testing successful"`). Ready to merge into `main` and close Issue #63.
+- **Current status:** Verified (`"Testing successful"`) and merged into `main` in PR #90. Issue #63 closed.
+
+### 2026-11-12 — Session 28: d20 Performance Check at Song End (Issue #25)
+- **What we did:**
+  - Completed Pre-Build Engineering Plan, UI/UX Design Reviewer subagent pass, and 4-point Decision Check before coding (`three` + `cannon-es` 3D physics roll, full-card translucent tray overlay, one roll per song, click/Space fast-settle).
+  - Created isolated feature branch `feature/issue-25-d20-performance-check` from `main` and installed `three` + `cannon-es`.
+  - Created `d20-roller.js` (numbered 5×4 gold icosahedron atlas, opposite faces summing to 21, `CANNON.ConvexPolyhedron` physics, top-face `worldN.y` detection, bounce clatter callbacks, and full WebGL/RAF disposal).
+  - Updated `index.html`, `styles.css`, and `renderer.js` with `#d20-tray-overlay`, `#modal-d20-math`, Tone.js bounce/Nat-20/Nat-1 audio, D&D 5E modifier/DC XP tiers, one-roll-per-song persistence, and `prefers-reduced-motion` support.
+  - Completed Post-Build Peer Review & QA Audit subagent pass and fixed a stray `/**` comment and `d20DisposeTimer` cleanup race in `renderer.js`.
+- **Current status:** Verified (`"Testing successful"`). Ready to merge into `main` and close Issue #25.
 
 
 
