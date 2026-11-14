@@ -1023,8 +1023,7 @@ function areTracksDuplicates(trackA, trackB) {
   if (trackA.notes.length !== trackB.notes.length) return false;
   if (Math.abs(trackA.avgPitch - trackB.avgPitch) > 0.5) return false;
 
-  const sampleCount = Math.min(12, trackA.notes.length);
-  for (let i = 0; i < sampleCount; i++) {
+  for (let i = 0; i < trackA.notes.length; i++) {
     const nA = trackA.notes[i];
     const nB = trackB.notes[i];
     if (nA.originalMidi !== nB.originalMidi || Math.abs(nA.time - nB.time) > 0.02) {
@@ -1851,6 +1850,7 @@ function resetSongSessionStats() {
   songSessionStats.lastGainText = 'Strike notes to earn XP';
   songSessionStats.lastGainFumbled = false;
   songSessionStats.hasShownEndModal = false;
+  songSessionStats.hasRecordedCompletion = false;
   songSessionStats.measureStats = {};
   songSessionStats.d20Outcome = null;
   songSessionStats.inspirationCharge = 0;
@@ -1887,7 +1887,67 @@ function getSongBarDurationSec() {
   return Math.max(0.25, beatDur * beatsPerMeasure);
 }
 
+function getSongMeasureBounds() {
+  if (!currentSong || !currentSong.duration) return [];
+  const scoreMeasures = currentSong.notationScore?.measures;
+  if (Array.isArray(scoreMeasures) && scoreMeasures.length > 0) {
+    return scoreMeasures;
+  }
+  const barDur = getSongBarDurationSec();
+  const totalMeasures = Math.max(1, Math.ceil(currentSong.duration / barDur));
+  const out = [];
+  for (let i = 0; i < totalMeasures; i++) {
+    out.push({
+      index: i,
+      number: i + 1,
+      startTime: i * barDur,
+      endTime: Math.min(currentSong.duration, (i + 1) * barDur),
+      numerator: Math.max(1, currentSong.beatsPerMeasure || currentSong.timeSigNumerator || 4),
+      denominator: Math.max(1, currentSong.timeSigDenominator || 4),
+      isPickup: false
+    });
+  }
+  return out;
+}
+
+function getMeasureTimeRange(measureNumber) {
+  const measures = getSongMeasureBounds();
+  if (measures.length > 0) {
+    const found = measures.find((m) => Number(m.number) === Number(measureNumber))
+      || measures[Math.max(0, Math.min(measures.length - 1, Number(measureNumber) - 1))];
+    if (found) {
+      return {
+        startSec: Math.max(0, found.startTime),
+        endSec: Math.min(currentSong?.duration || found.endTime, found.endTime)
+      };
+    }
+  }
+  const barDur = getSongBarDurationSec();
+  return {
+    startSec: Math.max(0, (measureNumber - 1) * barDur),
+    endSec: Math.min(currentSong?.duration || measureNumber * barDur, measureNumber * barDur)
+  };
+}
+
 function getMeasureNumberForTime(timeSec) {
+  const measures = currentSong?.notationScore?.measures;
+  if (Array.isArray(measures) && measures.length > 0) {
+    const t = Math.max(0, timeSec);
+    let lo = 0;
+    let hi = measures.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const m = measures[mid];
+      if (t < m.startTime - 0.001) {
+        hi = mid - 1;
+      } else if (t >= m.endTime - 0.001 && mid < measures.length - 1) {
+        lo = mid + 1;
+      } else {
+        return Number(m.number) || (mid + 1);
+      }
+    }
+    return Number(measures[measures.length - 1].number) || measures.length;
+  }
   const barDur = getSongBarDurationSec();
   return Math.max(1, Math.floor(Math.max(0, timeSec) / barDur) + 1);
 }
@@ -1929,6 +1989,9 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll) {
   if (isFumbledPause) {
     songSessionStats.fumbledNotesHit += noteCount;
     recordMeasureOutcome(group.anchorTime, { fumbled: noteCount });
+    if (rehearsalLoopState.enabled) {
+      rehearsalLoopState.passMistakes++;
+    }
   } else {
     songSessionStats.cleanNotesHit += noteCount;
     recordMeasureOutcome(group.anchorTime, { clean: noteCount });
@@ -2093,19 +2156,22 @@ function buildPostSongBreakdown() {
     return { sections: [], weakMeasures: [], totalMeasures: 0 };
   }
 
-  const barDur = getSongBarDurationSec();
-  const totalMeasures = Math.max(1, Math.ceil(currentSong.duration / barDur));
+  const measureBounds = getSongMeasureBounds();
+  const totalMeasures = Math.max(1, measureBounds.length);
   const sectionCount = Math.min(4, totalMeasures);
   const sections = [];
 
   for (let i = 0; i < sectionCount; i++) {
-    const startBar = Math.floor((i * totalMeasures) / sectionCount) + 1;
-    const endBar = Math.max(startBar, Math.floor(((i + 1) * totalMeasures) / sectionCount));
+    const startIdx = Math.floor((i * totalMeasures) / sectionCount);
+    const endIdx = Math.max(startIdx, Math.floor(((i + 1) * totalMeasures) / sectionCount) - 1);
+    const startBar = Number(measureBounds[startIdx]?.number) || (startIdx + 1);
+    const endBar = Number(measureBounds[endIdx]?.number) || (endIdx + 1);
     let clean = 0;
     let fumbled = 0;
     let missed = 0;
-    for (let b = startBar; b <= endBar; b++) {
-      const st = songSessionStats.measureStats[b];
+    for (let idx = startIdx; idx <= endIdx; idx++) {
+      const mNum = Number(measureBounds[idx]?.number) || (idx + 1);
+      const st = songSessionStats.measureStats[mNum];
       if (st) {
         clean += st.clean;
         fumbled += st.fumbled;
@@ -2116,8 +2182,8 @@ function buildPostSongBreakdown() {
     const accuracyPct = attempts > 0
       ? Math.round(((clean + fumbled * 0.5) / attempts) * 100)
       : null;
-    const startSec = (startBar - 1) * barDur;
-    const endSec = Math.min(currentSong.duration, endBar * barDur);
+    const startSec = Math.max(0, measureBounds[startIdx]?.startTime ?? 0);
+    const endSec = Math.min(currentSong.duration, measureBounds[endIdx]?.endTime ?? currentSong.duration);
     const label = startBar === endBar ? `Bar ${startBar}` : `Bars ${startBar}–${endBar}`;
     sections.push({
       label,
@@ -2140,8 +2206,7 @@ function buildPostSongBreakdown() {
     const accuracyPct = attempts > 0
       ? Math.round(((st.clean + st.fumbled * 0.5) / attempts) * 100)
       : 0;
-    const startSec = (measure - 1) * barDur;
-    const endSec = Math.min(currentSong.duration, measure * barDur);
+    const { startSec, endSec } = getMeasureTimeRange(measure);
     weakMeasures.push({
       measure,
       startSec,
@@ -2330,7 +2395,12 @@ function playDiceBounceSound(impactSpeed = 3) {
       diceBounceSynth = new Tone.Synth({
         oscillator: { type: 'triangle' },
         envelope: { attack: 0.002, decay: 0.04, sustain: 0, release: 0.02 }
-      }).toDestination();
+      });
+      if (masterVol) {
+        diceBounceSynth.connect(masterVol);
+      } else {
+        diceBounceSynth.toDestination();
+      }
     }
     const db = Math.max(-28, Math.min(-8, -24 + impactSpeed * 1.4));
     diceBounceSynth.volume.value = db;
@@ -2377,10 +2447,10 @@ function computeBardicAccuracyMod(accuracyPct) {
 
 function getSongPerformanceDC(song) {
   const mult = song?.difficulty?.xpMultiplier ?? 1.0;
-  if (mult >= 3.0) return 17;
-  if (mult >= 2.2) return 15;
-  if (mult >= 1.6) return 13;
-  if (mult >= 1.25) return 12;
+  if (mult >= 2.0) return 17;
+  if (mult >= 1.7) return 15;
+  if (mult >= 1.4) return 13;
+  if (mult >= 1.2) return 12;
   return 10;
 }
 
@@ -2627,10 +2697,12 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
   }
 
   if (d20TrayCanvasHost) {
+    let settledSynchronously = false;
     activeD20Roller = createD20TrayRoller(d20TrayCanvasHost, {
       reducedMotion,
       onBounce: (impact) => playDiceBounceSound(impact),
       onSettled: (rolledFace) => {
+        settledSynchronously = true;
         const outcome = buildD20Outcome(rolledFace, accuracyPct, currentSong);
         songSessionStats.d20Outcome = outcome;
         if (outcome.bonusXp > 0) {
@@ -2643,12 +2715,18 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
         } else if (outcome.tier === 'nat-1') {
           playNat1TomatoSound();
         }
+        if (reducedMotion && d20TrayOverlay) {
+          d20TrayOverlay.classList.add('hidden');
+        }
         d20DisposeTimer = setTimeout(() => {
           d20DisposeTimer = null;
           disposeActiveD20Roller();
         }, reducedMotion ? 0 : 450);
       }
     });
+    if (settledSynchronously && activeD20Roller?.isFallback && d20TrayOverlay) {
+      d20TrayOverlay.classList.add('hidden');
+    }
   }
 }
 
@@ -3043,9 +3121,14 @@ function resetPlaybackToStart() {
 }
 
 async function startPlayback() {
-  if (!currentSong) return;
+  if (!currentSong || isAnyModalOpen() || isTavernMenuVisible) return;
+  const targetSong = currentSong;
   stopAudioAudition();
   await ensureAudioReady();
+
+  if (!currentSong || currentSong !== targetSong || isAnyModalOpen() || isTavernMenuVisible) {
+    return;
+  }
 
   if (playbackState.currentTime >= currentSong.duration) {
     playbackState.currentTime = -playbackState.leadInSeconds;
@@ -3238,7 +3321,7 @@ function persistCurrentSongCalibration() {
         songId: currentSong.songId,
         title: currentSong.title,
         fileName: currentSong.fileName,
-        notesPath: currentSong.filePath || 'BUILTIN_DEMO',
+        notesPath: currentSong.filePath || null,
         sheetMusicPath: currentSong.sheetMusicPath || undefined,
         backingAudioPath: currentSong.backingAudioPath || undefined,
         youtubeUrl: currentSong.youtubeUrl || undefined,
@@ -4121,9 +4204,13 @@ function animationLoop(timestamp) {
       pausePlayback();
       if (!songSessionStats.hasShownEndModal) {
         songSessionStats.hasShownEndModal = true;
-        bardProfile.songsCompleted++;
-        saveBardProfile();
-        openPerformanceCheckModal({ recordPlay: true });
+        const shouldRecordCompletion = !songSessionStats.hasRecordedCompletion;
+        if (shouldRecordCompletion) {
+          songSessionStats.hasRecordedCompletion = true;
+          bardProfile.songsCompleted++;
+          saveBardProfile();
+        }
+        openPerformanceCheckModal({ recordPlay: shouldRecordCompletion });
       }
     }
   }
@@ -5463,7 +5550,18 @@ function saveActiveSpellToGrimoire() {
     if (isMusicXmlFileName(safeName)) {
       safeName = `${safeName.replace(/\.(musicxml|xml|mxl)$/i, '')}.mid`;
     }
-    const safeBase = safeName.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
+    const noteExt = path.extname(safeName) || '.mid';
+    const rawBase = safeName.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
+    const directDestPath = path.join(IMPORTS_DIR, safeName);
+    const isSavingInPlace = Boolean(
+      currentSong.filePath &&
+      currentSong.filePath !== 'BUILTIN_DEMO' &&
+      isBundleSameFilePath(currentSong.filePath, directDestPath)
+    );
+    const safeBase = isSavingInPlace
+      ? rawBase
+      : resolveUniqueBundleStem(rawBase, IMPORTS_DIR);
+    safeName = `${safeBase}${noteExt}`;
     const destPath = path.join(IMPORTS_DIR, safeName);
 
     // Copy paired backing audio track into ./Imports before writing .mid (Issue #48 & #76)
@@ -6283,29 +6381,70 @@ function drawFallingSpellHighway(strikeLineY, width, highwayTopY = 0, collectOnl
     ? 0.5
     : Math.max(0.25, (laneHeight + 40) / fallSpeed);
 
-  // 1. Draw scrolling horizontal beat/measure grid lines (honoring compound time signatures, Issue #37, Fixes #59)
+  // 1. Draw scrolling horizontal beat/measure grid lines (honoring mid-song tempo/meter changes & pickup bars)
   if (!collectOnly && laneHeight > 0) {
-    const denominator = Math.max(1, currentSong.timeSigDenominator || 4);
-    const beatDur = (60 / Math.max(30, currentSong.bpm)) * (4 / denominator);
-    const beatsPerMeasure = Math.max(1, currentSong.beatsPerMeasure || currentSong.timeSigNumerator || 4);
-    const firstBeatIdx = Math.max(0, Math.floor(curTime / beatDur));
-    const lastBeatIdx = Math.ceil((curTime + visibleTimeWindow) / beatDur);
-
+    const scoreMeasures = currentSong.notationScore?.measures;
+    const windowEnd = curTime + visibleTimeWindow;
     ctx.save();
-    for (let b = firstBeatIdx; b <= lastBeatIdx; b++) {
-      const beatTime = b * beatDur;
-      const y = strikeLineY - (beatTime - curTime) * fallSpeed;
-      if (y < laneTopY || y > strikeLineY) continue;
 
-      const isMeasureLine = b % beatsPerMeasure === 0;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-      ctx.strokeStyle = isMeasureLine
-        ? 'rgba(212, 175, 55, 0.22)'
-        : 'rgba(186, 171, 147, 0.07)';
-      ctx.lineWidth = isMeasureLine ? 1.5 : 1;
-      ctx.stroke();
+    if (Array.isArray(scoreMeasures) && scoreMeasures.length > 0) {
+      const drawGridLine = (timeSec, isMeasureLine) => {
+        if (timeSec < curTime || timeSec > windowEnd) return;
+        const y = strikeLineY - (timeSec - curTime) * fallSpeed;
+        if (y < laneTopY || y > strikeLineY) return;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.strokeStyle = isMeasureLine
+          ? 'rgba(212, 175, 55, 0.22)'
+          : 'rgba(186, 171, 147, 0.07)';
+        ctx.lineWidth = isMeasureLine ? 1.5 : 1;
+        ctx.stroke();
+      };
+
+      for (const m of scoreMeasures) {
+        if (m.endTime < curTime) continue;
+        if (m.startTime > windowEnd) break;
+
+        drawGridLine(m.startTime, true);
+        const mSpan = Math.max(0.05, m.endTime - m.startTime);
+        const numBeats = Math.max(1, Number(m.numerator) || 4);
+        if (m.isPickup) {
+          const denom = Math.max(1, Number(m.denominator) || 4);
+          const bpm = Math.max(30, currentSong.bpm || 120);
+          const approxBeat = (60 / bpm) * (4 / denom);
+          for (let t = m.endTime - approxBeat; t > m.startTime + 0.02; t -= approxBeat) {
+            drawGridLine(t, false);
+          }
+        } else {
+          const beatStep = mSpan / numBeats;
+          for (let b = 1; b < numBeats; b++) {
+            drawGridLine(m.startTime + b * beatStep, false);
+          }
+        }
+      }
+    } else {
+      const denominator = Math.max(1, currentSong.timeSigDenominator || 4);
+      const beatDur = (60 / Math.max(30, currentSong.bpm)) * (4 / denominator);
+      const beatsPerMeasure = Math.max(1, currentSong.beatsPerMeasure || currentSong.timeSigNumerator || 4);
+      const firstBeatIdx = Math.max(0, Math.floor(curTime / beatDur));
+      const lastBeatIdx = Math.ceil(windowEnd / beatDur);
+
+      for (let b = firstBeatIdx; b <= lastBeatIdx; b++) {
+        const beatTime = b * beatDur;
+        const y = strikeLineY - (beatTime - curTime) * fallSpeed;
+        if (y < laneTopY || y > strikeLineY) continue;
+
+        const isMeasureLine = b % beatsPerMeasure === 0;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.strokeStyle = isMeasureLine
+          ? 'rgba(212, 175, 55, 0.22)'
+          : 'rgba(186, 171, 147, 0.07)';
+        ctx.lineWidth = isMeasureLine ? 1.5 : 1;
+        ctx.stroke();
+      }
     }
     ctx.restore();
   }

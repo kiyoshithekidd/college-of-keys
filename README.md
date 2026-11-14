@@ -56,11 +56,17 @@
 - **100ms Chord Roll Forgiveness (`chordGracePeriod`):** Humanized chord detection allows rolling notes of a multi-note chord within a 100ms window without penalty.
 
 ### 5. D&D 5E Bard LitRPG Progression
-- **Auto-Calculated Spell Level (Notes Per Second / NPS):**
+- **Auto-Calculated Spell Level (Notes Per Second / NPS — 10 Spellbook Tiers):**
   - `< 1.5 NPS`: **Cantrip** (`1.0x` XP)
-  - `1.5 – 3.0 NPS`: **2nd-Level Spell** (`1.2x` XP)
-  - `3.1 – 5.0 NPS`: **5th-Level Spell** (`1.5x` XP)
-  - `5.1+ NPS`: **9th-Level Spell** (`2.0x` XP)
+  - `1.5 – <2.0 NPS`: **1st-Level Spell** (`1.1x` XP)
+  - `2.0 – <2.6 NPS`: **2nd-Level Spell** (`1.2x` XP)
+  - `2.6 – <3.3 NPS`: **3rd-Level Spell** (`1.3x` XP)
+  - `3.3 – <4.0 NPS`: **4th-Level Spell** (`1.4x` XP)
+  - `4.0 – <4.8 NPS`: **5th-Level Spell** (`1.5x` XP)
+  - `4.8 – <5.8 NPS`: **6th-Level Spell** (`1.6x` XP)
+  - `5.8 – <6.9 NPS`: **7th-Level Spell** (`1.7x` XP)
+  - `6.9 – <8.0 NPS`: **8th-Level Spell** (`1.8x` XP)
+  - `8.0+ NPS`: **9th-Level Spell** (`2.0x` XP)
 - **Bardic Inspiration Meter & Combo Shield (`#24`):** Build charge on clean hits to trigger a **10s `2.0x XP` Surge** (`Enter` or HUD click) or automatically absorb 1 off-key combo break with **Auto Combo Shield**.
 - **3D d20 Performance Check (`#25`):** At song completion, toss a 3D physics gold d20 (`three` + `cannon-es`) inside the tavern felt tray for `d20 + Accuracy Mod vs Song DC` bonus XP.
 - **XP & Bardic Titles:** Earn `+10 XP` per clean note (`+2 XP` "Fumbled Component" if paused `> 2s` in Wait Mode). Level up from **Level 1 (*Tavern Busker*)** to **Level 50 (*Grand Maestro*)**.

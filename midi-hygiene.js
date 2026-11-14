@@ -128,7 +128,7 @@ function selectAutoPianoTracks(rawTracks, songDurationSec = 1) {
             .filter((item) => {
               if (item.idx === lead.idx || item.t.isPercussion || item.t.isDuplicate || isUtilityTrack(item.t)) return false;
               const n = item.t.notes ? item.t.notes.length : 0;
-              return item.t.avgPitch >= 40 && item.t.avgPitch < 62 && n >= 60 && n <= 900;
+              return item.t.avgPitch >= 28 && item.t.avgPitch < 62 && n >= 20 && n <= 900;
             })
             .sort((a, b) => b.cov.spanRatio - a.cov.spanRatio || a.t.notes.length - b.t.notes.length);
           lhCandidate = bassCompanion[0] || null;
@@ -301,11 +301,11 @@ function cleanPlayableHandNotes(noteArr, handTrack, { maxChordVoices = 4 } = {})
       j += 1;
     }
 
-    // Drop quiet ghost glitches (< 80ms and velocity < 48) when accompanied by a solid note in the cluster
+    // Drop tiny sub-45ms transient ghost glitches (< 45ms and velocity < 45) when accompanied by a solid note in the cluster
     const hasSolidNote = group.some((g) => g.duration >= 0.12 && (g.velocity ?? 90) >= 60);
     const nonGhost = [];
     for (const g of group) {
-      if (hasSolidNote && g.duration < 0.08 && (g.velocity ?? 90) < 48) {
+      if (hasSolidNote && g.duration < 0.045 && (g.velocity ?? 90) < 45) {
         removedCount += 1;
       } else {
         nonGhost.push(g);

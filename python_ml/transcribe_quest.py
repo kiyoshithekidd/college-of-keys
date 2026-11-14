@@ -129,11 +129,9 @@ def write_standard_midi_file(
     """
     ticks_per_sec = (bpm / 60.0) * ppq
 
-    safe_notes = list(notes) if notes else [
-        {"midi": 60, "start": 0.0, "duration": 0.45, "velocity": 88},
-        {"midi": 64, "start": 0.5, "duration": 0.45, "velocity": 88},
-        {"midi": 67, "start": 1.0, "duration": 0.60, "velocity": 90},
-    ]
+    if not notes:
+        raise ValueError("Cannot write Standard MIDI File: no playable notes were extracted.")
+    safe_notes = list(notes)
 
     rh_events = []
     lh_events = []
@@ -325,29 +323,46 @@ def read_wav_mono_float(wav_path: Path, max_seconds: float = 180.0):
 
     if sampwidth == 2:
         pcm = array.array("h")
-        pcm.frombytes(raw_bytes)
-        scale = 1.0 / 32768.0
+        pcm.frombytes(raw_bytes[: (len(raw_bytes) // 2) * 2])
+        scale = 1.0 / (32768.0 * channels)
         if channels == 1:
-            samples = [s * scale for s in pcm]
+            samples = [s / 32768.0 for s in pcm]
         else:
-            samples = [pcm[i] * scale for i in range(0, len(pcm), channels)]
+            samples = [
+                sum(pcm[i + ch] for ch in range(channels)) * scale
+                for i in range(0, len(pcm) - channels + 1, channels)
+            ]
     elif sampwidth == 3:
         # 24-bit signed little-endian PCM
         frame_stride = 3 * channels
-        scale = 1.0 / 8388608.0
+        scale = 1.0 / (8388608.0 * channels)
         samples = [
-            int.from_bytes(raw_bytes[i : i + 3], byteorder="little", signed=True) * scale
-            for i in range(0, len(raw_bytes) - 2, frame_stride)
+            sum(
+                int.from_bytes(raw_bytes[i + ch * 3 : i + (ch + 1) * 3], byteorder="little", signed=True)
+                for ch in range(channels)
+            ) * scale
+            for i in range(0, len(raw_bytes) - frame_stride + 1, frame_stride)
         ]
     elif sampwidth == 4:
         # 32-bit signed little-endian PCM
         pcm = array.array("i")
         pcm.frombytes(raw_bytes[: (len(raw_bytes) // 4) * 4])
-        scale = 1.0 / 2147483648.0
-        samples = [pcm[i] * scale for i in range(0, len(pcm), channels)]
+        scale = 1.0 / (2147483648.0 * channels)
+        if channels == 1:
+            samples = [s / 2147483648.0 for s in pcm]
+        else:
+            samples = [
+                sum(pcm[i + ch] for ch in range(channels)) * scale
+                for i in range(0, len(pcm) - channels + 1, channels)
+            ]
     else:
         # 8-bit unsigned PCM
-        samples = [(b - 128) / 128.0 for b in raw_bytes[::max(1, channels * sampwidth)]]
+        frame_stride = max(1, channels * sampwidth)
+        scale = 1.0 / (128.0 * channels)
+        samples = [
+            sum(raw_bytes[i + ch * sampwidth] - 128 for ch in range(channels)) * scale
+            for i in range(0, len(raw_bytes) - frame_stride + 1, frame_stride)
+        ]
 
     return samples, framerate
 
@@ -415,26 +430,35 @@ def transcribe_wav_polyphonic_dsp(wav_path: Path, output_midi_path: Path, song_t
                         if mag >= top_mag * 0.42:
                             frame_pitches.append((m, min(115, max(50, int(60 + rms * 180)))))
         else:
-            # Pure-Python Goertzel energy detector across diatonic/chromatic 61-key bins
+            # Pure-Python Goertzel energy detector across full 61-key range (MIDI 36..96)
             rms = math.sqrt(sum(x * x for x in chunk) / len(chunk))
             if rms > 0.018:
-                # Subsample by 4x for fast pure-Python Goertzel evaluation
-                step = 4
-                sub = chunk[::step]
-                sub_sr = sr / float(step)
+                # Boxcar-average by 2x when sample rate > 16kHz (Nyquist >= 11kHz > C7=2093Hz)
+                if sr > 16000 and len(chunk) >= 4:
+                    sub = [(chunk[i] + chunk[i + 1]) * 0.5 for i in range(0, len(chunk) - 1, 2)]
+                    sub_sr = sr / 2.0
+                else:
+                    sub = chunk
+                    sub_sr = float(sr)
                 N = len(sub)
+                if N > 1:
+                    windowed_sub = [
+                        sub[idx] * (0.5 * (1.0 - math.cos((2.0 * math.pi * idx) / (N - 1))))
+                        for idx in range(N)
+                    ]
+                else:
+                    windowed_sub = sub
                 pitch_scores = []
-                for m in range(40, 89):
+                for m in range(36, 97):
                     f0 = midi_freqs[m]
                     if f0 >= sub_sr * 0.45:
                         continue
-                    k = int(0.5 + (N * f0) / sub_sr)
-                    w = (2.0 * math.pi * k) / N
+                    w = (2.0 * math.pi * f0) / sub_sr
                     cosine = math.cos(w)
                     coeff = 2.0 * cosine
                     q1 = 0.0
                     q2 = 0.0
-                    for x in sub:
+                    for x in windowed_sub:
                         q0 = coeff * q1 - q2 + x
                         q2 = q1
                         q1 = q0
@@ -485,8 +509,21 @@ def transcribe_wav_polyphonic_dsp(wav_path: Path, output_midi_path: Path, song_t
         })
 
     extracted_notes.sort(key=lambda x: (x["start"], x["midi"]))
-    log_status("writing_midi", f"Extracted {len(extracted_notes)} playable notes. Writing Standard MIDI File...", 85)
-    write_standard_midi_file(output_midi_path, extracted_notes, song_title=song_title, bpm=120)
+    estimated_bpm = 120
+    onsets = sorted({round(n["start"], 3) for n in extracted_notes})
+    if len(onsets) >= 3:
+        iois = [onsets[i + 1] - onsets[i] for i in range(len(onsets) - 1) if 0.2 <= (onsets[i + 1] - onsets[i]) <= 1.2]
+        if iois:
+            iois.sort()
+            median_ioi = iois[len(iois) // 2]
+            raw_bpm = 60.0 / median_ioi
+            while raw_bpm < 70.0:
+                raw_bpm *= 2.0
+            while raw_bpm > 170.0:
+                raw_bpm /= 2.0
+            estimated_bpm = max(55, min(200, int(round(raw_bpm))))
+    log_status("writing_midi", f"Extracted {len(extracted_notes)} playable notes ({estimated_bpm} BPM). Writing Standard MIDI File...", 85)
+    write_standard_midi_file(output_midi_path, extracted_notes, song_title=song_title, bpm=estimated_bpm)
 
 
 # ============================================================================
@@ -826,14 +863,9 @@ def main():
                 if has_pcm_wav:
                     transcribe_wav_polyphonic_dsp(pcm_wav, dest_midi_path, song_title=title)
                 else:
-                    log_status(
-                        "transcribing",
-                        "Generating playable 61-key MIDI arrangement from downloaded stream...",
-                        70,
+                    raise RuntimeError(
+                        "Could not decode audio stream to PCM WAV (ffmpeg/audioread unavailable or unsupported format)."
                     )
-                    seed_wav = tmp_dir / "harmonic_seed.wav"
-                    generate_self_test_wav(seed_wav)
-                    transcribe_wav_polyphonic_dsp(seed_wav, dest_midi_path, song_title=title)
 
             log_status(
                 "complete",

@@ -9,7 +9,11 @@ echo ===========================================================================
 echo.
 
 set "PYTHON_EXE="
-if exist "%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe" (
+if exist "%~dp0.venv\Scripts\python.exe" (
+    set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
+) else if exist "%~dp0..\.venv\Scripts\python.exe" (
+    set "PYTHON_EXE=%~dp0..\.venv\Scripts\python.exe"
+) else if exist "%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe" (
     set "PYTHON_EXE=%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe"
 ) else if exist "%LOCALAPPDATA%\Programs\Python\Python314\python.exe" (
     set "PYTHON_EXE=%LOCALAPPDATA%\Programs\Python\Python314\python.exe"

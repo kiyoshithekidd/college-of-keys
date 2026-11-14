@@ -1781,9 +1781,26 @@ html, body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .d20-grade-banner.nat-1 {
-    animation: none;
+  .d20-grade-banner.nat-1,
+  .arcane-crest,
+  .inspiration-banner.charged,
+  .tavern-hearth-glow,
+  .tavern-crest-logo-img,
+  .splash-crest-logo-img,
+  .btn-enter-tavern,
+  .tavern-title-splash {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
   }
+}
+
+.tavern-select:focus-visible,
+.tavern-slider:focus-visible,
+.tavern-checkbox:focus-visible,
+.tavern-btn:focus-visible,
+.quest-text-input:focus-visible {
+  outline: 2px solid var(--radiant-gold);
+  outline-offset: 2px;
 }
 
 .d20-grade-title {
@@ -3423,6 +3440,9 @@ body.view-mode-notation .grimoire-toast {
   padding: 6px 8px;
   white-space: pre-wrap;
   word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
   transition: max-height 0.2s ease;
 }
 
