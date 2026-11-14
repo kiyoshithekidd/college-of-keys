@@ -188,7 +188,7 @@
           <button id="btn-open-quest-board" class="tavern-btn btn-quest-board" title="Open The Quest Board: Paste a YouTube URL to transcribe into MIDI or browse BitMIDI, VGMusic & YouTube">
             &#128302; Quest Board
           </button>
-          <input id="midi-file-input" type="file" accept=".mid,.midi,.xml,.musicxml,.mxl" hidden />
+          <input id="midi-file-input" type="file" accept=".mid,.midi,.xml,.musicxml,.mxl,.pdf,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff" hidden />
           <button id="btn-load-midi" class="tavern-btn tavern-btn-primary" title="Import a .mid, .musicxml, .xml, or .mxl file (or drag & drop onto window)">
             &#128220; Import Spell
           </button>
@@ -786,6 +786,67 @@
         <div class="modal-actions">
           <button id="btn-modal-replay" class="tavern-btn tavern-btn-cast">&#128260; Cast Spell Again</button>
           <button id="btn-modal-close" class="tavern-btn tavern-btn-primary">&#128220; Return to Conservatory</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Issue #78: Sheet Music OMR Progress & Review Modal -->
+    <div id="omr-review-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="omr-modal-title">
+      <div class="omr-review-dialog">
+        <div class="quest-modal-top-bar">
+          <div>
+            <div class="modal-header-ornament">&#9830; OPTICAL MUSIC RECOGNITION &#9830;</div>
+            <h2 id="omr-modal-title" class="modal-main-title">&#128220; Sheet Music OMR Review</h2>
+            <p id="omr-source-subtitle" class="modal-song-subtitle">Scanning sheet music into MusicXML...</p>
+          </div>
+          <button id="btn-close-omr-modal" type="button" class="btn-icon quest-close-btn" title="Cancel / Discard OMR" aria-label="Close OMR Modal">&#10005;</button>
+        </div>
+
+        <div id="omr-progress-section" class="omr-progress-section">
+          <div class="omr-progress-track">
+            <div id="omr-progress-fill" class="omr-progress-fill" style="width: 0%;"></div>
+          </div>
+          <p id="omr-status-text" class="omr-status-text">Initializing OMR engine...</p>
+          <div class="modal-actions">
+            <button id="btn-omr-cancel" type="button" class="tavern-btn">Cancel</button>
+          </div>
+        </div>
+
+        <div id="omr-review-section" class="omr-review-section hidden">
+          <div class="omr-summary-row">
+            <span id="omr-confidence-badge" class="omr-confidence-badge conf-high">Confidence: High</span>
+            <span id="omr-summary-stats" class="omr-summary-stats">0 measures &bull; 0 notes</span>
+          </div>
+
+          <div class="omr-overrides-grid">
+            <div class="omr-field">
+              <label for="omr-title-input">Spell Title</label>
+              <input id="omr-title-input" type="text" class="tavern-input" placeholder="Untitled Sheet Spell" />
+            </div>
+            <div class="omr-field omr-field-sm">
+              <label for="omr-bpm-input">Tempo (BPM)</label>
+              <input id="omr-bpm-input" type="number" min="30" max="300" value="120" class="tavern-input" />
+            </div>
+            <div class="omr-field omr-field-sm">
+              <span>Detected Key / Meter</span>
+              <strong id="omr-detected-meta" class="omr-detected-meta">C Major &bull; 4/4</strong>
+            </div>
+          </div>
+
+          <div id="omr-warnings-box" class="omr-warnings-box hidden"></div>
+
+          <div class="omr-flagged-wrap">
+            <div class="omr-flagged-header">
+              <span>Flagged Measures for Review</span>
+              <span id="omr-flagged-count" class="omr-flagged-count">0 flagged</span>
+            </div>
+            <ul id="omr-flagged-list" class="omr-flagged-list"></ul>
+          </div>
+
+          <div class="modal-actions">
+            <button id="btn-omr-reject" type="button" class="tavern-btn">Reject &amp; Discard</button>
+            <button id="btn-omr-confirm" type="button" class="tavern-btn tavern-btn-cast">&#10024; Import to Grimoire</button>
+          </div>
         </div>
       </div>
     </div>

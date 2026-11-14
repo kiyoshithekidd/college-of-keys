@@ -19,6 +19,7 @@ const { pathToFileURL } = require('url');
 const { shell } = require('electron');
 const { createD20TrayRoller } = require('./d20-roller');
 const { isMusicXmlFileName, convertMusicXmlToMidiBuffer } = require('./musicxml-converter');
+const { isOmrSheetFileName, analyzeOmrConfidence, applyOmrOverridesToMusicXml } = require('./omr-confidence');
 const { isPianoCandidateTrackSmart, selectAutoPianoTracks, cleanPlayableHandNotes } = require('./midi-hygiene');
 const VexFlow = require('vexflow/bravura');
 const {
@@ -408,6 +409,26 @@ const questProgressMessage = document.getElementById('quest-progress-message');
 const questProgressPct = document.getElementById('quest-progress-pct');
 const questProgressFill = document.getElementById('quest-progress-fill');
 const questLogOutput = document.getElementById('quest-log-output');
+
+// DOM Elements — Issue #78: OMR Sheet Music Import & Review Modal
+const omrReviewModal = document.getElementById('omr-review-modal');
+const omrSourceSubtitle = document.getElementById('omr-source-subtitle');
+const btnCloseOmrModal = document.getElementById('btn-close-omr-modal');
+const omrProgressSection = document.getElementById('omr-progress-section');
+const omrProgressFill = document.getElementById('omr-progress-fill');
+const omrStatusText = document.getElementById('omr-status-text');
+const btnOmrCancel = document.getElementById('btn-omr-cancel');
+const omrReviewSection = document.getElementById('omr-review-section');
+const omrConfidenceBadge = document.getElementById('omr-confidence-badge');
+const omrSummaryStats = document.getElementById('omr-summary-stats');
+const omrTitleInput = document.getElementById('omr-title-input');
+const omrBpmInput = document.getElementById('omr-bpm-input');
+const omrDetectedMeta = document.getElementById('omr-detected-meta');
+const omrWarningsBox = document.getElementById('omr-warnings-box');
+const omrFlaggedCount = document.getElementById('omr-flagged-count');
+const omrFlaggedList = document.getElementById('omr-flagged-list');
+const btnOmrReject = document.getElementById('btn-omr-reject');
+const btnOmrConfirm = document.getElementById('btn-omr-confirm');
 const btnLinkBitmidi = document.getElementById('btn-link-bitmidi');
 const btnLinkVgmusic = document.getElementById('btn-link-vgmusic');
 const btnLinkYoutube = document.getElementById('btn-link-youtube');
@@ -5195,10 +5216,27 @@ function scanWatchedDirectories(notifyOnNew = false) {
   let addedNewSpell = null;
   let changed = false;
 
+  const seenOmrSheets = scanWatchedDirectories._seenOmrSheets || (scanWatchedDirectories._seenOmrSheets = new Set());
+
   for (const { dir, sourceTag } of dirsToScan) {
     try {
       if (!fs.existsSync(dir)) continue;
-      const files = fs.readdirSync(dir).filter((f) => /\.(mid|midi|musicxml|xml|mxl)$/i.test(f));
+      const allEntries = fs.readdirSync(dir);
+      if (sourceTag === 'Imports/' && notifyOnNew) {
+        const stemSet = new Set(
+          allEntries
+            .filter((f) => /\.(mid|midi|musicxml|xml|mxl)$/i.test(f))
+            .map((f) => path.basename(f, path.extname(f)).toLowerCase())
+        );
+        for (const f of allEntries) {
+          if (!isOmrSheetFileName(f)) continue;
+          const stem = path.basename(f, path.extname(f)).toLowerCase();
+          if (stemSet.has(stem) || seenOmrSheets.has(f.toLowerCase())) continue;
+          seenOmrSheets.add(f.toLowerCase());
+          showGrimoireToast(`\uD83D\uDCDC Sheet "${f}" detected in Imports/. Use Import Spell or drag-drop to run OMR & Review!`);
+        }
+      }
+      const files = allEntries.filter((f) => /\.(mid|midi|musicxml|xml|mxl)$/i.test(f));
 
       for (const file of files) {
         const key = `${sourceTag.toLowerCase()}::${file.toLowerCase()}`;
@@ -7826,6 +7864,11 @@ window.addEventListener('keydown', (e) => {
       closeDeleteSpellConfirmModal();
       return;
     }
+    if (omrReviewModal && !omrReviewModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeOmrReviewModal();
+      return;
+    }
     if (questBoardModal && !questBoardModal.classList.contains('hidden')) {
       e.preventDefault();
       closeQuestBoardModal();
@@ -8071,8 +8114,12 @@ midiFileInput.addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
   try {
-    const buffer = await file.arrayBuffer();
-    loadSongFromBuffer(buffer, file.name, file.path || null);
+    if (isOmrSheetFileName(file.name)) {
+      await startOmrImportFromFile(file);
+    } else {
+      const buffer = await file.arrayBuffer();
+      loadSongFromBuffer(buffer, file.name, file.path || null);
+    }
   } catch (err) {
     showGrimoireToast(`Failed to import "${file.name}": ${err.message}`, 'error');
   }
@@ -10376,13 +10423,250 @@ window.addEventListener('dragleave', (e) => {
   }
 });
 
+const activeOmrState = {
+  child: null,
+  tempInputPath: null,
+  tempXmlPath: null,
+  rawXmlText: null,
+  sourceName: null,
+  converted: null
+};
+
+function cleanupOmrTempFiles() {
+  for (const p of [activeOmrState.tempInputPath, activeOmrState.tempXmlPath]) {
+    if (p) {
+      try {
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+  }
+  activeOmrState.tempInputPath = null;
+  activeOmrState.tempXmlPath = null;
+  activeOmrState.rawXmlText = null;
+  activeOmrState.converted = null;
+}
+
+function closeOmrReviewModal() {
+  if (activeOmrState.child) {
+    try {
+      activeOmrState.child.kill();
+    } catch {
+      // Ignore kill error
+    }
+    activeOmrState.child = null;
+  }
+  cleanupOmrTempFiles();
+  if (omrReviewModal) omrReviewModal.classList.add('hidden');
+}
+
+function renderOmrReviewState(sourceName, xmlText, converted, midi, omrWarnings = []) {
+  const report = analyzeOmrConfidence(converted.metadata, midi, omrWarnings);
+  if (omrProgressSection) omrProgressSection.classList.add('hidden');
+  if (omrReviewSection) omrReviewSection.classList.remove('hidden');
+
+  if (omrSourceSubtitle) omrSourceSubtitle.textContent = `Review recognized notation from "${sourceName}" before saving`;
+  if (omrConfidenceBadge) {
+    omrConfidenceBadge.className = `omr-confidence-badge conf-${report.overallConfidence}`;
+    const label = report.overallConfidence === 'high' ? 'High' : report.overallConfidence === 'medium' ? 'Medium' : 'Low';
+    omrConfidenceBadge.textContent = `Confidence: ${label}`;
+  }
+
+  const totalNotes = (midi?.tracks || []).reduce((acc, t) => acc + (t.notes?.length || 0), 0);
+  if (omrSummaryStats) {
+    omrSummaryStats.textContent = `${report.totalMeasures} measures \u2022 ${totalNotes} notes`;
+  }
+  if (omrTitleInput) {
+    const defaultTitle = (converted.metadata?.title && converted.metadata.title !== 'Untitled')
+      ? converted.metadata.title
+      : path.basename(sourceName, path.extname(sourceName));
+    omrTitleInput.value = defaultTitle;
+  }
+  if (omrBpmInput) {
+    omrBpmInput.value = Math.round(Number(converted.metadata?.bpm) || 120);
+  }
+  if (omrDetectedMeta) {
+    const keyLabel = converted.metadata?.keySignature || 'C Major';
+    const ts0 = converted.metadata?.timeSignatures?.[0]?.timeSignature;
+    const tsLabel = Array.isArray(ts0) ? `${ts0[0]}/${ts0[1]}` : '4/4';
+    omrDetectedMeta.textContent = `${keyLabel} \u2022 ${tsLabel}`;
+  }
+
+  if (omrWarningsBox) {
+    if (report.warnings.length > 0) {
+      omrWarningsBox.textContent = report.warnings.join(' ');
+      omrWarningsBox.classList.remove('hidden');
+    } else {
+      omrWarningsBox.classList.add('hidden');
+    }
+  }
+
+  if (omrFlaggedCount) {
+    omrFlaggedCount.textContent = `${report.flaggedCount} flagged`;
+  }
+  if (omrFlaggedList) {
+    omrFlaggedList.innerHTML = '';
+    if (report.flaggedMeasures.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'sev-clean';
+      li.textContent = 'All measures passed rhythmic & pitch sanity checks.';
+      omrFlaggedList.appendChild(li);
+    } else {
+      for (const fm of report.flaggedMeasures) {
+        const li = document.createElement('li');
+        if (fm.severity === 'low') li.className = 'sev-low';
+        li.textContent = `Bar ${fm.number}: ${fm.reasons.join('; ')}`;
+        omrFlaggedList.appendChild(li);
+      }
+    }
+  }
+}
+
+async function startOmrImportFromFile(file) {
+  if (!file) return;
+  const scriptPath = path.join(__dirname, 'python_ml', 'omr_import.py');
+  if (!fs.existsSync(scriptPath)) {
+    showGrimoireToast('OMR script python_ml/omr_import.py not found.', 'error');
+    return;
+  }
+
+  closeOmrReviewModal();
+  activeOmrState.sourceName = file.name;
+
+  let inputPath = file.path || null;
+  if (!inputPath) {
+    const tmpIn = path.join(os.tmpdir(), `cok_omr_in_${Date.now()}${path.extname(file.name) || '.pdf'}`);
+    const buf = Buffer.from(await file.arrayBuffer());
+    fs.writeFileSync(tmpIn, buf);
+    inputPath = tmpIn;
+    activeOmrState.tempInputPath = tmpIn;
+  }
+
+  const tempXmlPath = path.join(os.tmpdir(), `cok_omr_out_${Date.now()}.musicxml`);
+  activeOmrState.tempXmlPath = tempXmlPath;
+
+  if (omrReviewModal) omrReviewModal.classList.remove('hidden');
+  if (omrProgressSection) omrProgressSection.classList.remove('hidden');
+  if (omrReviewSection) omrReviewSection.classList.add('hidden');
+  if (omrSourceSubtitle) omrSourceSubtitle.textContent = `Recognizing "${file.name}"...`;
+  if (omrProgressFill) omrProgressFill.style.width = '4%';
+  if (omrStatusText) omrStatusText.textContent = 'Starting OMR engine (homr + pypdfium2)...';
+
+  const pythonExe = resolvePythonExecutable();
+  const child = spawn(pythonExe, [scriptPath, inputPath, '--out', tempXmlPath], {
+    cwd: __dirname,
+    windowsHide: true
+  });
+  activeOmrState.child = child;
+
+  let latestWarnings = [];
+  let stdoutBuf = '';
+  child.stdout.on('data', (chunk) => {
+    stdoutBuf += chunk.toString();
+    const lines = stdoutBuf.split(/\r?\n/);
+    stdoutBuf = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.startsWith('[OMR_STATUS] ')) continue;
+      try {
+        const st = JSON.parse(line.slice('[OMR_STATUS] '.length));
+        if (omrProgressFill && Number.isFinite(st.percent)) {
+          omrProgressFill.style.width = `${Math.max(0, Math.min(100, st.percent))}%`;
+        }
+        if (omrStatusText && st.message) {
+          omrStatusText.textContent = st.message;
+        }
+        if (Array.isArray(st.warnings)) {
+          latestWarnings = st.warnings;
+        }
+      } catch {
+        // Ignore malformed status JSON
+      }
+    }
+  });
+
+  let stderrText = '';
+  child.stderr.on('data', (chunk) => {
+    stderrText += chunk.toString();
+  });
+
+  child.on('close', (code) => {
+    activeOmrState.child = null;
+    if (code !== 0 || !fs.existsSync(tempXmlPath)) {
+      const msg = omrStatusText?.textContent || stderrText.trim().split(/\r?\n/).pop() || 'OMR conversion failed.';
+      showGrimoireToast(`OMR failed: ${msg}`, 'error');
+      closeOmrReviewModal();
+      return;
+    }
+
+    try {
+      const xmlText = fs.readFileSync(tempXmlPath, 'utf8');
+      const converted = convertMusicXmlToMidiBuffer(Buffer.from(xmlText, 'utf8'), `${path.basename(file.name, path.extname(file.name))}.musicxml`);
+      const midi = new Midi(converted.midiArrayBuffer);
+      activeOmrState.rawXmlText = xmlText;
+      activeOmrState.converted = converted;
+      renderOmrReviewState(file.name, xmlText, converted, midi, latestWarnings);
+    } catch (err) {
+      showGrimoireToast(`OMR MusicXML parse error: ${err.message}`, 'error');
+      closeOmrReviewModal();
+    }
+  });
+}
+
+function confirmOmrImport() {
+  if (!activeOmrState.rawXmlText) return;
+  try {
+    if (!fs.existsSync(IMPORTS_DIR)) {
+      fs.mkdirSync(IMPORTS_DIR, { recursive: true });
+    }
+    const titleVal = (omrTitleInput?.value || '').trim();
+    const bpmVal = Number(omrBpmInput?.value) || 0;
+    const finalXml = applyOmrOverridesToMusicXml(activeOmrState.rawXmlText, { title: titleVal, bpm: bpmVal });
+    const rawStem = (titleVal || path.basename(activeOmrState.sourceName || 'omr_spell', path.extname(activeOmrState.sourceName || '.pdf')))
+      .replace(/[^a-zA-Z0-9._-]+/g, '_')
+      .replace(/^_+|_+$/g, '') || `omr_spell_${Date.now()}`;
+    let destPath = path.join(IMPORTS_DIR, `${rawStem}.musicxml`);
+    if (fs.existsSync(destPath)) {
+      destPath = path.join(IMPORTS_DIR, `${rawStem}_${Date.now()}.musicxml`);
+    }
+    fs.writeFileSync(destPath, finalXml, 'utf8');
+    const xmlBuf = fs.readFileSync(destPath);
+    const arrayBuf = xmlBuf.buffer.slice(xmlBuf.byteOffset, xmlBuf.byteOffset + xmlBuf.byteLength);
+    closeOmrReviewModal();
+    scanWatchedDirectories(false);
+    renderGrimoireSidebar();
+    loadSongFromBuffer(arrayBuf, path.basename(destPath), destPath);
+    showGrimoireToast(`\u2728 OMR Spell imported to Grimoire: "${path.basename(destPath)}"`);
+  } catch (err) {
+    showGrimoireToast(`Failed to save OMR spell: ${err.message}`, 'error');
+  }
+}
+
+if (btnCloseOmrModal) btnCloseOmrModal.addEventListener('click', closeOmrReviewModal);
+if (btnOmrCancel) btnOmrCancel.addEventListener('click', closeOmrReviewModal);
+if (btnOmrReject) {
+  btnOmrReject.addEventListener('click', () => {
+    closeOmrReviewModal();
+    showGrimoireToast('OMR import discarded.');
+  });
+}
+if (btnOmrConfirm) btnOmrConfirm.addEventListener('click', confirmOmrImport);
+
 window.addEventListener('drop', async (e) => {
   e.preventDefault();
   hideGlobalDropOverlay();
   const file = e.dataTransfer?.files?.[0];
   if (!file) return;
+  if (isOmrSheetFileName(file.name)) {
+    try {
+      await startOmrImportFromFile(file);
+    } catch (err) {
+      showGrimoireToast(`OMR failed for "${file.name}": ${err.message}`, 'error');
+    }
+    return;
+  }
   if (!/\.(mid|midi|musicxml|xml|mxl)$/i.test(file.name)) {
-    showGrimoireToast('Unsupported file type. Please drop a .mid, .midi, .musicxml, .xml, or .mxl file.', 'error');
+    showGrimoireToast('Unsupported file type. Please drop a .mid, .musicxml, .xml, .mxl, .pdf, or sheet image.', 'error');
     return;
   }
   try {
