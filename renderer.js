@@ -50,6 +50,15 @@ const {
   evaluateCollegeProgress,
   getCollegeTrackViewModels
 } = require('./bard-colleges');
+const {
+  CAMPAIGN_VENUES,
+  getCampaignVenueById,
+  createDefaultCampaignProgress,
+  normalizeCampaignProgress,
+  buildVenueSetlistItems,
+  evaluateVenueCheck,
+  getCampaignVenueViewModels
+} = require('./bard-campaign');
 const { isPianoCandidateTrackSmart, selectAutoPianoTracks, cleanPlayableHandNotes } = require('./midi-hygiene');
 const VexFlow = require('vexflow/bravura');
 const {
@@ -582,6 +591,28 @@ const collegeDetailSubtitle = document.getElementById('college-detail-subtitle')
 const btnEnrollCollege = document.getElementById('btn-enroll-college');
 const collegeDrillsList = document.getElementById('college-drills-list');
 const collegeSongsList = document.getElementById('college-songs-list');
+const btnMenuCampaign = document.getElementById('btn-menu-campaign');
+const menuCampaignProgress = document.getElementById('menu-campaign-progress');
+const btnOpenCampaign = document.getElementById('btn-open-campaign');
+const campaignVenueHud = document.getElementById('campaign-venue-hud');
+const campaignHudVenue = document.getElementById('campaign-hud-venue');
+const campaignHudDc = document.getElementById('campaign-hud-dc');
+const btnExitCampaignGig = document.getElementById('btn-exit-campaign-gig');
+const modalCampaignResult = document.getElementById('modal-campaign-result');
+const modalCampaignStatus = document.getElementById('modal-campaign-status');
+const modalCampaignStory = document.getElementById('modal-campaign-story');
+const campaignModal = document.getElementById('campaign-modal');
+const btnCloseCampaign = document.getElementById('btn-close-campaign');
+const campaignVenuesGrid = document.getElementById('campaign-venues-grid');
+const campaignDetailAct = document.getElementById('campaign-detail-act');
+const campaignDetailName = document.getElementById('campaign-detail-name');
+const campaignDetailDc = document.getElementById('campaign-detail-dc');
+const campaignDetailSongs = document.getElementById('campaign-detail-songs');
+const campaignDetailReward = document.getElementById('campaign-detail-reward');
+const campaignDetailStory = document.getElementById('campaign-detail-story');
+const campaignDetailEpilogue = document.getElementById('campaign-detail-epilogue');
+const campaignDetailStatus = document.getElementById('campaign-detail-status');
+const btnStartCampaignGig = document.getElementById('btn-start-campaign-gig');
 
 // Issue #52 State: Main Menu Visibility & Persistent Song Play History
 let isTavernMenuVisible = true;
@@ -707,7 +738,8 @@ const bardProfile = {
   dailyQuests: null,
   unlockedAchievements: {},
   tutorialCompleted: false,
-  collegeProgress: createDefaultCollegeProgress()
+  collegeProgress: createDefaultCollegeProgress(),
+  campaignProgress: createDefaultCampaignProgress()
 };
 
 // Issue #66: Current month/year displayed in the Hearthfire Streak Calendar popover
@@ -1863,6 +1895,7 @@ function loadBardProfile() {
     bardProfile.unlockedAchievements = normalizeUnlockedAchievements(loaded.unlockedAchievements);
     bardProfile.tutorialCompleted = Boolean(loaded.tutorialCompleted);
     bardProfile.collegeProgress = normalizeCollegeProgress(loaded.collegeProgress);
+    bardProfile.campaignProgress = normalizeCampaignProgress(loaded.campaignProgress);
   }
 
   // Load per-song play history stats store (Issue #52 & #68)
@@ -1976,6 +2009,7 @@ function saveBardProfile() {
     unlockedAchievements: bardProfile.unlockedAchievements || {},
     tutorialCompleted: Boolean(bardProfile.tutorialCompleted),
     collegeProgress: bardProfile.collegeProgress || createDefaultCollegeProgress(),
+    campaignProgress: bardProfile.campaignProgress || createDefaultCampaignProgress(),
     updatedAt: new Date().toISOString()
   };
 
@@ -3112,6 +3146,10 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
     }
   }
 
+  if (modalCampaignResult) {
+    modalCampaignResult.classList.add('hidden');
+    modalCampaignResult.classList.remove('passed', 'failed');
+  }
   renderPostSongBreakdown(totalAttempts, priorWeakBarHistory);
   updatePerformanceModalSetlistUI();
   performanceCheckModal.classList.remove('hidden');
@@ -3167,6 +3205,9 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
         applyD20OutcomeToModal(outcome, false);
         if (typeof updateCollegeProgress === 'function') {
           updateCollegeProgress({ d20Total: outcome.total });
+        }
+        if (typeof resolveCampaignVenueCheck === 'function' && activeCampaignVenueId && !activeSetlistState.active) {
+          resolveCampaignVenueCheck(outcome.total);
         }
         if (outcome.tier === 'nat-20') {
           playNat20Flourish();
@@ -8051,7 +8092,8 @@ function isAnyModalOpen() {
   const spellbookOpen = grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden');
   const deleteConfirmOpen = deleteSpellConfirmModal && !deleteSpellConfirmModal.classList.contains('hidden');
   const collegesOpen = bardCollegesModal && !bardCollegesModal.classList.contains('hidden');
-  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen || deleteConfirmOpen || collegesOpen);
+  const campaignOpen = campaignModal && !campaignModal.classList.contains('hidden');
+  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen || deleteConfirmOpen || collegesOpen || campaignOpen);
 }
 
 window.addEventListener('keydown', (e) => {
@@ -12212,6 +12254,236 @@ if (bardCollegesModal) {
   bardCollegesModal.addEventListener('click', (e) => {
     if (e.target === bardCollegesModal) {
       closeCollegesModal();
+    }
+  });
+}
+
+let activeCampaignVenueId = null;
+let selectedCampaignVenueId = 'street-corner';
+
+function applyStageVenueBackdrop(venue) {
+  if (stageContainer) {
+    stageContainer.style.backgroundImage = venue && venue.backdropPath ? `url('${venue.backdropPath}')` : '';
+  }
+  if (campaignVenueHud) {
+    campaignVenueHud.classList.toggle('hidden', !venue);
+  }
+  if (venue) {
+    if (campaignHudVenue) campaignHudVenue.textContent = `${venue.actLabel} • ${venue.name}`;
+    if (campaignHudDc) campaignHudDc.textContent = `Target DC ${venue.dc} • Beat DC on final check`;
+  }
+}
+
+function updateTavernCampaignPill() {
+  const models = getCampaignVenueViewModels(bardProfile.campaignProgress);
+  const clearedCount = models.filter((v) => v.cleared).length;
+  if (menuCampaignProgress) {
+    menuCampaignProgress.textContent = `${clearedCount} / ${models.length} Venues →`;
+  }
+}
+
+function exitCampaignGig() {
+  activeCampaignVenueId = null;
+  applyStageVenueBackdrop(null);
+}
+
+function resolveCampaignVenueCheck(rolledTotal) {
+  if (!activeCampaignVenueId) return null;
+  const venueId = activeCampaignVenueId;
+  const result = evaluateVenueCheck(venueId, rolledTotal, bardProfile.campaignProgress);
+  bardProfile.campaignProgress = result.nextProgress;
+
+  if (result.passed && result.rewardXp > 0) {
+    awardBardXp(result.rewardXp);
+    refreshModalXpSection();
+  } else {
+    saveBardProfile();
+  }
+  updateTavernCampaignPill();
+
+  if (modalCampaignResult && modalCampaignStatus && modalCampaignStory && result.venue) {
+    modalCampaignResult.classList.remove('hidden', 'passed', 'failed');
+    modalCampaignResult.classList.add(result.passed ? 'passed' : 'failed');
+    if (result.passed) {
+      const unlockText = result.nextUnlockedVenue
+        ? ` • Unlocked: ${result.nextUnlockedVenue.name}!`
+        : ' • Campaign Complete!';
+      const xpText = result.rewardXp > 0 ? ` (+${result.rewardXp} Bonus XP)` : '';
+      modalCampaignStatus.textContent = `\uD83C\uDFC6 ${result.venue.name} Cleared! (Roll ${result.rolledTotal} vs DC ${result.venue.dc})${xpText}${unlockText}`;
+      modalCampaignStory.textContent = result.venue.storyOutro;
+    } else {
+      modalCampaignStatus.textContent = `\u2694 Fell Short at ${result.venue.name} (Roll ${result.rolledTotal} vs DC ${result.venue.dc})`;
+      modalCampaignStory.textContent = 'Practice the setlist and challenge this venue again to unlock the next stage!';
+    }
+  }
+
+  activeCampaignVenueId = null;
+  applyStageVenueBackdrop(null);
+  return result;
+}
+
+function startCampaignVenueGig(venueId) {
+  const models = getCampaignVenueViewModels(bardProfile.campaignProgress);
+  const venue = models.find((v) => v.id === venueId);
+  if (!venue || !venue.unlocked) return;
+
+  const catalog = Array.from(grimoireSpells.values());
+  const items = buildVenueSetlistItems(venue, catalog);
+  if (items.length === 0) return;
+
+  closeCampaignModal();
+  if (isTavernMenuVisible) {
+    hideTavernMenu();
+  }
+
+  activeCampaignVenueId = venue.id;
+  applyStageVenueBackdrop(venue);
+
+  activeSetlistState.active = true;
+  activeSetlistState.id = `campaign-${venue.id}`;
+  activeSetlistState.name = `${venue.actLabel}: ${venue.name}`;
+  activeSetlistState.items = items;
+  activeSetlistState.currentIndex = 0;
+  activeSetlistState.totalXpEarned = 0;
+  activeSetlistState.countedSongIndex = -1;
+
+  const loaded = loadGrimoireEntryForSetlist(items[0]);
+  if (!loaded) {
+    loadBuiltInDemoSpell();
+  }
+  showGrimoireToast(`\uD83C\uDFAD ${venue.actLabel}: ${venue.name} — Beat DC ${venue.dc} (${items.length}-song gig)!`);
+}
+
+function renderCampaignModal() {
+  const models = getCampaignVenueViewModels(bardProfile.campaignProgress);
+  if (!models.some((v) => v.id === selectedCampaignVenueId)) {
+    selectedCampaignVenueId = models[0].id;
+  }
+  const active = models.find((v) => v.id === selectedCampaignVenueId) || models[0];
+
+  if (campaignVenuesGrid) {
+    while (campaignVenuesGrid.firstChild) {
+      campaignVenuesGrid.removeChild(campaignVenuesGrid.firstChild);
+    }
+    for (const v of models) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = `campaign-venue-card${v.id === selectedCampaignVenueId ? ' selected' : ''}${!v.unlocked ? ' locked' : ''}`;
+      card.addEventListener('click', () => {
+        selectedCampaignVenueId = v.id;
+        renderCampaignModal();
+      });
+
+      const thumb = document.createElement('img');
+      thumb.src = v.backdropPath;
+      thumb.alt = '';
+      thumb.className = 'campaign-venue-thumb';
+
+      const body = document.createElement('div');
+      body.className = 'campaign-venue-card-body';
+
+      const act = document.createElement('span');
+      act.className = 'campaign-venue-act';
+      act.textContent = v.cleared ? `${v.actLabel} • ✓ Cleared` : (v.unlocked ? v.actLabel : `${v.actLabel} • 🔒 Locked`);
+
+      const name = document.createElement('strong');
+      name.className = 'campaign-venue-name';
+      name.textContent = v.name;
+
+      const meta = document.createElement('span');
+      meta.className = 'campaign-venue-meta';
+      meta.textContent = v.cleared
+        ? `DC ${v.dc} • Best Roll: ${v.bestRoll}`
+        : `DC ${v.dc} • ${v.songCount}-Song Gig`;
+
+      body.appendChild(act);
+      body.appendChild(name);
+      body.appendChild(meta);
+      card.appendChild(thumb);
+      card.appendChild(body);
+      campaignVenuesGrid.appendChild(card);
+    }
+  }
+
+  if (active) {
+    if (campaignDetailAct) campaignDetailAct.textContent = `${active.actLabel.toUpperCase()} • ${active.location.toUpperCase()}`;
+    if (campaignDetailName) campaignDetailName.textContent = active.name;
+    if (campaignDetailDc) campaignDetailDc.textContent = `DC ${active.dc}`;
+    if (campaignDetailSongs) campaignDetailSongs.textContent = `${active.songCount}-Song Gig`;
+    if (campaignDetailReward) campaignDetailReward.textContent = `+${active.rewardXp} XP`;
+    if (campaignDetailStory) campaignDetailStory.textContent = active.storyIntro;
+    if (campaignDetailEpilogue) {
+      campaignDetailEpilogue.classList.toggle('hidden', !active.cleared);
+      campaignDetailEpilogue.textContent = active.cleared ? `✓ Epilogue: ${active.storyOutro}` : '';
+    }
+    if (campaignDetailStatus) {
+      if (active.cleared) {
+        campaignDetailStatus.textContent = `Cleared (Best Roll: ${active.bestRoll}) • Replay anytime`;
+      } else if (active.unlocked) {
+        campaignDetailStatus.textContent = `Unlocked • Beat DC ${active.dc} on the final Performance Check`;
+      } else {
+        campaignDetailStatus.textContent = 'Locked • Clear the previous venue to unlock';
+      }
+    }
+    if (btnStartCampaignGig) {
+      btnStartCampaignGig.disabled = !active.unlocked;
+      btnStartCampaignGig.textContent = active.cleared ? '🎵 Replay Venue Gig' : '🎵 Play Venue Gig';
+    }
+  }
+}
+
+function openCampaignModal() {
+  pausePlayback();
+  closeAllConservatoryPopovers();
+  closeStreakPopover();
+  if (!campaignModal) return;
+  previousModalFocusElement = document.activeElement;
+  const models = getCampaignVenueViewModels(bardProfile.campaignProgress);
+  const nextTarget = models.find((v) => v.unlocked && !v.cleared) || models[0];
+  if (nextTarget) selectedCampaignVenueId = nextTarget.id;
+  renderCampaignModal();
+  campaignModal.classList.remove('hidden');
+  if (btnCloseCampaign) btnCloseCampaign.focus();
+}
+
+function closeCampaignModal() {
+  if (campaignModal) {
+    campaignModal.classList.add('hidden');
+  }
+  if (previousModalFocusElement && typeof previousModalFocusElement.focus === 'function') {
+    previousModalFocusElement.focus();
+  }
+}
+
+if (btnMenuCampaign) {
+  btnMenuCampaign.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openCampaignModal();
+  });
+}
+
+if (btnOpenCampaign) {
+  btnOpenCampaign.addEventListener('click', openCampaignModal);
+}
+
+if (btnCloseCampaign) {
+  btnCloseCampaign.addEventListener('click', closeCampaignModal);
+}
+
+if (btnStartCampaignGig) {
+  btnStartCampaignGig.addEventListener('click', () => {
+    startCampaignVenueGig(selectedCampaignVenueId);
+  });
+}
+
+if (btnExitCampaignGig) {
+  btnExitCampaignGig.addEventListener('click', exitCampaignGig);
+}
+
+if (campaignModal) {
+  campaignModal.addEventListener('click', (e) => {
+    if (e.target === campaignModal) {
+      closeCampaignModal();
     }
   });
 }

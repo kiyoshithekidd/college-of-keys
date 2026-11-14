@@ -133,6 +133,11 @@
               <strong id="menu-college-name" class="tavern-college-pill-name">Choose Bard College</strong>
               <span id="menu-college-progress" class="tavern-college-pill-cta">Learning Tracks &rarr;</span>
             </button>
+            <button id="btn-menu-campaign" type="button" class="tavern-college-pill tavern-campaign-pill" title="Open Campaign Map: The Ballad of the Silver Keys">
+              <img src="assets/images/icons/icon-campaign-map.png" alt="" class="tavern-college-pill-icon" />
+              <strong class="tavern-college-pill-name">Campaign Tour</strong>
+              <span id="menu-campaign-progress" class="tavern-college-pill-cta">0 / 4 Venues &rarr;</span>
+            </button>
           </div>
 
           <!-- Issue #66: Expandable Hearthfire Month Calendar Popover -->
@@ -195,6 +200,9 @@
           </button>
           <button id="btn-open-colleges" class="tavern-btn btn-gold-outline" title="Browse Bard Colleges &amp; Learning Tracks (Lore, Cadence, Revelry)">
             <img src="assets/images/icons/icon-college-lore.png" alt="" class="tavern-inline-icon" /> Colleges
+          </button>
+          <button id="btn-open-campaign" class="tavern-btn btn-gold-outline" title="Open Campaign Map: Gigs at Venues">
+            <img src="assets/images/icons/icon-campaign-map.png" alt="" class="tavern-inline-icon" /> Campaign
           </button>
           <button id="btn-open-quest-board" class="tavern-btn btn-quest-board" title="Open The Quest Board: Paste a YouTube URL to transcribe into MIDI or browse BitMIDI, VGMusic & YouTube">
             &#128302; Quest Board
@@ -726,6 +734,16 @@
           </div>
           <button id="btn-exit-tutorial" type="button" class="tutorial-exit-btn" title="Exit Guided Tutorial">Exit</button>
         </div>
+
+        <!-- Issue #29: Active Campaign Venue HUD Pill -->
+        <div id="campaign-venue-hud" class="campaign-venue-hud hidden">
+          <img src="assets/images/icons/icon-campaign-map.png" alt="" class="campaign-hud-icon" />
+          <div class="campaign-hud-text">
+            <strong id="campaign-hud-venue">Act I &bull; Cobblestone Street Corner</strong>
+            <span id="campaign-hud-dc">Target DC 10 &bull; Beat DC on final check</span>
+          </div>
+          <button id="btn-exit-campaign-gig" type="button" class="tutorial-exit-btn" title="Return to normal practice stage">Leave Venue</button>
+        </div>
       </main>
     </div>
 
@@ -825,6 +843,11 @@
           </div>
           <div id="modal-section-bars" class="breakdown-sections-grid"></div>
           <div id="modal-weak-measures" class="breakdown-weak-list"></div>
+        </div>
+
+        <div id="modal-campaign-result" class="modal-campaign-result hidden">
+          <strong id="modal-campaign-status" class="modal-campaign-status">Venue Cleared!</strong>
+          <p id="modal-campaign-story" class="modal-campaign-story"></p>
         </div>
 
         <div id="modal-setlist-banner" class="modal-setlist-banner hidden">
@@ -1348,6 +1371,44 @@
               <h3 class="annals-section-heading">&#127926; Recommended Track Repertoire</h3>
               <div id="college-songs-list" class="college-songs-list"></div>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Issue #29: Campaign Mode: Gigs at Venues Modal -->
+    <div id="campaign-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="campaign-modal-title">
+      <div class="modal-card campaign-modal-card">
+        <div class="modal-header">
+          <div class="modal-header-left">
+            <img src="assets/images/icons/icon-campaign-map.png" alt="" class="modal-header-icon" />
+            <div>
+              <h2 id="campaign-modal-title" class="modal-title">Campaign: The Ballad of the Silver Keys</h2>
+              <span class="modal-subtitle">Rise from Oakhaven's Cobblestones to the Royal Court &mdash; Beat Each Venue's DC</span>
+            </div>
+          </div>
+          <button id="btn-close-campaign" class="modal-close-btn" title="Close Campaign Map" aria-label="Close Campaign Map">&times;</button>
+        </div>
+
+        <div id="campaign-venues-grid" class="campaign-venues-grid"></div>
+
+        <div id="campaign-detail-panel" class="campaign-detail-panel">
+          <div class="campaign-detail-header">
+            <div>
+              <span id="campaign-detail-act" class="campaign-detail-act">ACT I &bull; OAKHAVEN SQUARE</span>
+              <strong id="campaign-detail-name" class="campaign-detail-name">Cobblestone Street Corner</strong>
+            </div>
+            <div class="campaign-detail-badges">
+              <span id="campaign-detail-dc" class="campaign-dc-pill">DC 10</span>
+              <span id="campaign-detail-songs" class="campaign-songs-pill">1-Song Gig</span>
+              <span id="campaign-detail-reward" class="campaign-reward-pill">+75 XP</span>
+            </div>
+          </div>
+          <p id="campaign-detail-story" class="campaign-detail-story"></p>
+          <p id="campaign-detail-epilogue" class="campaign-detail-epilogue hidden"></p>
+          <div class="campaign-detail-footer">
+            <span id="campaign-detail-status" class="campaign-detail-status">Unlocked &bull; Ready to Perform</span>
+            <button id="btn-start-campaign-gig" type="button" class="tavern-btn tavern-btn-primary">&#127926; Play Venue Gig</button>
           </div>
         </div>
       </div>
