@@ -42,6 +42,14 @@ const {
   advanceTutorialState,
   getTutorialBannerViewModel
 } = require('./guild-tutorial');
+const {
+  BARD_COLLEGES,
+  getCollegeById,
+  createDefaultCollegeProgress,
+  normalizeCollegeProgress,
+  evaluateCollegeProgress,
+  getCollegeTrackViewModels
+} = require('./bard-colleges');
 const { isPianoCandidateTrackSmart, selectAutoPianoTracks, cleanPlayableHandNotes } = require('./midi-hygiene');
 const VexFlow = require('vexflow/bravura');
 const {
@@ -560,6 +568,20 @@ const tutorialCoachProgress = document.getElementById('tutorial-coach-progress')
 const tutorialCoachTitle = document.getElementById('tutorial-coach-title');
 const tutorialCoachHint = document.getElementById('tutorial-coach-hint');
 const btnExitTutorial = document.getElementById('btn-exit-tutorial');
+const btnMenuColleges = document.getElementById('btn-menu-colleges');
+const menuCollegeIcon = document.getElementById('menu-college-icon');
+const menuCollegeName = document.getElementById('menu-college-name');
+const menuCollegeProgress = document.getElementById('menu-college-progress');
+const btnOpenColleges = document.getElementById('btn-open-colleges');
+const bardCollegesModal = document.getElementById('bard-colleges-modal');
+const btnCloseColleges = document.getElementById('btn-close-colleges');
+const collegesModalHeaderIcon = document.getElementById('colleges-modal-header-icon');
+const collegesCardsGrid = document.getElementById('colleges-cards-grid');
+const collegeDetailTitle = document.getElementById('college-detail-title');
+const collegeDetailSubtitle = document.getElementById('college-detail-subtitle');
+const btnEnrollCollege = document.getElementById('btn-enroll-college');
+const collegeDrillsList = document.getElementById('college-drills-list');
+const collegeSongsList = document.getElementById('college-songs-list');
 
 // Issue #52 State: Main Menu Visibility & Persistent Song Play History
 let isTavernMenuVisible = true;
@@ -684,7 +706,8 @@ const bardProfile = {
   practiceDays: {},
   dailyQuests: null,
   unlockedAchievements: {},
-  tutorialCompleted: false
+  tutorialCompleted: false,
+  collegeProgress: createDefaultCollegeProgress()
 };
 
 // Issue #66: Current month/year displayed in the Hearthfire Streak Calendar popover
@@ -1839,6 +1862,7 @@ function loadBardProfile() {
     }
     bardProfile.unlockedAchievements = normalizeUnlockedAchievements(loaded.unlockedAchievements);
     bardProfile.tutorialCompleted = Boolean(loaded.tutorialCompleted);
+    bardProfile.collegeProgress = normalizeCollegeProgress(loaded.collegeProgress);
   }
 
   // Load per-song play history stats store (Issue #52 & #68)
@@ -1951,6 +1975,7 @@ function saveBardProfile() {
     dailyQuests: bardProfile.dailyQuests || null,
     unlockedAchievements: bardProfile.unlockedAchievements || {},
     tutorialCompleted: Boolean(bardProfile.tutorialCompleted),
+    collegeProgress: bardProfile.collegeProgress || createDefaultCollegeProgress(),
     updatedAt: new Date().toISOString()
   };
 
@@ -2244,6 +2269,15 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll, rh
   const crowdMood = getCrowdMoodForEnergy(songSessionStats.crowdEnergy);
   if (crowdMood.id === 'enchanted') {
     checkAndUnlockAchievements({ crowdMoodId: crowdMood.id });
+  }
+  if (
+    typeof updateCollegeProgress === 'function' &&
+    (crowdMood.id === 'lively' || crowdMood.id === 'enchanted' || songSessionStats.maxSpellChain >= 25)
+  ) {
+    updateCollegeProgress({
+      crowdMoodId: crowdMood.id,
+      maxSpellChain: songSessionStats.maxSpellChain
+    });
   }
 
   const diffMult = currentSong?.difficulty?.xpMultiplier ?? 1.0;
@@ -3006,6 +3040,17 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
     if (typeof updateTutorialProgress === 'function') {
       updateTutorialProgress({ type: 'song-completed' });
     }
+    if (typeof updateCollegeProgress === 'function') {
+      updateCollegeProgress({
+        songCompleted: true,
+        waitMode: Boolean(playbackState.waitMode),
+        playbackSpeed: playbackState.playbackSpeed,
+        accuracyPct,
+        cleanChordRolls: songSessionStats.cleanChordRolls,
+        cleanNotesHit: songSessionStats.cleanNotesHit,
+        maxSpellChain: songSessionStats.maxSpellChain
+      });
+    }
   }
 
   if (modalQuestsBanner && modalQuestsList && modalQuestsXpPill) {
@@ -3120,6 +3165,9 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
           refreshModalXpSection();
         }
         applyD20OutcomeToModal(outcome, false);
+        if (typeof updateCollegeProgress === 'function') {
+          updateCollegeProgress({ d20Total: outcome.total });
+        }
         if (outcome.tier === 'nat-20') {
           playNat20Flourish();
           checkAndUnlockAchievements({ rolledFace });
@@ -8002,7 +8050,8 @@ function isAnyModalOpen() {
   const howToOpen = howToPlayModal && !howToPlayModal.classList.contains('hidden');
   const spellbookOpen = grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden');
   const deleteConfirmOpen = deleteSpellConfirmModal && !deleteSpellConfirmModal.classList.contains('hidden');
-  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen || deleteConfirmOpen);
+  const collegesOpen = bardCollegesModal && !bardCollegesModal.classList.contains('hidden');
+  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen || deleteConfirmOpen || collegesOpen);
 }
 
 window.addEventListener('keydown', (e) => {
@@ -11048,6 +11097,9 @@ function updatePerformanceModalSetlistUI() {
     btnModalNextSetlist.classList.add('hidden');
     activeSetlistState.active = false;
     checkAndUnlockAchievements({ setlistCompleted: true });
+    if (typeof updateCollegeProgress === 'function') {
+      updateCollegeProgress({ setlistCompleted: true });
+    }
     refreshModalXpSection();
   }
 }
@@ -11379,6 +11431,9 @@ function updateTavernMenuStats() {
     menuLastSongLabel.textContent = activeTitle
       ? `Play: "${activeTitle}"`
       : 'Take the Stage (Empty Highway)';
+  }
+  if (typeof updateTavernCollegePill === 'function') {
+    updateTavernCollegePill();
   }
 
   // Update The Bookshelf summary with total spells in Grimoire
@@ -11893,6 +11948,270 @@ if (howToPlayModal) {
   howToPlayModal.addEventListener('click', (e) => {
     if (e.target === howToPlayModal) {
       closeHowToPlayModal();
+    }
+  });
+}
+
+let selectedCollegeId = 'lore';
+
+function updateTavernCollegePill() {
+  const progress = normalizeCollegeProgress(bardProfile.collegeProgress);
+  const enrolled = progress.enrolledCollegeId ? getCollegeById(progress.enrolledCollegeId) : null;
+  const catalog = Array.from(grimoireSpells.values());
+  const models = getCollegeTrackViewModels(progress, catalog);
+
+  if (enrolled) {
+    const model = models.find((m) => m.id === enrolled.id);
+    if (menuCollegeIcon) menuCollegeIcon.src = enrolled.iconPath;
+    if (menuCollegeName) menuCollegeName.textContent = enrolled.name;
+    if (menuCollegeProgress && model) {
+      menuCollegeProgress.textContent = `${model.completedCount} / ${model.totalDrills} Drills`;
+    }
+  } else {
+    if (menuCollegeIcon) menuCollegeIcon.src = 'assets/images/icons/icon-college-lore.png';
+    if (menuCollegeName) menuCollegeName.textContent = 'Choose Bard College';
+    if (menuCollegeProgress) menuCollegeProgress.textContent = 'Learning Tracks →';
+  }
+}
+
+function updateCollegeProgress(context = {}) {
+  const result = evaluateCollegeProgress(context, bardProfile.collegeProgress);
+  bardProfile.collegeProgress = result.nextProgress;
+  saveBardProfile();
+  updateTavernCollegePill();
+
+  if (result.newlyCompletedDrills.length > 0) {
+    const first = result.newlyCompletedDrills[0];
+    showGrimoireToast(`\uD83C\uDF93 ${first.collegeName} Drill Complete: ${first.title}!`);
+  }
+  if (bardCollegesModal && !bardCollegesModal.classList.contains('hidden')) {
+    renderCollegesModal();
+  }
+  return result;
+}
+
+function renderCollegesModal() {
+  const progress = normalizeCollegeProgress(bardProfile.collegeProgress);
+  const catalog = Array.from(grimoireSpells.values());
+  const models = getCollegeTrackViewModels(progress, catalog);
+
+  if (!models.some((m) => m.id === selectedCollegeId)) {
+    selectedCollegeId = progress.enrolledCollegeId || 'lore';
+  }
+  const activeModel = models.find((m) => m.id === selectedCollegeId) || models[0];
+
+  if (collegesModalHeaderIcon && activeModel) {
+    collegesModalHeaderIcon.src = activeModel.iconPath;
+  }
+
+  if (collegesCardsGrid) {
+    while (collegesCardsGrid.firstChild) {
+      collegesCardsGrid.removeChild(collegesCardsGrid.firstChild);
+    }
+    for (const m of models) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = `college-track-card ${m.accentClass}${m.id === selectedCollegeId ? ' selected' : ''}`;
+      card.addEventListener('click', () => {
+        selectedCollegeId = m.id;
+        renderCollegesModal();
+      });
+
+      const top = document.createElement('div');
+      top.className = 'college-track-card-top';
+
+      const icon = document.createElement('img');
+      icon.src = m.iconPath;
+      icon.alt = '';
+      icon.className = 'college-track-icon';
+
+      const titleWrap = document.createElement('div');
+      const titleEl = document.createElement('strong');
+      titleEl.className = 'college-track-title';
+      titleEl.textContent = m.name;
+      const taglineEl = document.createElement('span');
+      taglineEl.className = 'college-track-tagline';
+      taglineEl.textContent = m.tagline;
+      titleWrap.appendChild(titleEl);
+      titleWrap.appendChild(taglineEl);
+
+      top.appendChild(icon);
+      top.appendChild(titleWrap);
+
+      const descEl = document.createElement('span');
+      descEl.className = 'college-track-desc';
+      descEl.textContent = m.description;
+
+      const progRow = document.createElement('div');
+      progRow.className = 'college-track-progress-row';
+      const countSpan = document.createElement('span');
+      countSpan.textContent = `${m.completedCount} / ${m.totalDrills} Drills • ${m.songsCompletedInCollege} Songs`;
+      progRow.appendChild(countSpan);
+      if (m.enrolled) {
+        const badge = document.createElement('span');
+        badge.className = 'college-enrolled-badge';
+        badge.textContent = 'Enrolled';
+        progRow.appendChild(badge);
+      }
+
+      const barTrack = document.createElement('div');
+      barTrack.className = 'college-progress-bar-track';
+      const barFill = document.createElement('div');
+      barFill.className = 'college-progress-bar-fill';
+      barFill.style.width = `${m.progressPct}%`;
+      barTrack.appendChild(barFill);
+
+      card.appendChild(top);
+      card.appendChild(descEl);
+      card.appendChild(progRow);
+      card.appendChild(barTrack);
+      collegesCardsGrid.appendChild(card);
+    }
+  }
+
+  if (activeModel) {
+    if (collegeDetailTitle) collegeDetailTitle.textContent = activeModel.name;
+    if (collegeDetailSubtitle) collegeDetailSubtitle.textContent = activeModel.tagline;
+    if (btnEnrollCollege) {
+      btnEnrollCollege.textContent = activeModel.enrolled ? '✓ Enrolled in College' : `Enroll in ${activeModel.shortName}`;
+      btnEnrollCollege.disabled = activeModel.enrolled;
+    }
+
+    if (collegeDrillsList) {
+      while (collegeDrillsList.firstChild) {
+        collegeDrillsList.removeChild(collegeDrillsList.firstChild);
+      }
+      for (const drill of activeModel.drills) {
+        const row = document.createElement('div');
+        row.className = `college-drill-row${drill.completed ? ' completed' : ''}`;
+
+        const status = document.createElement('span');
+        status.className = 'college-drill-status';
+        status.textContent = drill.completed ? '✅' : '⬜';
+
+        const textWrap = document.createElement('div');
+        const dTitle = document.createElement('strong');
+        dTitle.className = 'college-drill-title';
+        dTitle.textContent = drill.title;
+        const dDesc = document.createElement('span');
+        dDesc.className = 'college-drill-desc';
+        dDesc.textContent = drill.description;
+        textWrap.appendChild(dTitle);
+        textWrap.appendChild(dDesc);
+
+        row.appendChild(status);
+        row.appendChild(textWrap);
+        collegeDrillsList.appendChild(row);
+      }
+    }
+
+    if (collegeSongsList) {
+      while (collegeSongsList.firstChild) {
+        collegeSongsList.removeChild(collegeSongsList.firstChild);
+      }
+      if (activeModel.recommendedSongs.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'annals-empty-history';
+        empty.textContent = 'Import songs into The Grimoire to populate this track.';
+        collegeSongsList.appendChild(empty);
+      } else {
+        for (const songEntry of activeModel.recommendedSongs) {
+          const row = document.createElement('div');
+          row.className = 'college-song-row';
+
+          const info = document.createElement('div');
+          info.className = 'college-song-info';
+          const sTitle = document.createElement('strong');
+          sTitle.className = 'college-song-title';
+          sTitle.textContent = songEntry.title || songEntry.fileName || 'Untitled Scroll';
+          const sMeta = document.createElement('span');
+          sMeta.className = 'college-song-meta';
+          sMeta.textContent = songEntry.difficultyLabel || 'Cantrip';
+          info.appendChild(sTitle);
+          info.appendChild(sMeta);
+
+          const loadBtn = document.createElement('button');
+          loadBtn.type = 'button';
+          loadBtn.className = 'tavern-btn tavern-btn-primary college-song-load-btn';
+          loadBtn.textContent = '▶ Practice';
+          loadBtn.addEventListener('click', () => {
+            closeCollegesModal();
+            if (isTavernMenuVisible) {
+              hideTavernMenu();
+            }
+            if (songEntry.filePath === 'BUILTIN_DEMO') {
+              loadBuiltInDemoSpell();
+            } else {
+              loadGrimoireEntry(songEntry);
+            }
+          });
+
+          row.appendChild(info);
+          row.appendChild(loadBtn);
+          collegeSongsList.appendChild(row);
+        }
+      }
+    }
+  }
+}
+
+function openCollegesModal() {
+  pausePlayback();
+  closeAllConservatoryPopovers();
+  closeStreakPopover();
+  if (!bardCollegesModal) return;
+  previousModalFocusElement = document.activeElement;
+  const progress = normalizeCollegeProgress(bardProfile.collegeProgress);
+  if (progress.enrolledCollegeId) {
+    selectedCollegeId = progress.enrolledCollegeId;
+  }
+  renderCollegesModal();
+  bardCollegesModal.classList.remove('hidden');
+  if (btnCloseColleges) btnCloseColleges.focus();
+}
+
+function closeCollegesModal() {
+  if (bardCollegesModal) {
+    bardCollegesModal.classList.add('hidden');
+  }
+  if (previousModalFocusElement && typeof previousModalFocusElement.focus === 'function') {
+    previousModalFocusElement.focus();
+  }
+}
+
+if (btnMenuColleges) {
+  btnMenuColleges.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openCollegesModal();
+  });
+}
+
+if (btnOpenColleges) {
+  btnOpenColleges.addEventListener('click', openCollegesModal);
+}
+
+if (btnCloseColleges) {
+  btnCloseColleges.addEventListener('click', closeCollegesModal);
+}
+
+if (btnEnrollCollege) {
+  btnEnrollCollege.addEventListener('click', () => {
+    const college = getCollegeById(selectedCollegeId);
+    if (!college) return;
+    const progress = normalizeCollegeProgress(bardProfile.collegeProgress);
+    progress.enrolledCollegeId = college.id;
+    bardProfile.collegeProgress = progress;
+    saveBardProfile();
+    updateTavernCollegePill();
+    renderCollegesModal();
+    showGrimoireToast(`\uD83C\uDF93 Enrolled in ${college.name}!`);
+  });
+}
+
+if (bardCollegesModal) {
+  bardCollegesModal.addEventListener('click', (e) => {
+    if (e.target === bardCollegesModal) {
+      closeCollegesModal();
     }
   });
 }

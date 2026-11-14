@@ -128,6 +128,11 @@
               <span id="menu-streak-status" class="streak-pill-status">Light the hearth today</span>
               <span class="streak-pill-cta">&#128197; Ledger</span>
             </button>
+            <button id="btn-menu-colleges" type="button" class="tavern-college-pill" title="Choose a Bard College Learning Track (Lore, Cadence, Revelry)">
+              <img id="menu-college-icon" src="assets/images/icons/icon-college-lore.png" alt="" class="tavern-college-pill-icon" />
+              <strong id="menu-college-name" class="tavern-college-pill-name">Choose Bard College</strong>
+              <span id="menu-college-progress" class="tavern-college-pill-cta">Learning Tracks &rarr;</span>
+            </button>
           </div>
 
           <!-- Issue #66: Expandable Hearthfire Month Calendar Popover -->
@@ -187,6 +192,9 @@
           </button>
           <button id="btn-open-setlists" class="tavern-btn btn-gold-outline" title="Build, save, and play Setlists (back-to-back songs)">
             <img src="assets/images/icons/icon-setlist.png" alt="" class="tavern-inline-icon" /> Setlists
+          </button>
+          <button id="btn-open-colleges" class="tavern-btn btn-gold-outline" title="Browse Bard Colleges &amp; Learning Tracks (Lore, Cadence, Revelry)">
+            <img src="assets/images/icons/icon-college-lore.png" alt="" class="tavern-inline-icon" /> Colleges
           </button>
           <button id="btn-open-quest-board" class="tavern-btn btn-quest-board" title="Open The Quest Board: Paste a YouTube URL to transcribe into MIDI or browse BitMIDI, VGMusic & YouTube">
             &#128302; Quest Board
@@ -1303,6 +1311,44 @@
         <div class="modal-actions">
           <button id="btn-start-guided-tutorial" class="tavern-btn tavern-btn-primary">&#127891; Start Guided Tutorial</button>
           <button id="btn-how-to-play-ready" class="tavern-btn tavern-btn-secondary">&#9876; Take the Stage</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Issue #27: Bard Colleges as Learning Tracks Modal -->
+    <div id="bard-colleges-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="colleges-modal-title">
+      <div class="modal-card colleges-modal-card">
+        <div class="modal-header">
+          <div class="modal-header-left">
+            <img id="colleges-modal-header-icon" src="assets/images/icons/icon-college-lore.png" alt="" class="modal-header-icon" />
+            <div>
+              <h2 id="colleges-modal-title" class="modal-title">Bard Colleges &amp; Learning Tracks</h2>
+              <span class="modal-subtitle">Choose a Bardic Discipline &mdash; Track Drills &amp; Curated Repertoire</span>
+            </div>
+          </div>
+          <button id="btn-close-colleges" class="modal-close-btn" title="Close Bard Colleges" aria-label="Close Bard Colleges">&times;</button>
+        </div>
+
+        <div id="colleges-cards-grid" class="colleges-cards-grid"></div>
+
+        <div id="college-detail-panel" class="college-detail-panel">
+          <div class="college-detail-header">
+            <div>
+              <strong id="college-detail-title" class="college-detail-title">College of Lore</strong>
+              <span id="college-detail-subtitle" class="college-detail-subtitle">Sight-Reading &amp; Musical Theory</span>
+            </div>
+            <button id="btn-enroll-college" type="button" class="tavern-btn tavern-btn-primary">Enroll in College</button>
+          </div>
+          <div class="college-detail-columns">
+            <div class="college-detail-col">
+              <h3 class="annals-section-heading">&#127919; College Drills &amp; Milestones</h3>
+              <div id="college-drills-list" class="college-drills-list"></div>
+            </div>
+            <div class="college-detail-col">
+              <h3 class="annals-section-heading">&#127926; Recommended Track Repertoire</h3>
+              <div id="college-songs-list" class="college-songs-list"></div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

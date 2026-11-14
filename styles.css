@@ -6166,3 +6166,286 @@ body.view-mode-notation .grimoire-toast {
   border-color: rgba(239, 68, 68, 0.5);
   color: #fca5a5;
 }
+
+/* ============================================================================
+   ISSUE #27: BARD COLLEGES AS LEARNING TRACKS
+   ============================================================================ */
+
+.tavern-college-pill {
+  margin-top: 8px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: 10px;
+  background: rgba(22, 16, 12, 0.85);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  color: var(--text-parchment);
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.15s ease;
+}
+
+.tavern-college-pill:hover {
+  border-color: rgba(212, 175, 55, 0.75);
+  background: rgba(42, 30, 18, 0.92);
+  transform: translateY(-1px);
+}
+
+.tavern-college-pill-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid rgba(212, 175, 55, 0.45);
+  flex-shrink: 0;
+}
+
+.tavern-college-pill-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--radiant-gold);
+}
+
+.tavern-college-pill-cta {
+  margin-left: auto;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.colleges-modal-card {
+  max-width: 860px;
+  width: 95vw;
+}
+
+.colleges-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+@media (max-width: 760px) {
+  .colleges-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.college-track-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(20, 15, 12, 0.88);
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.15s ease;
+}
+
+.college-track-card:hover {
+  border-color: rgba(212, 175, 55, 0.55);
+  transform: translateY(-1px);
+}
+
+.college-track-card.selected {
+  border-color: var(--radiant-gold);
+  background: linear-gradient(145deg, rgba(46, 33, 18, 0.92), rgba(22, 16, 12, 0.96));
+  box-shadow: 0 0 16px rgba(212, 175, 55, 0.18);
+}
+
+.college-track-card-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.college-track-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid rgba(212, 175, 55, 0.5);
+  flex-shrink: 0;
+}
+
+.college-track-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-parchment);
+  display: block;
+}
+
+.college-track-tagline {
+  font-size: 0.72rem;
+  color: var(--radiant-gold);
+  display: block;
+}
+
+.college-track-desc {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.college-track-progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: auto;
+}
+
+.college-enrolled-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #1a120b;
+  background: var(--radiant-gold);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.college-progress-bar-track {
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.college-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #d4af37, #facc15);
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+.college-detail-panel {
+  width: 100%;
+  background: rgba(18, 13, 10, 0.85);
+  border: 1px solid rgba(212, 175, 55, 0.28);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.college-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.college-detail-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--radiant-gold);
+  display: block;
+}
+
+.college-detail-subtitle {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.college-detail-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .college-detail-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.college-detail-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.college-drills-list,
+.college-songs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 185px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.college-drill-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.college-drill-row.completed {
+  border-color: rgba(74, 222, 128, 0.45);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.college-drill-status {
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.college-drill-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-parchment);
+  display: block;
+}
+
+.college-drill-desc {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.college-song-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.college-song-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.college-song-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-parchment);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.college-song-meta {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.college-song-load-btn {
+  padding: 4px 10px;
+  font-size: 0.74rem;
+  flex-shrink: 0;
+}
