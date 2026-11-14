@@ -19,6 +19,7 @@ const { pathToFileURL } = require('url');
 const { shell } = require('electron');
 const { createD20TrayRoller } = require('./d20-roller');
 const { isMusicXmlFileName, convertMusicXmlToMidiBuffer } = require('./musicxml-converter');
+const { isOmrSheetFileName, analyzeOmrConfidence, applyOmrOverridesToMusicXml } = require('./omr-confidence');
 const { isPianoCandidateTrackSmart, selectAutoPianoTracks, cleanPlayableHandNotes } = require('./midi-hygiene');
 const VexFlow = require('vexflow/bravura');
 const {
@@ -30,6 +31,7 @@ const {
   BUNDLE_STORE_FILENAME,
   clampAudioOffsetSec,
   clampAudioTempoRatio,
+  clampTransposeSemitones,
   isSameFilePath: isBundleSameFilePath,
   getSidecarBundlePath,
   loadBundlesStore,
@@ -152,6 +154,17 @@ const settingsPopover = document.getElementById('settings-popover');
 const btnCloseSettings = document.getElementById('btn-close-settings');
 const toggleQwertyLabelsCheckbox = document.getElementById('toggle-qwerty-labels');
 const toggleMidiCleanupCheckbox = document.getElementById('toggle-midi-cleanup');
+const toggleChordBannerCheckbox = document.getElementById('toggle-chord-banner');
+const hudChordBanner = document.getElementById('hud-chord-banner');
+const hudChordCurrent = document.getElementById('hud-chord-current');
+const hudChordNext = document.getElementById('hud-chord-next');
+const btnCapoOctDown = document.getElementById('btn-capo-oct-down');
+const btnCapoSemiDown = document.getElementById('btn-capo-semi-down');
+const capoTransposeValue = document.getElementById('capo-transpose-value');
+const btnCapoSemiUp = document.getElementById('btn-capo-semi-up');
+const btnCapoOctUp = document.getElementById('btn-capo-oct-up');
+const btnCapoReset = document.getElementById('btn-capo-reset');
+const capoAudioWarning = document.getElementById('capo-audio-warning');
 const settingsSyncRow = document.getElementById('settings-sync-row');
 const btnSettingsOpenSync = document.getElementById('btn-settings-open-sync');
 const btnSpellDetails = document.getElementById('btn-spell-details');
@@ -167,6 +180,16 @@ const btnPlayPause = document.getElementById('btn-play-pause');
 const btnRestart = document.getElementById('btn-restart');
 const btnWaitMode = document.getElementById('btn-wait-mode');
 const waitModeStateText = document.getElementById('wait-mode-state');
+const btnRhythmMode = document.getElementById('btn-rhythm-mode');
+const rhythmModeStateText = document.getElementById('rhythm-mode-state');
+const encoreDrillBadge = document.getElementById('encore-drill-badge');
+const btnEncoreDrill = document.getElementById('btn-encore-drill');
+const modalTimingSpreadPill = document.getElementById('modal-timing-spread-pill');
+const inputLatencySlider = document.getElementById('input-latency-slider');
+const inputLatencyValue = document.getElementById('input-latency-value');
+const btnLatencyReset = document.getElementById('btn-latency-reset');
+const btnLatencyWizard = document.getElementById('btn-latency-wizard');
+const latencyWizardStatus = document.getElementById('latency-wizard-status');
 const songProgressSlider = document.getElementById('song-progress-slider');
 const songTimeReadout = document.getElementById('song-time-readout');
 const loopRangeFill = document.getElementById('loop-range-fill');
@@ -386,6 +409,26 @@ const questProgressMessage = document.getElementById('quest-progress-message');
 const questProgressPct = document.getElementById('quest-progress-pct');
 const questProgressFill = document.getElementById('quest-progress-fill');
 const questLogOutput = document.getElementById('quest-log-output');
+
+// DOM Elements — Issue #78: OMR Sheet Music Import & Review Modal
+const omrReviewModal = document.getElementById('omr-review-modal');
+const omrSourceSubtitle = document.getElementById('omr-source-subtitle');
+const btnCloseOmrModal = document.getElementById('btn-close-omr-modal');
+const omrProgressSection = document.getElementById('omr-progress-section');
+const omrProgressFill = document.getElementById('omr-progress-fill');
+const omrStatusText = document.getElementById('omr-status-text');
+const btnOmrCancel = document.getElementById('btn-omr-cancel');
+const omrReviewSection = document.getElementById('omr-review-section');
+const omrConfidenceBadge = document.getElementById('omr-confidence-badge');
+const omrSummaryStats = document.getElementById('omr-summary-stats');
+const omrTitleInput = document.getElementById('omr-title-input');
+const omrBpmInput = document.getElementById('omr-bpm-input');
+const omrDetectedMeta = document.getElementById('omr-detected-meta');
+const omrWarningsBox = document.getElementById('omr-warnings-box');
+const omrFlaggedCount = document.getElementById('omr-flagged-count');
+const omrFlaggedList = document.getElementById('omr-flagged-list');
+const btnOmrReject = document.getElementById('btn-omr-reject');
+const btnOmrConfirm = document.getElementById('btn-omr-confirm');
 const btnLinkBitmidi = document.getElementById('btn-link-bitmidi');
 const btnLinkVgmusic = document.getElementById('btn-link-vgmusic');
 const btnLinkYoutube = document.getElementById('btn-link-youtube');
@@ -486,6 +529,19 @@ let pianoWarmthEQ = null;
 // Phase 2, 3 & 4 State: Parsed MIDI Song, Playback & Wait Mode / Chord Forgiveness
 let currentSong = null;
 
+const INPUT_LATENCY_STORAGE_KEY = 'collegeOfKeys.inputLatencyOffsetMs';
+function loadSavedInputLatencyMs() {
+  try {
+    const raw = Number(localStorage.getItem(INPUT_LATENCY_STORAGE_KEY));
+    if (Number.isFinite(raw)) {
+      return Math.max(-150, Math.min(150, Math.round(raw)));
+    }
+  } catch {
+    // Ignore storage read error
+  }
+  return 0;
+}
+
 const playbackState = {
   isPlaying: false,
   currentTime: -1.5, // Start with 1.5s lead-in so first notes fall smoothly toward strike line
@@ -496,6 +552,8 @@ const playbackState = {
   accompanimentMode: 'auto-other', // 'auto-other' | 'mute-other' | 'auto-both'
   backingBandEnabled: true,
   waitMode: true,                  // Phase 4: Wait Mode enabled by default
+  rhythmMode: false,               // Issue #28: Rhythm Practice Mode (timing judgment)
+  inputLatencyOffsetMs: loadSavedInputLatencyMs(), // Issue #111: Global A/V input latency compensation
   isWaitingForStrike: false,       // True when playback is frozen at the strike line waiting for input
   waitStartedAtMs: null,           // Timestamp when current Wait Mode pause began
   activeStrikeGroup: null,         // Current chord/note group being gated at the strike line
@@ -547,6 +605,14 @@ const rehearsalLoopState = {
   passMistakes: 0
 };
 
+// Issue #108: Auto-Queue Weak Measures ("Encore Drill")
+const encoreDrillQueue = {
+  active: false,
+  items: [], // [{ measure, label, startSec, endSec }]
+  activeIndex: 0,
+  totalCleared: 0
+};
+
 // Phase 5 State: Persistent Bard Profile & Per-Song Performance Session Stats
 const bardProfile = {
   totalXp: 0,
@@ -573,9 +639,15 @@ const songSessionStats = {
   fumbledNotesHit: 0,
   wrongOrMissedNotes: 0,
   cleanChordRolls: 0,
+  timingErrorsMs: [],
+  rhythmPerfect: 0,
+  rhythmGreat: 0,
+  rhythmGood: 0,
+  rhythmMiss: 0,
   lastGainText: 'Strike notes to earn XP',
   lastGainFumbled: false,
   hasShownEndModal: false,
+  hasRecordedCompletion: false,
   measureStats: {},
   d20Outcome: null,
   inspirationCharge: 0,
@@ -872,6 +944,10 @@ async function ensureAudioReady() {
  */
 function handleNoteOn(midi, velocity = 100, source = 'midi') {
   if (midi < MIN_MIDI || midi > MAX_MIDI) return;
+  if (typeof latencyWizardState !== 'undefined' && latencyWizardState.active) {
+    recordLatencyWizardTap();
+    return;
+  }
 
   ensureAudioReady();
 
@@ -1225,6 +1301,7 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     spotifyUrl: bundle.spotifyUrl || null,
     audioOffsetSec: bundle.audioOffsetSec ?? 0,
     audioTempoRatio: bundle.audioTempoRatio ?? 1.0,
+    transposeSemitones: clampTransposeSemitones(bundle.transposeSemitones ?? 0),
     midiCleanupOverride: typeof bundle.midiCleanupEnabled === 'boolean' ? bundle.midiCleanupEnabled : null,
     midiCleanStats: { enabled: false, selectionNote: null, snapped: 0, removed: 0, trimmed: 0 },
     hasCustomBundle: Boolean(bundle.hasCustomBundle),
@@ -1278,11 +1355,13 @@ function populateTrackSelectorDropdown(song) {
   });
 }
 
-function foldAndDeduplicateHandNotes(noteArr, handTrack) {
+function foldAndDeduplicateHandNotes(noteArr, handTrack, transposeSemitones = 0) {
   let foldedCount = 0;
+  const shift = Math.round(Number(transposeSemitones) || 0);
   const sorted = noteArr
     .map((n) => {
-      const { foldedMidi, wasFolded, semitoneShift } = foldMidiNoteDetails(n.originalMidi);
+      const transposedMidi = Math.max(0, Math.min(127, n.originalMidi + shift));
+      const { foldedMidi, wasFolded, semitoneShift } = foldMidiNoteDetails(transposedMidi);
       if (wasFolded) foldedCount++;
       return {
         ...n,
@@ -1323,6 +1402,8 @@ function foldAndDeduplicateHandNotes(noteArr, handTrack) {
 function assignSongTracksAndDifficulty(mode = 'auto-piano') {
   if (!currentSong) return;
   currentSong.selectedTrackMode = mode;
+  const transposeSemitones = clampTransposeSemitones(currentSong.transposeSemitones ?? 0);
+  currentSong.transposeSemitones = transposeSemitones;
 
   const rawTracks = currentSong.rawTracks;
   const chosenPlayableIndices = new Set();
@@ -1342,7 +1423,7 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
     chosenPlayableIndices.add(idx);
 
     for (const n of chosen.notes) {
-      const foldedCheck = foldMidiTo61Keys(n.originalMidi);
+      const foldedCheck = foldMidiTo61Keys(Math.max(0, Math.min(127, n.originalMidi + transposeSemitones)));
       if (foldedCheck >= MIDDLE_C) {
         track1Raw.push(n);
       } else {
@@ -1372,12 +1453,13 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
     trimmed
   };
 
-  const foldedT1 = foldAndDeduplicateHandNotes(track1Raw, 1);
-  const foldedT2 = foldAndDeduplicateHandNotes(track2Raw, 2);
+  const foldedT1 = foldAndDeduplicateHandNotes(track1Raw, 1, transposeSemitones);
+  const foldedT2 = foldAndDeduplicateHandNotes(track2Raw, 2, transposeSemitones);
 
   currentSong.track1Notes = foldedT1.notes;
   currentSong.track2Notes = foldedT2.notes;
   currentSong.foldedNotesCount = foldedT1.foldedCount + foldedT2.foldedCount;
+  currentSong._computedMidiChordMarkers = null;
 
   currentSong.backingBandTracks = rawTracks.filter((t, idx) => !chosenPlayableIndices.has(idx) && !t.isDuplicate);
 
@@ -1385,7 +1467,7 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
   for (const bt of currentSong.backingBandTracks) {
     if (bt.isPercussion) continue;
     for (const n of bt.notes) {
-      const foldedMidi = foldMidiTo61Keys(n.originalMidi);
+      const foldedMidi = foldMidiTo61Keys(Math.max(0, Math.min(127, n.originalMidi + transposeSemitones)));
       bandNotes.push({
         ...n,
         midi: foldedMidi,
@@ -1420,6 +1502,8 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
   updateSpellInspectorHUD();
   updateNotationQualityBanner();
   updateLitrpgHUD();
+  updateCapoControlsUI();
+  updateChordBannerHUD(playbackState.currentTime);
 }
 
 function updateNotationQualityBanner() {
@@ -1847,6 +1931,11 @@ function resetSongSessionStats() {
   songSessionStats.fumbledNotesHit = 0;
   songSessionStats.wrongOrMissedNotes = 0;
   songSessionStats.cleanChordRolls = 0;
+  songSessionStats.timingErrorsMs = [];
+  songSessionStats.rhythmPerfect = 0;
+  songSessionStats.rhythmGreat = 0;
+  songSessionStats.rhythmGood = 0;
+  songSessionStats.rhythmMiss = 0;
   songSessionStats.lastGainText = 'Strike notes to earn XP';
   songSessionStats.lastGainFumbled = false;
   songSessionStats.hasShownEndModal = false;
@@ -1979,14 +2068,19 @@ function awardBardXp(xpAmount) {
  * Record completion of a Strike Group (single note or multi-note chord)
  * and compute LitRPG XP, Spell Chain, and Bardic Inspiration multipliers.
  */
-function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll) {
+function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll, rhythmTier = null) {
   const noteCount = Math.max(1, group.notes.length);
 
   if (isCleanChordRoll) {
     songSessionStats.cleanChordRolls++;
   }
 
-  if (isFumbledPause) {
+  if (rhythmTier === 'perfect') songSessionStats.rhythmPerfect += noteCount;
+  else if (rhythmTier === 'great') songSessionStats.rhythmGreat += noteCount;
+  else if (rhythmTier === 'good') songSessionStats.rhythmGood += noteCount;
+  else if (rhythmTier === 'miss') songSessionStats.rhythmMiss += noteCount;
+
+  if (isFumbledPause || rhythmTier === 'miss') {
     songSessionStats.fumbledNotesHit += noteCount;
     recordMeasureOutcome(group.anchorTime, { fumbled: noteCount });
     if (rehearsalLoopState.enabled) {
@@ -1997,7 +2091,7 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll) {
     recordMeasureOutcome(group.anchorTime, { clean: noteCount });
   }
 
-  if (!group.wrongKeyDuringRoll) {
+  if (!group.wrongKeyDuringRoll && rhythmTier !== 'miss') {
     songSessionStats.spellChain += noteCount;
     if (songSessionStats.spellChain > songSessionStats.maxSpellChain) {
       songSessionStats.maxSpellChain = songSessionStats.spellChain;
@@ -2007,7 +2101,7 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll) {
     }
   }
 
-  if (songSessionStats.inspirationBurstRemainingSec <= 0 && !group.wrongKeyDuringRoll) {
+  if (songSessionStats.inspirationBurstRemainingSec <= 0 && !group.wrongKeyDuringRoll && rhythmTier !== 'miss') {
     const chargeGain = noteCount * (isFumbledPause ? INSPIRATION_CHARGE_PER_FUMBLED_NOTE : INSPIRATION_CHARGE_PER_CLEAN_NOTE);
     const prevCharge = songSessionStats.inspirationCharge;
     songSessionStats.inspirationCharge = Math.min(100, prevCharge + chargeGain);
@@ -2019,13 +2113,29 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll) {
   const diffMult = currentSong?.difficulty?.xpMultiplier ?? 1.0;
   const isInspired = isBardicInspirationActive();
   const inspirationMult = isInspired ? BARDIC_INSPIRATION_MULT : 1.0;
-  const baseXpPerNote = isFumbledPause ? FUMBLED_NOTE_XP : BASE_NOTE_XP;
+  let baseXpPerNote = isFumbledPause ? FUMBLED_NOTE_XP : BASE_NOTE_XP;
+  if (rhythmTier === 'perfect') baseXpPerNote = Math.round(BASE_NOTE_XP * 1.25);
+  else if (rhythmTier === 'great') baseXpPerNote = BASE_NOTE_XP;
+  else if (rhythmTier === 'good') baseXpPerNote = Math.round(BASE_NOTE_XP * 0.65);
+  else if (rhythmTier === 'miss') baseXpPerNote = FUMBLED_NOTE_XP;
 
   const xpAwarded = Math.round(noteCount * baseXpPerNote * diffMult * inspirationMult);
   awardBardXp(xpAwarded);
 
   if (isFumbledPause) {
     songSessionStats.lastGainText = `+${xpAwarded} XP (Fumbled >2s: +2 base)`;
+    songSessionStats.lastGainFumbled = true;
+  } else if (rhythmTier === 'perfect') {
+    songSessionStats.lastGainText = `+${xpAwarded} XP (✨ Perfect Timing!)`;
+    songSessionStats.lastGainFumbled = false;
+  } else if (rhythmTier === 'great') {
+    songSessionStats.lastGainText = `+${xpAwarded} XP (✓ Great Timing)`;
+    songSessionStats.lastGainFumbled = false;
+  } else if (rhythmTier === 'good') {
+    songSessionStats.lastGainText = `+${xpAwarded} XP (• Good Timing)`;
+    songSessionStats.lastGainFumbled = false;
+  } else if (rhythmTier === 'miss') {
+    songSessionStats.lastGainText = `+${xpAwarded} XP (Off-Beat)`;
     songSessionStats.lastGainFumbled = true;
   } else if (isInspired) {
     songSessionStats.lastGainText = `+${xpAwarded} XP (2x Inspired!)`;
@@ -2229,13 +2339,20 @@ function buildPostSongBreakdown() {
   };
 }
 
-/**
- * Issue #62: 1-tap jump from Post-Song Breakdown into Rehearsal Loop Mode (Issue #30).
- * Pads single short bars to at least 2.0s, arms A->B loop, jumps to A - 0.8s pre-roll, and pauses.
- */
-function practiceWeakRegion(startSec, endSec, label = 'Weak Measure') {
-  if (!currentSong || !currentSong.duration) return;
+function updateEncoreDrillBadge() {
+  if (!encoreDrillBadge) return;
+  if (!encoreDrillQueue.active || encoreDrillQueue.items.length === 0) {
+    encoreDrillBadge.classList.add('hidden');
+    encoreDrillBadge.textContent = '';
+    return;
+  }
+  const cur = encoreDrillQueue.items[encoreDrillQueue.activeIndex];
+  const total = encoreDrillQueue.items.length;
+  encoreDrillBadge.classList.remove('hidden');
+  encoreDrillBadge.textContent = `⚔️ Encore ${encoreDrillQueue.activeIndex + 1}/${total}: ${cur ? cur.label : ''}`;
+}
 
+function armRehearsalLoopWindow(startSec, endSec) {
   let a = Math.max(0, Math.min(currentSong.duration, startSec));
   let b = Math.max(a, Math.min(currentSong.duration, endSec));
 
@@ -2245,9 +2362,6 @@ function practiceWeakRegion(startSec, endSec, label = 'Weak Measure') {
   if ((b - a) < 2.0) {
     a = Math.max(0, b - 2.0);
   }
-
-  closePerformanceCheckModal();
-  pausePlayback();
 
   rehearsalLoopState.startTime = a;
   rehearsalLoopState.endTime = b;
@@ -2267,20 +2381,67 @@ function practiceWeakRegion(startSec, endSec, label = 'Weak Measure') {
   syncBackingAudioElement(jumpTime);
   updateTimelineUI();
   updateRehearsalUI();
+  return { a, b };
+}
+
+function startEncoreDrill(weakMeasures) {
+  if (!currentSong || !currentSong.duration || !Array.isArray(weakMeasures) || weakMeasures.length === 0) return;
+  const sorted = [...weakMeasures].sort((a, b) => a.measure - b.measure);
+  encoreDrillQueue.active = true;
+  encoreDrillQueue.items = sorted.map((wm) => ({
+    measure: wm.measure,
+    label: `Bar ${wm.measure}`,
+    startSec: wm.startSec,
+    endSec: wm.endSec
+  }));
+  encoreDrillQueue.activeIndex = 0;
+  encoreDrillQueue.totalCleared = 0;
+
+  closePerformanceCheckModal();
+  pausePlayback();
+  const first = encoreDrillQueue.items[0];
+  armRehearsalLoopWindow(first.startSec, first.endSec);
+  updateEncoreDrillBadge();
+  showGrimoireToast(`⚔️ Encore Drill armed (${encoreDrillQueue.items.length} weak bar${encoreDrillQueue.items.length === 1 ? '' : 's'}) — Starting ${first.label}`);
+}
+
+/**
+ * Issue #62: 1-tap jump from Post-Song Breakdown into Rehearsal Loop Mode (Issue #30).
+ * Pads single short bars to at least 2.0s, arms A->B loop, jumps to A - 0.8s pre-roll, and pauses.
+ */
+function practiceWeakRegion(startSec, endSec, label = 'Weak Measure') {
+  if (!currentSong || !currentSong.duration) return;
+
+  encoreDrillQueue.active = false;
+  encoreDrillQueue.items = [];
+  encoreDrillQueue.activeIndex = 0;
+  updateEncoreDrillBadge();
+
+  closePerformanceCheckModal();
+  pausePlayback();
+
+  const { a, b } = armRehearsalLoopWindow(startSec, endSec);
   showGrimoireToast(`\uD83D\uDD01 Loop armed for ${label} (${formatSeconds(a)} \u2192 ${formatSeconds(b)}) \u2014 Press Space when ready`);
 }
 
-function renderPostSongBreakdown(totalAttempts) {
+function getSongHistoryKey(song) {
+  if (!song) return 'demo spell';
+  return song.songId || (song.filePath || song.title || 'Demo Spell').toLowerCase();
+}
+
+function renderPostSongBreakdown(totalAttempts, priorWeakBarHistory = null) {
   if (!modalBreakdownSection || !modalBreakdownSummary || !modalSectionBars || !modalWeakMeasures) return;
 
   if (!currentSong || totalAttempts === 0) {
     modalBreakdownSection.classList.add('hidden');
+    if (btnEncoreDrill) btnEncoreDrill.classList.add('hidden');
     return;
   }
 
   const { sections, weakMeasures } = buildPostSongBreakdown();
   if (sections.length === 0) {
     modalBreakdownSection.classList.add('hidden');
+    if (btnEncoreDrill) btnEncoreDrill.classList.add('hidden');
     return;
   }
 
@@ -2290,6 +2451,19 @@ function renderPostSongBreakdown(totalAttempts) {
   modalBreakdownSummary.textContent = totalMistakes === 0
     ? 'Flawless Run!'
     : `${totalMistakes} trip${totalMistakes === 1 ? '' : 's'} across ${weakMeasures.length} key bar${weakMeasures.length === 1 ? '' : 's'}`;
+
+  if (btnEncoreDrill) {
+    if (weakMeasures.length > 0) {
+      btnEncoreDrill.classList.remove('hidden');
+      btnEncoreDrill.textContent = `⚔️ Encore Drill (${weakMeasures.length} Weak Bar${weakMeasures.length === 1 ? '' : 's'})`;
+      btnEncoreDrill.onclick = () => startEncoreDrill(weakMeasures);
+    } else {
+      btnEncoreDrill.classList.add('hidden');
+      btnEncoreDrill.onclick = null;
+    }
+  }
+
+  const prevHistory = priorWeakBarHistory || songPlayHistory[getSongHistoryKey(currentSong)]?.weakBarHistory || {};
 
   while (modalSectionBars.firstChild) {
     modalSectionBars.removeChild(modalSectionBars.firstChild);
@@ -2339,12 +2513,42 @@ function renderPostSongBreakdown(totalAttempts) {
     modalWeakMeasures.removeChild(modalWeakMeasures.firstChild);
   }
 
+  // Celebrate previously weak bars that were conquered (100%) in this run (Issue #108)
+  const conqueredBars = [];
+  for (const [mStr, prevPct] of Object.entries(prevHistory)) {
+    if (prevPct >= 100) continue;
+    const st = songSessionStats.measureStats[mStr];
+    if (st && (st.clean + st.fumbled + st.missed) > 0 && st.fumbled === 0 && st.missed === 0) {
+      conqueredBars.push({ measure: Number(mStr), prevPct });
+    }
+  }
+  conqueredBars.sort((a, b) => a.measure - b.measure);
+
   if (weakMeasures.length === 0) {
     const flawless = document.createElement('div');
     flawless.className = 'breakdown-flawless';
-    flawless.textContent = '✨ No weak bars detected — every measure was clean!';
+    flawless.textContent = conqueredBars.length > 0
+      ? `✨ Conquered ${conqueredBars.map((b) => `Bar ${b.measure} (${b.prevPct}% → 100%)`).join(', ')}!`
+      : '✨ No weak bars detected — every measure was clean!';
     modalWeakMeasures.appendChild(flawless);
     return;
+  }
+
+  for (const cb of conqueredBars.slice(0, 2)) {
+    const row = document.createElement('div');
+    row.className = 'breakdown-weak-row';
+    const info = document.createElement('div');
+    info.className = 'breakdown-weak-info';
+    const badge = document.createElement('span');
+    badge.className = 'breakdown-bar-badge';
+    badge.textContent = `Bar ${cb.measure}`;
+    const tag = document.createElement('span');
+    tag.className = 'breakdown-delta-tag conquered';
+    tag.textContent = `✨ Conquered! (${cb.prevPct}% → 100%)`;
+    info.appendChild(badge);
+    info.appendChild(tag);
+    row.appendChild(info);
+    modalWeakMeasures.appendChild(row);
   }
 
   for (const wm of weakMeasures) {
@@ -2367,6 +2571,17 @@ function renderPostSongBreakdown(totalAttempts) {
 
     info.appendChild(badge);
     info.appendChild(detail);
+
+    const prevAcc = prevHistory[String(wm.measure)];
+    if (Number.isFinite(prevAcc)) {
+      const delta = wm.accuracyPct - prevAcc;
+      if (delta > 0) {
+        const deltaEl = document.createElement('span');
+        deltaEl.className = 'breakdown-delta-tag';
+        deltaEl.textContent = `${prevAcc}% → ${wm.accuracyPct}% (+${delta}%)`;
+        info.appendChild(deltaEl);
+      }
+    }
 
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -2611,6 +2826,11 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
   const diffLabel = currentSong?.difficulty?.label || 'Cantrip (1.0x XP)';
   modalSongSubtitle.textContent = `${songName} • ${diffLabel}`;
 
+  // Capture prior weakBarHistory before recordSongPerformance updates it (Issue #108)
+  const priorWeakBarHistory = currentSong
+    ? { ...(songPlayHistory[getSongHistoryKey(currentSong)]?.weakBarHistory || {}) }
+    : {};
+
   // Record song play history & Daily Quests BEFORE rendering XP/Level-Up banner (Issue #52, #53, #67)
   // Only the natural end-of-song path records play history; the manual button does not (Issue #67)
   let questOutcome = { newlyCompletedQuests: [], totalBonusXp: 0 };
@@ -2658,7 +2878,36 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
   modalStatFumbled.textContent = String(songSessionStats.fumbledNotesHit);
   modalStatRolls.textContent = `${songSessionStats.cleanChordRolls} Rolls • ${songSessionStats.wrongOrMissedNotes} Off-Key`;
 
-  renderPostSongBreakdown(totalAttempts);
+  if (modalTimingSpreadPill) {
+    const errs = songSessionStats.timingErrorsMs || [];
+    if (!playbackState.waitMode && errs.length > 0) {
+      const meanMs = Math.round(errs.reduce((acc, v) => acc + v, 0) / errs.length);
+      const within35Pct = Math.round((errs.filter((v) => Math.abs(v) <= 35).length / errs.length) * 100);
+      const earlyCnt = errs.filter((v) => v < -35).length;
+      const onTimeCnt = errs.filter((v) => Math.abs(v) <= 35).length;
+      const lateCnt = errs.filter((v) => v > 35).length;
+      const biasLabel = Math.abs(meanMs) <= 12
+        ? 'On Time'
+        : (meanMs < 0 ? 'Slightly Early' : 'Slightly Late');
+      const sign = meanMs > 0 ? '+' : '';
+      const rhythmSummary = playbackState.rhythmMode
+        ? ` • ✨ ${songSessionStats.rhythmPerfect} Perf / ${songSessionStats.rhythmGreat} Grt / ${songSessionStats.rhythmGood} Good`
+        : '';
+      modalTimingSpreadPill.innerHTML = '';
+      const leftSpan = document.createElement('span');
+      leftSpan.innerHTML = `⏱ Timing: <strong>${sign}${meanMs}ms (${biasLabel})</strong> • ${within35Pct}% Within ±35ms${rhythmSummary}`;
+      const rightSpan = document.createElement('span');
+      rightSpan.textContent = `Early ${earlyCnt} • Perfect ${onTimeCnt} • Late ${lateCnt}`;
+      modalTimingSpreadPill.appendChild(leftSpan);
+      modalTimingSpreadPill.appendChild(rightSpan);
+      modalTimingSpreadPill.classList.remove('hidden');
+    } else {
+      modalTimingSpreadPill.classList.add('hidden');
+      modalTimingSpreadPill.textContent = '';
+    }
+  }
+
+  renderPostSongBreakdown(totalAttempts, priorWeakBarHistory);
   performanceCheckModal.classList.remove('hidden');
 
   if (totalAttempts === 0) {
@@ -2935,17 +3184,20 @@ function evaluateStrikeZoneInput(midi) {
   let group = getNextUnsatisfiedStrikeGroup();
   if (!group) return false;
 
+  const latencyOffsetSec = !playbackState.waitMode ? ((playbackState.inputLatencyOffsetMs || 0) / 1000) : 0;
+  const effectiveSongTime = playbackState.currentTime - latencyOffsetSec;
+
   // Issue #32: In Arcade Mode, if the earliest unsatisfied group is already past the strike line
   // and does not contain `midi`, check if an upcoming group within the 130ms early-strike window
   // matches `midi`. If so, expire the missed past group once and advance to the upcoming group!
   if (
     !playbackState.waitMode &&
     !group.requiredPitches.has(midi) &&
-    group.anchorTime < playbackState.currentTime - 0.025 &&
+    group.anchorTime < effectiveSongTime - 0.025 &&
     hasUpcomingPlayerNoteMatchingMidi(
       midi,
       group.anchorTime + CHORD_CLUSTER_WINDOW_SEC,
-      playbackState.currentTime + EARLY_STRIKE_WINDOW_SEC
+      effectiveSongTime + EARLY_STRIKE_WINDOW_SEC
     )
   ) {
     for (const n of group.notes) {
@@ -2960,7 +3212,7 @@ function evaluateStrikeZoneInput(midi) {
   }
 
   // Check if the group is currently waiting at the strike line OR within the early strike window
-  const timeDelta = group.anchorTime - playbackState.currentTime;
+  const timeDelta = group.anchorTime - effectiveSongTime;
   const isInStrikeWindow = playbackState.isWaitingForStrike || (timeDelta <= EARLY_STRIKE_WINDOW_SEC && timeDelta >= -0.25);
 
   if (!isInStrikeWindow) return false;
@@ -2977,6 +3229,7 @@ function evaluateStrikeZoneInput(midi) {
     if (group.satisfiedPitches.size === 0) {
       group.firstStrikeMs = nowMs;
       group.lastStrikeMs = nowMs;
+      group.firstStrikeSongTime = effectiveSongTime;
     } else {
       const stepDeltaMs = nowMs - group.lastStrikeMs;
       group.lastStrikeMs = nowMs;
@@ -3013,6 +3266,22 @@ function evaluateStrikeZoneInput(midi) {
       const isCleanChordRoll = isChord && (!group.hasSlowRoll || totalRollMs <= CHORD_GRACE_PERIOD_MS) && !group.wrongKeyDuringRoll;
       const isFumbledPause = playbackState.waitMode && waitPauseSec > FUMBLE_PAUSE_THRESHOLD_SEC;
 
+      // Issue #111 & #28: Signed timing error (negative = early, positive = late) for Arcade & Rhythm Modes
+      let signedTimingMs = null;
+      let rhythmTier = null;
+      if (!playbackState.waitMode) {
+        const strikeSongTime = Number.isFinite(group.firstStrikeSongTime) ? group.firstStrikeSongTime : effectiveSongTime;
+        signedTimingMs = Math.round((strikeSongTime - group.anchorTime) * 1000);
+        songSessionStats.timingErrorsMs.push(signedTimingMs);
+        if (playbackState.rhythmMode) {
+          const absErr = Math.abs(signedTimingMs);
+          if (absErr <= 45) rhythmTier = 'perfect';
+          else if (absErr <= 90) rhythmTier = 'great';
+          else if (absErr <= 160) rhythmTier = 'good';
+          else rhythmTier = 'miss';
+        }
+      }
+
       // Resume playback immediately!
       const wasWaiting = playbackState.isWaitingForStrike;
       playbackState.isWaitingForStrike = false;
@@ -3026,13 +3295,24 @@ function evaluateStrikeZoneInput(midi) {
       }
 
       // Phase 5: Award XP, increment Spell Chain & evaluate Bardic Inspiration
-      recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll);
+      recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll, rhythmTier);
 
       if (isFumbledPause) {
         setStrikeStatusBadge(
           'fumble',
           `⚠ Fumbled Component (${waitPauseSec.toFixed(1)}s > 2.0s pause • +2 Base XP)`
         );
+      } else if (rhythmTier !== null) {
+        const sign = signedTimingMs > 0 ? '+' : '';
+        if (rhythmTier === 'perfect') {
+          setStrikeStatusBadge('hit', `✨ PERFECT (${sign}${signedTimingMs}ms) • ${midiToNoteName(midi)}`);
+        } else if (rhythmTier === 'great') {
+          setStrikeStatusBadge('hit', `✓ GREAT (${sign}${signedTimingMs}ms) • ${midiToNoteName(midi)}`);
+        } else if (rhythmTier === 'good') {
+          setStrikeStatusBadge('waiting', `• GOOD (${sign}${signedTimingMs}ms) • ${midiToNoteName(midi)}`);
+        } else {
+          setStrikeStatusBadge('fumble', `⚠ OFF-BEAT (${sign}${signedTimingMs}ms) • ${midiToNoteName(midi)}`);
+        }
       } else if (isChord) {
         if (isCleanChordRoll) {
           setStrikeStatusBadge(
@@ -3309,6 +3589,232 @@ function getFirstPlayableNoteSec(song = currentSong) {
   return Number.isFinite(minTime) ? Math.max(0, minTime) : 0;
 }
 
+const CHORD_BANNER_STORAGE_KEY = 'collegeOfKeys.showChordBanner';
+let showChordBanner = (() => {
+  try {
+    return window?.localStorage?.getItem(CHORD_BANNER_STORAGE_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+})();
+
+function saveShowChordBannerPreference(enabled) {
+  try {
+    window?.localStorage?.setItem(CHORD_BANNER_STORAGE_KEY, enabled ? 'true' : 'false');
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+const CHORD_SHARP_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const CHORD_FLAT_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+const CHORD_NOTE_TO_PC = {
+  C: 0, 'B#': 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, Fb: 4,
+  F: 5, 'E#': 5, 'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11, Cb: 11
+};
+const CHORD_TEMPLATES = [
+  { suffix: '', intervals: [0, 4, 7] },
+  { suffix: 'm', intervals: [0, 3, 7] },
+  { suffix: '7', intervals: [0, 4, 7, 10] },
+  { suffix: 'maj7', intervals: [0, 4, 7, 11] },
+  { suffix: 'm7', intervals: [0, 3, 7, 10] },
+  { suffix: 'dim', intervals: [0, 3, 6] },
+  { suffix: 'aug', intervals: [0, 4, 8] },
+  { suffix: 'sus4', intervals: [0, 5, 7] },
+  { suffix: 'sus2', intervals: [0, 2, 7] }
+];
+
+function transposePitchClassName(noteToken, semitones = 0) {
+  const pc = CHORD_NOTE_TO_PC[noteToken];
+  if (pc === undefined) return noteToken;
+  const shift = ((Math.round(Number(semitones) || 0) % 12) + 12) % 12;
+  if (shift === 0) return noteToken;
+  const nextPc = (pc + shift) % 12;
+  const preferFlats = noteToken.includes('b') || [1, 3, 5, 8, 10].includes(nextPc);
+  return preferFlats ? CHORD_FLAT_NAMES[nextPc] : CHORD_SHARP_NAMES[nextPc];
+}
+
+function transposeChordSymbol(symbol, semitones = 0) {
+  if (!symbol || typeof symbol !== 'string') return '';
+  const shift = ((Math.round(Number(semitones) || 0) % 12) + 12) % 12;
+  if (shift === 0) return symbol;
+  const match = symbol.trim().match(/^([A-G][#b]?)(.*?)(?:\/([A-G][#b]?))?$/);
+  if (!match) return symbol;
+  const [, root, quality, bass] = match;
+  const nextRoot = transposePitchClassName(root, shift);
+  const nextBass = bass ? `/${transposePitchClassName(bass, shift)}` : '';
+  return `${nextRoot}${quality}${nextBass}`;
+}
+
+function computeMidiChordMarkers(song) {
+  if (!song) return [];
+  const notes = [...(song.track1Notes || []), ...(song.track2Notes || [])]
+    .filter((n) => n && Number.isFinite(n.time) && Number.isFinite(n.midi))
+    .sort((a, b) => a.time - b.time || a.midi - b.midi);
+  if (notes.length === 0) return [];
+
+  const bpm = Math.max(30, Math.min(300, Number(song.bpm) || 120));
+  const beatSec = 60 / bpm;
+  const beatsPerWindow = (Number(song.beatsPerMeasure) || 4) >= 4 ? 2 : Math.max(1, Number(song.beatsPerMeasure) || 2);
+  const windowSec = Math.max(0.45, Math.min(2.4, beatSec * beatsPerWindow));
+  const totalDur = Math.max(windowSec, Number(song.duration) || (notes[notes.length - 1].time + 0.5));
+
+  const markers = [];
+  let prevSymbol = null;
+  for (let wStart = 0; wStart < totalDur; wStart += windowSec) {
+    const wEnd = wStart + windowSec;
+    const active = notes.filter((n) => {
+      const nEnd = n.time + Math.max(0.08, Number(n.duration) || 0.25);
+      return (n.time >= wStart - 0.05 && n.time < wEnd - 0.02) || (n.time < wStart && nEnd > wStart + 0.06);
+    });
+    if (active.length < 2) continue;
+
+    const pcs = new Set(active.map((n) => ((n.midi % 12) + 12) % 12));
+    if (pcs.size < 2) continue;
+    const lowestMidi = Math.min(...active.map((n) => n.midi));
+    const bassPc = ((lowestMidi % 12) + 12) % 12;
+
+    let bestScore = -Infinity;
+    let bestSymbol = null;
+    for (const rootPc of pcs) {
+      for (const tpl of CHORD_TEMPLATES) {
+        let matched = 0;
+        for (const iv of tpl.intervals) {
+          if (pcs.has((rootPc + iv) % 12)) matched++;
+        }
+        if (matched < 2) continue;
+        const missing = tpl.intervals.length - matched;
+        const extra = pcs.size - matched;
+        let score = matched * 2.2 - missing * 1.6 - extra * 0.65;
+        if (rootPc === bassPc) score += 0.9;
+        if (tpl.intervals.length === 3 && matched === 3) score += 0.4;
+        if (score > bestScore) {
+          bestScore = score;
+          const rootName = [1, 3, 5, 8, 10].includes(rootPc) ? CHORD_FLAT_NAMES[rootPc] : CHORD_SHARP_NAMES[rootPc];
+          bestSymbol = `${rootName}${tpl.suffix}`;
+        }
+      }
+    }
+
+    if (bestSymbol && bestScore >= 3.2 && bestSymbol !== prevSymbol) {
+      markers.push({ time: Number(wStart.toFixed(3)), symbol: bestSymbol });
+      prevSymbol = bestSymbol;
+    }
+  }
+  return markers;
+}
+
+function getEffectiveChordMarkers(song = currentSong) {
+  if (!song) return [];
+  const shift = Math.round(Number(song.transposeSemitones) || 0);
+  if (Array.isArray(song.chordMarkers) && song.chordMarkers.length > 0) {
+    if (((shift % 12) + 12) % 12 === 0) return song.chordMarkers;
+    return song.chordMarkers.map((m) => ({
+      time: m.time,
+      symbol: transposeChordSymbol(m.symbol, shift)
+    }));
+  }
+  if (!Array.isArray(song._computedMidiChordMarkers)) {
+    song._computedMidiChordMarkers = computeMidiChordMarkers(song);
+  }
+  return song._computedMidiChordMarkers;
+}
+
+function updateChordBannerHUD(currentTime = playbackState.currentTime) {
+  if (!hudChordBanner || !hudChordCurrent || !hudChordNext) return;
+  if (!showChordBanner || !currentSong) {
+    hudChordBanner.classList.add('hidden');
+    return;
+  }
+  const markers = getEffectiveChordMarkers(currentSong);
+  if (!markers || markers.length === 0) {
+    hudChordBanner.classList.add('hidden');
+    return;
+  }
+
+  let active = null;
+  let next = null;
+  const t = Number(currentTime) || 0;
+  for (let i = 0; i < markers.length; i++) {
+    const m = markers[i];
+    if (m.time <= t + 0.08) {
+      active = m;
+    } else {
+      if (!active || m.symbol !== active.symbol) {
+        next = m;
+        break;
+      }
+    }
+  }
+
+  const displayCurrent = active ? active.symbol : markers[0].symbol;
+  if (!active && markers[0].time > t + 0.08) {
+    next = markers[1] && markers[1].symbol !== displayCurrent ? markers[1] : null;
+  }
+
+  hudChordBanner.classList.remove('hidden');
+  hudChordCurrent.textContent = displayCurrent;
+  if (next) {
+    hudChordNext.textContent = `Next: ${next.symbol}`;
+    hudChordNext.classList.remove('hidden');
+  } else {
+    hudChordNext.classList.add('hidden');
+  }
+}
+
+function formatTransposeBadge(semitones = 0) {
+  const st = clampTransposeSemitones(semitones);
+  if (st === 0) return '0 st';
+  return `${st > 0 ? '+' : ''}${st} st`;
+}
+
+function updateCapoControlsUI() {
+  const st = clampTransposeSemitones(currentSong?.transposeSemitones ?? 0);
+  if (capoTransposeValue) {
+    capoTransposeValue.textContent = formatTransposeBadge(st);
+  }
+  const hasSong = Boolean(currentSong);
+  if (btnCapoOctDown) btnCapoOctDown.disabled = !hasSong || st <= -12;
+  if (btnCapoSemiDown) btnCapoSemiDown.disabled = !hasSong || st <= -12;
+  if (btnCapoSemiUp) btnCapoSemiUp.disabled = !hasSong || st >= 12;
+  if (btnCapoOctUp) btnCapoOctUp.disabled = !hasSong || st >= 12;
+  if (btnCapoReset) btnCapoReset.disabled = !hasSong || st === 0;
+
+  if (capoAudioWarning) {
+    const hasPitchMismatch = Boolean(
+      currentSong?.backingAudioEl &&
+      playbackState.backingBandEnabled &&
+      ((st % 12) + 12) % 12 !== 0
+    );
+    capoAudioWarning.classList.toggle('hidden', !hasPitchMismatch);
+  }
+}
+
+function setSongTransposeSemitones(nextSemitones) {
+  if (!currentSong) return;
+  const clamped = clampTransposeSemitones(nextSemitones);
+  if (clamped === (currentSong.transposeSemitones || 0)) return;
+  currentSong.transposeSemitones = clamped;
+  currentSong.hasCustomBundle = Boolean(
+    currentSong.sheetMusicPath ||
+    currentSong.backingAudioPath ||
+    currentSong.youtubeUrl ||
+    currentSong.spotifyUrl ||
+    Math.abs(currentSong.audioOffsetSec || 0) > 0.0001 ||
+    Math.abs((currentSong.audioTempoRatio ?? 1.0) - 1.0) > 0.0001 ||
+    typeof currentSong.midiCleanupOverride === 'boolean' ||
+    clamped !== 0
+  );
+  assignSongTracksAndDifficulty(currentSong.selectedTrackMode || 'auto-piano');
+  persistCurrentSongCalibration();
+  updateCapoControlsUI();
+  updateChordBannerHUD(playbackState.currentTime);
+  const label = clamped === 0
+    ? 'Original Key (0 st)'
+    : `${clamped > 0 ? '+' : ''}${clamped} st${Math.abs(clamped) === 12 ? ` (${clamped > 0 ? '+1' : '-1'} Oct)` : ''}`;
+  showGrimoireToast(`\uD83C\uDFB9 Capo: ${label}`);
+}
+
 function persistCurrentSongCalibration() {
   if (!currentSong) return;
   try {
@@ -3328,6 +3834,7 @@ function persistCurrentSongCalibration() {
         spotifyUrl: currentSong.spotifyUrl || undefined,
         audioOffsetSec: currentSong.audioOffsetSec ?? 0,
         audioTempoRatio: currentSong.audioTempoRatio ?? 1.0,
+        transposeSemitones: clampTransposeSemitones(currentSong.transposeSemitones ?? 0),
         midiCleanupEnabled: typeof currentSong.midiCleanupOverride === 'boolean'
           ? currentSong.midiCleanupOverride
           : null
@@ -3946,6 +4453,13 @@ function toggleRehearsalLoop() {
     updateTimelineUI();
   }
 
+  if (!rehearsalLoopState.enabled && encoreDrillQueue.active) {
+    encoreDrillQueue.active = false;
+    encoreDrillQueue.items = [];
+    encoreDrillQueue.activeIndex = 0;
+    updateEncoreDrillBadge();
+  }
+
   updateRehearsalUI();
   showGrimoireToast(
     rehearsalLoopState.enabled
@@ -3961,6 +4475,12 @@ function clearRehearsalLoop() {
   rehearsalLoopState.cleanPasses = 0;
   rehearsalLoopState.totalPasses = 0;
   rehearsalLoopState.passMistakes = 0;
+  if (encoreDrillQueue.active) {
+    encoreDrillQueue.active = false;
+    encoreDrillQueue.items = [];
+    encoreDrillQueue.activeIndex = 0;
+    updateEncoreDrillBadge();
+  }
   updateRehearsalUI();
 }
 
@@ -3982,6 +4502,26 @@ function handleRehearsalLoopWrap() {
       showGrimoireToast(`\u2728 Clean Pass! Tempo ramped to ${nextPreset}x`);
     } else {
       showGrimoireToast(`\uD83C\uDFC6 Clean Pass #${rehearsalLoopState.cleanPasses} at target ${playbackState.playbackSpeed}x!`);
+    }
+  } else if (encoreDrillQueue.active && isClean) {
+    const clearedItem = encoreDrillQueue.items[encoreDrillQueue.activeIndex];
+    encoreDrillQueue.totalCleared++;
+    encoreDrillQueue.activeIndex++;
+    if (encoreDrillQueue.activeIndex < encoreDrillQueue.items.length) {
+      const nextItem = encoreDrillQueue.items[encoreDrillQueue.activeIndex];
+      armRehearsalLoopWindow(nextItem.startSec, nextItem.endSec);
+      updateEncoreDrillBadge();
+      showGrimoireToast(`✨ ${clearedItem ? clearedItem.label : 'Bar'} Cleared! Advancing to ${nextItem.label} (${encoreDrillQueue.activeIndex + 1}/${encoreDrillQueue.items.length})`);
+      return;
+    } else {
+      const total = encoreDrillQueue.items.length;
+      encoreDrillQueue.active = false;
+      encoreDrillQueue.items = [];
+      encoreDrillQueue.activeIndex = 0;
+      updateEncoreDrillBadge();
+      clearRehearsalLoop();
+      showGrimoireToast(`🏆 Encore Drill Complete! All ${total} weak bar${total === 1 ? '' : 's'} conquered!`);
+      return;
     }
   } else if (isClean) {
     showGrimoireToast(`\uD83D\uDD01 Clean Pass #${rehearsalLoopState.cleanPasses} (${playbackState.playbackSpeed}x)`);
@@ -4139,40 +4679,49 @@ function animationLoop(timestamp) {
         }
       }
     } else {
-      // Arcade Mode: cluster earliest unsatisfied player notes via getNextUnsatisfiedStrikeGroup()
+      // Arcade / Rhythm Mode: cluster earliest unsatisfied player notes via getNextUnsatisfiedStrikeGroup()
       // so staggered chords expire atomically once per chord rather than across consecutive frames (Fixes #46).
       playbackState.isWaitingForStrike = false;
       let missedPlayerChord = false;
+      const effectiveArcadeTime = proposedTime - ((playbackState.inputLatencyOffsetMs || 0) / 1000);
 
       if (playbackState.accompanimentMode !== 'auto-both') {
         let nextArcadeGroup = getNextUnsatisfiedStrikeGroup();
-        while (nextArcadeGroup && proposedTime > nextArcadeGroup.anchorTime + 0.18) {
+        while (nextArcadeGroup && effectiveArcadeTime > nextArcadeGroup.anchorTime + 0.18) {
           for (const n of nextArcadeGroup.notes) {
             n.satisfied = true;
             n.lockedInWait = false;
           }
           playbackState.activeStrikeGroup = null;
           recordMeasureOutcome(nextArcadeGroup.anchorTime, { missed: Math.max(1, nextArcadeGroup.notes.length) });
+          if (playbackState.rhythmMode) {
+            songSessionStats.rhythmMiss += Math.max(1, nextArcadeGroup.notes.length);
+          }
           missedPlayerChord = true;
           nextArcadeGroup = getNextUnsatisfiedStrikeGroup();
         }
       }
 
       for (const n of currentSong.track1Notes) {
-        if (!n.satisfied && n.time < proposedTime - 0.18) {
+        if (!n.satisfied && n.time < effectiveArcadeTime - 0.18) {
           n.satisfied = true;
           n.lockedInWait = false;
         }
       }
       for (const n of currentSong.track2Notes) {
-        if (!n.satisfied && n.time < proposedTime - 0.18) {
+        if (!n.satisfied && n.time < effectiveArcadeTime - 0.18) {
           n.satisfied = true;
           n.lockedInWait = false;
         }
       }
       if (missedPlayerChord) {
-        recordSpellChainBreak('✗ Missed Note (Arcade)');
-        setStrikeStatusBadge('fumble', '✗ Missed Note (Arcade Mode — Spell Chain Reset)');
+        recordSpellChainBreak(playbackState.rhythmMode ? '✗ Missed Beat (Rhythm)' : '✗ Missed Note (Arcade)');
+        setStrikeStatusBadge(
+          'fumble',
+          playbackState.rhythmMode
+            ? '✗ Missed Beat (Rhythm Mode — Spell Chain Reset)'
+            : '✗ Missed Note (Arcade Mode — Spell Chain Reset)'
+        );
       }
     }
 
@@ -4667,10 +5216,27 @@ function scanWatchedDirectories(notifyOnNew = false) {
   let addedNewSpell = null;
   let changed = false;
 
+  const seenOmrSheets = scanWatchedDirectories._seenOmrSheets || (scanWatchedDirectories._seenOmrSheets = new Set());
+
   for (const { dir, sourceTag } of dirsToScan) {
     try {
       if (!fs.existsSync(dir)) continue;
-      const files = fs.readdirSync(dir).filter((f) => /\.(mid|midi|musicxml|xml|mxl)$/i.test(f));
+      const allEntries = fs.readdirSync(dir);
+      if (sourceTag === 'Imports/' && notifyOnNew) {
+        const stemSet = new Set(
+          allEntries
+            .filter((f) => /\.(mid|midi|musicxml|xml|mxl)$/i.test(f))
+            .map((f) => path.basename(f, path.extname(f)).toLowerCase())
+        );
+        for (const f of allEntries) {
+          if (!isOmrSheetFileName(f)) continue;
+          const stem = path.basename(f, path.extname(f)).toLowerCase();
+          if (stemSet.has(stem) || seenOmrSheets.has(f.toLowerCase())) continue;
+          seenOmrSheets.add(f.toLowerCase());
+          showGrimoireToast(`\uD83D\uDCDC Sheet "${f}" detected in Imports/. Use Import Spell or drag-drop to run OMR & Review!`);
+        }
+      }
+      const files = allEntries.filter((f) => /\.(mid|midi|musicxml|xml|mxl)$/i.test(f));
 
       for (const file of files) {
         const key = `${sourceTag.toLowerCase()}::${file.toLowerCase()}`;
@@ -6860,6 +7426,7 @@ function renderCanvas() {
 
     // 2. Draw 60 FPS Falling Spell Highway Notes
     strikeLineGuides = drawFallingSpellHighway(strikeLineY, width, highwayTopY, false);
+    updateChordBannerHUD(playbackState.currentTime);
 
     // 2b. Issue #30: Draw Rehearsal Loop A/B boundary lines on the Spell Highway
     if (currentSong && rehearsalLoopState.enabled && hasValidRehearsalLoop()) {
@@ -7273,6 +7840,19 @@ function isAnyModalOpen() {
 }
 
 window.addEventListener('keydown', (e) => {
+  if (typeof latencyWizardState !== 'undefined' && latencyWizardState.active) {
+    if (e.code === 'Space' && !e.repeat) {
+      e.preventDefault();
+      recordLatencyWizardTap();
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      stopLatencyCalibrationWizard();
+      if (latencyWizardStatus) latencyWizardStatus.classList.add('hidden');
+      return;
+    }
+  }
   // Close open popovers and modals on Escape (Issue #33, #76, #77)
   if (e.key === 'Escape') {
     if (closeAllConservatoryPopovers({ returnFocus: true })) {
@@ -7282,6 +7862,11 @@ window.addEventListener('keydown', (e) => {
     if (deleteSpellConfirmModal && !deleteSpellConfirmModal.classList.contains('hidden')) {
       e.preventDefault();
       closeDeleteSpellConfirmModal();
+      return;
+    }
+    if (omrReviewModal && !omrReviewModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeOmrReviewModal();
       return;
     }
     if (questBoardModal && !questBoardModal.classList.contains('hidden')) {
@@ -7529,8 +8114,12 @@ midiFileInput.addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
   try {
-    const buffer = await file.arrayBuffer();
-    loadSongFromBuffer(buffer, file.name, file.path || null);
+    if (isOmrSheetFileName(file.name)) {
+      await startOmrImportFromFile(file);
+    } else {
+      const buffer = await file.arrayBuffer();
+      loadSongFromBuffer(buffer, file.name, file.path || null);
+    }
   } catch (err) {
     showGrimoireToast(`Failed to import "${file.name}": ${err.message}`, 'error');
   }
@@ -7619,10 +8208,22 @@ function applyPracticeMode(mode) {
   resetSongProgressFlags(playbackState.currentTime, { preserveTriggeredAtTarget: true });
 }
 
+function syncPracticeTimingModeUI() {
+  if (waitModeStateText) waitModeStateText.textContent = playbackState.waitMode ? 'ON' : 'OFF';
+  if (btnWaitMode) btnWaitMode.classList.toggle('btn-wait-active', playbackState.waitMode);
+  if (rhythmModeStateText) rhythmModeStateText.textContent = playbackState.rhythmMode ? 'ON' : 'OFF';
+  if (btnRhythmMode) {
+    btnRhythmMode.classList.toggle('btn-rhythm-active', playbackState.rhythmMode);
+    btnRhythmMode.setAttribute('aria-pressed', playbackState.rhythmMode ? 'true' : 'false');
+  }
+}
+
 btnWaitMode.addEventListener('click', () => {
   playbackState.waitMode = !playbackState.waitMode;
-  waitModeStateText.textContent = playbackState.waitMode ? 'ON' : 'OFF';
-  btnWaitMode.classList.toggle('btn-wait-active', playbackState.waitMode);
+  if (playbackState.waitMode) {
+    playbackState.rhythmMode = false;
+  }
+  syncPracticeTimingModeUI();
 
   if (playbackState.waitMode && playbackState.accompanimentMode === 'auto-both') {
     playbackState.handIsolation = lastNonPreviewPracticeMode.handIsolation || 'both';
@@ -7648,6 +8249,190 @@ btnWaitMode.addEventListener('click', () => {
   }
   syncBackingAudioElement(playbackState.currentTime);
 });
+
+if (btnRhythmMode) {
+  btnRhythmMode.addEventListener('click', () => {
+    playbackState.rhythmMode = !playbackState.rhythmMode;
+    if (playbackState.rhythmMode) {
+      playbackState.waitMode = false;
+      if (playbackState.accompanimentMode === 'auto-both') {
+        playbackState.handIsolation = lastNonPreviewPracticeMode.handIsolation || 'both';
+        playbackState.accompanimentMode = lastNonPreviewPracticeMode.accompanimentMode || 'auto-other';
+        if (handIsolationSelect) handIsolationSelect.value = playbackState.handIsolation;
+        if (accompanimentSelect) accompanimentSelect.value = playbackState.accompanimentMode;
+        syncPracticeModeDropdownFromState();
+      }
+      const wasWaiting = playbackState.isWaitingForStrike;
+      playbackState.isWaitingForStrike = false;
+      playbackState.waitStartedAtMs = null;
+      playbackState.activeStrikeGroup = null;
+      playbackState.lastFrameTimestamp = performance.now();
+      if (wasWaiting) {
+        processSongAudioTriggers(playbackState.currentTime - 0.01, playbackState.currentTime + 0.005);
+      }
+      setStrikeStatusBadge('ready', '🥁 Rhythm Mode Active (Perfect ≤45ms • Great ≤90ms • Good ≤160ms)');
+    } else {
+      playbackState.waitMode = true;
+      resetSongProgressFlags(playbackState.currentTime, { preserveTriggeredAtTarget: true });
+      setStrikeStatusBadge('ready', 'Wait Mode Active (100ms Chord Grace)');
+    }
+    syncPracticeTimingModeUI();
+    syncBackingAudioElement(playbackState.currentTime);
+  });
+}
+
+// Issue #111: Global Input Latency Calibration Slider & 5-Beat Tap Wizard
+const latencyWizardState = {
+  active: false,
+  beatTimesMs: [],
+  deltasMs: [],
+  timers: [],
+  clickSynth: null
+};
+
+function setGlobalInputLatencyMs(ms, { persist = true } = {}) {
+  const clamped = Math.max(-150, Math.min(150, Math.round(Number(ms) || 0)));
+  playbackState.inputLatencyOffsetMs = clamped;
+  if (inputLatencySlider) inputLatencySlider.value = String(clamped);
+  if (inputLatencyValue) {
+    const sign = clamped > 0 ? '+' : '';
+    inputLatencyValue.textContent = `${sign}${clamped} ms`;
+  }
+  if (persist) {
+    try {
+      localStorage.setItem(INPUT_LATENCY_STORAGE_KEY, String(clamped));
+    } catch {
+      // Ignore storage write error
+    }
+  }
+}
+
+setGlobalInputLatencyMs(playbackState.inputLatencyOffsetMs, { persist: false });
+
+if (inputLatencySlider) {
+  inputLatencySlider.addEventListener('input', (e) => {
+    setGlobalInputLatencyMs(e.target.value);
+  });
+}
+
+if (btnLatencyReset) {
+  btnLatencyReset.addEventListener('click', () => {
+    setGlobalInputLatencyMs(0);
+    showGrimoireToast('⏱ Input Latency reset to 0 ms');
+  });
+}
+
+function stopLatencyCalibrationWizard() {
+  for (const t of latencyWizardState.timers) clearTimeout(t);
+  latencyWizardState.timers = [];
+  latencyWizardState.active = false;
+  if (btnLatencyWizard) {
+    btnLatencyWizard.disabled = false;
+    btnLatencyWizard.textContent = '🎯 Tap Wizard (5 Beats)';
+  }
+}
+
+function recordLatencyWizardTap() {
+  if (!latencyWizardState.active) return false;
+  const nowMs = performance.now();
+  // Match against beats 2..5 (indices 1..4), discarding beat 1 outlier
+  let bestBeatIdx = -1;
+  let bestAbs = Infinity;
+  for (let i = 1; i < latencyWizardState.beatTimesMs.length; i++) {
+    const diff = nowMs - latencyWizardState.beatTimesMs[i];
+    if (Math.abs(diff) < bestAbs && Math.abs(diff) <= 260) {
+      bestAbs = Math.abs(diff);
+      bestBeatIdx = i;
+    }
+  }
+  if (bestBeatIdx !== -1) {
+    const delta = nowMs - latencyWizardState.beatTimesMs[bestBeatIdx];
+    latencyWizardState.deltasMs.push(delta);
+    if (latencyWizardStatus) {
+      latencyWizardStatus.textContent = `Tap ${latencyWizardState.deltasMs.length}/4 (${delta > 0 ? '+' : ''}${Math.round(delta)} ms)`;
+    }
+  }
+  return true;
+}
+
+async function startLatencyCalibrationWizard() {
+  if (latencyWizardState.active) {
+    stopLatencyCalibrationWizard();
+    if (latencyWizardStatus) latencyWizardStatus.classList.add('hidden');
+    return;
+  }
+  await ensureAudioReady();
+  stopLatencyCalibrationWizard();
+  latencyWizardState.active = true;
+  latencyWizardState.deltasMs = [];
+  const intervalMs = 600; // 100 BPM quarter notes
+  const startMs = performance.now() + 250;
+  latencyWizardState.beatTimesMs = Array.from({ length: 5 }, (_, i) => startMs + i * intervalMs);
+
+  if (!latencyWizardState.clickSynth && typeof Tone !== 'undefined') {
+    latencyWizardState.clickSynth = new Tone.MembraneSynth({
+      pitchDecay: 0.015,
+      octaves: 2,
+      envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.02 }
+    });
+    if (masterVol) latencyWizardState.clickSynth.connect(masterVol);
+    else latencyWizardState.clickSynth.toDestination();
+  }
+
+  if (btnLatencyWizard) {
+    btnLatencyWizard.disabled = true;
+    btnLatencyWizard.textContent = '🎯 Listening (Beats 2–5)...';
+  }
+  if (latencyWizardStatus) {
+    latencyWizardStatus.classList.remove('hidden');
+    latencyWizardStatus.textContent = 'Listen Beat 1...';
+  }
+
+  latencyWizardState.beatTimesMs.forEach((beatMs, idx) => {
+    const delay = Math.max(0, beatMs - performance.now());
+    const tid = setTimeout(() => {
+      if (!latencyWizardState.active) return;
+      try {
+        latencyWizardState.clickSynth?.triggerAttackRelease(idx === 0 ? 'G5' : 'C5', '32n', Tone.now(), 0.75);
+      } catch {
+        // Ignore audio click errors
+      }
+      if (latencyWizardStatus) {
+        latencyWizardStatus.classList.remove('pulsing');
+        void latencyWizardStatus.offsetWidth;
+        latencyWizardStatus.classList.add('pulsing');
+        latencyWizardStatus.textContent = idx === 0 ? 'Beat 1 (Listen)' : `Beat ${idx + 1} — Tap!`;
+      }
+    }, delay);
+    latencyWizardState.timers.push(tid);
+  });
+
+  const finishDelay = Math.max(0, latencyWizardState.beatTimesMs[4] - performance.now() + 420);
+  const endTid = setTimeout(() => {
+    const samples = [...latencyWizardState.deltasMs].sort((a, b) => a - b);
+    stopLatencyCalibrationWizard();
+    if (samples.length === 0) {
+      if (latencyWizardStatus) latencyWizardStatus.textContent = 'No taps detected';
+      showGrimoireToast('🎯 Tap Wizard: No taps detected on beats 2–5');
+      return;
+    }
+    const mid = Math.floor(samples.length / 2);
+    const median = samples.length % 2 === 1 ? samples[mid] : (samples[mid - 1] + samples[mid]) / 2;
+    const rounded = Math.max(-150, Math.min(150, Math.round(median / 5) * 5));
+    setGlobalInputLatencyMs(rounded);
+    if (latencyWizardStatus) {
+      latencyWizardStatus.textContent = `Set ${rounded > 0 ? '+' : ''}${rounded} ms`;
+    }
+    showGrimoireToast(`🎯 Input Latency calibrated to ${rounded > 0 ? '+' : ''}${rounded} ms`);
+  }, finishDelay);
+  latencyWizardState.timers.push(endTid);
+}
+
+if (btnLatencyWizard) {
+  btnLatencyWizard.addEventListener('click', () => {
+    startLatencyCalibrationWizard();
+  });
+}
 
 songProgressSlider.addEventListener('mousedown', () => {
   playbackState.isScrubbing = true;
@@ -7771,6 +8556,48 @@ if (toggleQwertyLabelsCheckbox) {
   });
 }
 
+if (toggleChordBannerCheckbox) {
+  toggleChordBannerCheckbox.checked = showChordBanner;
+  toggleChordBannerCheckbox.addEventListener('change', (e) => {
+    showChordBanner = Boolean(e.target.checked);
+    saveShowChordBannerPreference(showChordBanner);
+    updateChordBannerHUD(playbackState.currentTime);
+    e.target.blur();
+  });
+}
+
+if (btnCapoOctDown) {
+  btnCapoOctDown.addEventListener('click', (e) => {
+    setSongTransposeSemitones((currentSong?.transposeSemitones || 0) - 12);
+    e.currentTarget.blur();
+  });
+}
+if (btnCapoSemiDown) {
+  btnCapoSemiDown.addEventListener('click', (e) => {
+    setSongTransposeSemitones((currentSong?.transposeSemitones || 0) - 1);
+    e.currentTarget.blur();
+  });
+}
+if (btnCapoSemiUp) {
+  btnCapoSemiUp.addEventListener('click', (e) => {
+    setSongTransposeSemitones((currentSong?.transposeSemitones || 0) + 1);
+    e.currentTarget.blur();
+  });
+}
+if (btnCapoOctUp) {
+  btnCapoOctUp.addEventListener('click', (e) => {
+    setSongTransposeSemitones((currentSong?.transposeSemitones || 0) + 12);
+    e.currentTarget.blur();
+  });
+}
+if (btnCapoReset) {
+  btnCapoReset.addEventListener('click', (e) => {
+    setSongTransposeSemitones(0);
+    e.currentTarget.blur();
+  });
+}
+updateCapoControlsUI();
+
 if (toggleMidiCleanupCheckbox) {
   toggleMidiCleanupCheckbox.addEventListener('change', (e) => {
     const enabled = Boolean(e.target.checked);
@@ -7786,7 +8613,8 @@ if (toggleMidiCleanupCheckbox) {
         currentSong.youtubeUrl ||
         currentSong.spotifyUrl ||
         Math.abs(currentSong.audioOffsetSec || 0) > 0.0001 ||
-        Math.abs((currentSong.audioTempoRatio ?? 1.0) - 1.0) > 0.0001
+        Math.abs((currentSong.audioTempoRatio ?? 1.0) - 1.0) > 0.0001 ||
+        clampTransposeSemitones(currentSong.transposeSemitones ?? 0) !== 0
       );
       assignSongTracksAndDifficulty(currentSong.selectedTrackMode || 'auto-piano');
       if (hadOverride) {
@@ -8088,6 +8916,7 @@ btnBackingBand.addEventListener('click', () => {
   playbackState.backingBandEnabled = !playbackState.backingBandEnabled;
   backingBandStateText.textContent = playbackState.backingBandEnabled ? 'ON' : 'OFF';
   btnBackingBand.classList.toggle('btn-toggle-active', playbackState.backingBandEnabled);
+  updateCapoControlsUI();
   if (!playbackState.backingBandEnabled && backingBandSynth) {
     backingBandSynth.releaseAll();
   }
@@ -9594,13 +10423,250 @@ window.addEventListener('dragleave', (e) => {
   }
 });
 
+const activeOmrState = {
+  child: null,
+  tempInputPath: null,
+  tempXmlPath: null,
+  rawXmlText: null,
+  sourceName: null,
+  converted: null
+};
+
+function cleanupOmrTempFiles() {
+  for (const p of [activeOmrState.tempInputPath, activeOmrState.tempXmlPath]) {
+    if (p) {
+      try {
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+  }
+  activeOmrState.tempInputPath = null;
+  activeOmrState.tempXmlPath = null;
+  activeOmrState.rawXmlText = null;
+  activeOmrState.converted = null;
+}
+
+function closeOmrReviewModal() {
+  if (activeOmrState.child) {
+    try {
+      activeOmrState.child.kill();
+    } catch {
+      // Ignore kill error
+    }
+    activeOmrState.child = null;
+  }
+  cleanupOmrTempFiles();
+  if (omrReviewModal) omrReviewModal.classList.add('hidden');
+}
+
+function renderOmrReviewState(sourceName, xmlText, converted, midi, omrWarnings = []) {
+  const report = analyzeOmrConfidence(converted.metadata, midi, omrWarnings);
+  if (omrProgressSection) omrProgressSection.classList.add('hidden');
+  if (omrReviewSection) omrReviewSection.classList.remove('hidden');
+
+  if (omrSourceSubtitle) omrSourceSubtitle.textContent = `Review recognized notation from "${sourceName}" before saving`;
+  if (omrConfidenceBadge) {
+    omrConfidenceBadge.className = `omr-confidence-badge conf-${report.overallConfidence}`;
+    const label = report.overallConfidence === 'high' ? 'High' : report.overallConfidence === 'medium' ? 'Medium' : 'Low';
+    omrConfidenceBadge.textContent = `Confidence: ${label}`;
+  }
+
+  const totalNotes = (midi?.tracks || []).reduce((acc, t) => acc + (t.notes?.length || 0), 0);
+  if (omrSummaryStats) {
+    omrSummaryStats.textContent = `${report.totalMeasures} measures \u2022 ${totalNotes} notes`;
+  }
+  if (omrTitleInput) {
+    const defaultTitle = (converted.metadata?.title && converted.metadata.title !== 'Untitled')
+      ? converted.metadata.title
+      : path.basename(sourceName, path.extname(sourceName));
+    omrTitleInput.value = defaultTitle;
+  }
+  if (omrBpmInput) {
+    omrBpmInput.value = Math.round(Number(converted.metadata?.bpm) || 120);
+  }
+  if (omrDetectedMeta) {
+    const keyLabel = converted.metadata?.keySignature || 'C Major';
+    const ts0 = converted.metadata?.timeSignatures?.[0]?.timeSignature;
+    const tsLabel = Array.isArray(ts0) ? `${ts0[0]}/${ts0[1]}` : '4/4';
+    omrDetectedMeta.textContent = `${keyLabel} \u2022 ${tsLabel}`;
+  }
+
+  if (omrWarningsBox) {
+    if (report.warnings.length > 0) {
+      omrWarningsBox.textContent = report.warnings.join(' ');
+      omrWarningsBox.classList.remove('hidden');
+    } else {
+      omrWarningsBox.classList.add('hidden');
+    }
+  }
+
+  if (omrFlaggedCount) {
+    omrFlaggedCount.textContent = `${report.flaggedCount} flagged`;
+  }
+  if (omrFlaggedList) {
+    omrFlaggedList.innerHTML = '';
+    if (report.flaggedMeasures.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'sev-clean';
+      li.textContent = 'All measures passed rhythmic & pitch sanity checks.';
+      omrFlaggedList.appendChild(li);
+    } else {
+      for (const fm of report.flaggedMeasures) {
+        const li = document.createElement('li');
+        if (fm.severity === 'low') li.className = 'sev-low';
+        li.textContent = `Bar ${fm.number}: ${fm.reasons.join('; ')}`;
+        omrFlaggedList.appendChild(li);
+      }
+    }
+  }
+}
+
+async function startOmrImportFromFile(file) {
+  if (!file) return;
+  const scriptPath = path.join(__dirname, 'python_ml', 'omr_import.py');
+  if (!fs.existsSync(scriptPath)) {
+    showGrimoireToast('OMR script python_ml/omr_import.py not found.', 'error');
+    return;
+  }
+
+  closeOmrReviewModal();
+  activeOmrState.sourceName = file.name;
+
+  let inputPath = file.path || null;
+  if (!inputPath) {
+    const tmpIn = path.join(os.tmpdir(), `cok_omr_in_${Date.now()}${path.extname(file.name) || '.pdf'}`);
+    const buf = Buffer.from(await file.arrayBuffer());
+    fs.writeFileSync(tmpIn, buf);
+    inputPath = tmpIn;
+    activeOmrState.tempInputPath = tmpIn;
+  }
+
+  const tempXmlPath = path.join(os.tmpdir(), `cok_omr_out_${Date.now()}.musicxml`);
+  activeOmrState.tempXmlPath = tempXmlPath;
+
+  if (omrReviewModal) omrReviewModal.classList.remove('hidden');
+  if (omrProgressSection) omrProgressSection.classList.remove('hidden');
+  if (omrReviewSection) omrReviewSection.classList.add('hidden');
+  if (omrSourceSubtitle) omrSourceSubtitle.textContent = `Recognizing "${file.name}"...`;
+  if (omrProgressFill) omrProgressFill.style.width = '4%';
+  if (omrStatusText) omrStatusText.textContent = 'Starting OMR engine (homr + pypdfium2)...';
+
+  const pythonExe = resolvePythonExecutable();
+  const child = spawn(pythonExe, [scriptPath, inputPath, '--out', tempXmlPath], {
+    cwd: __dirname,
+    windowsHide: true
+  });
+  activeOmrState.child = child;
+
+  let latestWarnings = [];
+  let stdoutBuf = '';
+  child.stdout.on('data', (chunk) => {
+    stdoutBuf += chunk.toString();
+    const lines = stdoutBuf.split(/\r?\n/);
+    stdoutBuf = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.startsWith('[OMR_STATUS] ')) continue;
+      try {
+        const st = JSON.parse(line.slice('[OMR_STATUS] '.length));
+        if (omrProgressFill && Number.isFinite(st.percent)) {
+          omrProgressFill.style.width = `${Math.max(0, Math.min(100, st.percent))}%`;
+        }
+        if (omrStatusText && st.message) {
+          omrStatusText.textContent = st.message;
+        }
+        if (Array.isArray(st.warnings)) {
+          latestWarnings = st.warnings;
+        }
+      } catch {
+        // Ignore malformed status JSON
+      }
+    }
+  });
+
+  let stderrText = '';
+  child.stderr.on('data', (chunk) => {
+    stderrText += chunk.toString();
+  });
+
+  child.on('close', (code) => {
+    activeOmrState.child = null;
+    if (code !== 0 || !fs.existsSync(tempXmlPath)) {
+      const msg = omrStatusText?.textContent || stderrText.trim().split(/\r?\n/).pop() || 'OMR conversion failed.';
+      showGrimoireToast(`OMR failed: ${msg}`, 'error');
+      closeOmrReviewModal();
+      return;
+    }
+
+    try {
+      const xmlText = fs.readFileSync(tempXmlPath, 'utf8');
+      const converted = convertMusicXmlToMidiBuffer(Buffer.from(xmlText, 'utf8'), `${path.basename(file.name, path.extname(file.name))}.musicxml`);
+      const midi = new Midi(converted.midiArrayBuffer);
+      activeOmrState.rawXmlText = xmlText;
+      activeOmrState.converted = converted;
+      renderOmrReviewState(file.name, xmlText, converted, midi, latestWarnings);
+    } catch (err) {
+      showGrimoireToast(`OMR MusicXML parse error: ${err.message}`, 'error');
+      closeOmrReviewModal();
+    }
+  });
+}
+
+function confirmOmrImport() {
+  if (!activeOmrState.rawXmlText) return;
+  try {
+    if (!fs.existsSync(IMPORTS_DIR)) {
+      fs.mkdirSync(IMPORTS_DIR, { recursive: true });
+    }
+    const titleVal = (omrTitleInput?.value || '').trim();
+    const bpmVal = Number(omrBpmInput?.value) || 0;
+    const finalXml = applyOmrOverridesToMusicXml(activeOmrState.rawXmlText, { title: titleVal, bpm: bpmVal });
+    const rawStem = (titleVal || path.basename(activeOmrState.sourceName || 'omr_spell', path.extname(activeOmrState.sourceName || '.pdf')))
+      .replace(/[^a-zA-Z0-9._-]+/g, '_')
+      .replace(/^_+|_+$/g, '') || `omr_spell_${Date.now()}`;
+    let destPath = path.join(IMPORTS_DIR, `${rawStem}.musicxml`);
+    if (fs.existsSync(destPath)) {
+      destPath = path.join(IMPORTS_DIR, `${rawStem}_${Date.now()}.musicxml`);
+    }
+    fs.writeFileSync(destPath, finalXml, 'utf8');
+    const xmlBuf = fs.readFileSync(destPath);
+    const arrayBuf = xmlBuf.buffer.slice(xmlBuf.byteOffset, xmlBuf.byteOffset + xmlBuf.byteLength);
+    closeOmrReviewModal();
+    scanWatchedDirectories(false);
+    renderGrimoireSidebar();
+    loadSongFromBuffer(arrayBuf, path.basename(destPath), destPath);
+    showGrimoireToast(`\u2728 OMR Spell imported to Grimoire: "${path.basename(destPath)}"`);
+  } catch (err) {
+    showGrimoireToast(`Failed to save OMR spell: ${err.message}`, 'error');
+  }
+}
+
+if (btnCloseOmrModal) btnCloseOmrModal.addEventListener('click', closeOmrReviewModal);
+if (btnOmrCancel) btnOmrCancel.addEventListener('click', closeOmrReviewModal);
+if (btnOmrReject) {
+  btnOmrReject.addEventListener('click', () => {
+    closeOmrReviewModal();
+    showGrimoireToast('OMR import discarded.');
+  });
+}
+if (btnOmrConfirm) btnOmrConfirm.addEventListener('click', confirmOmrImport);
+
 window.addEventListener('drop', async (e) => {
   e.preventDefault();
   hideGlobalDropOverlay();
   const file = e.dataTransfer?.files?.[0];
   if (!file) return;
+  if (isOmrSheetFileName(file.name)) {
+    try {
+      await startOmrImportFromFile(file);
+    } catch (err) {
+      showGrimoireToast(`OMR failed for "${file.name}": ${err.message}`, 'error');
+    }
+    return;
+  }
   if (!/\.(mid|midi|musicxml|xml|mxl)$/i.test(file.name)) {
-    showGrimoireToast('Unsupported file type. Please drop a .mid, .midi, .musicxml, .xml, or .mxl file.', 'error');
+    showGrimoireToast('Unsupported file type. Please drop a .mid, .musicxml, .xml, .mxl, .pdf, or sheet image.', 'error');
     return;
   }
   try {
@@ -9724,6 +10790,26 @@ function recordSongPerformance(song, accuracyPct, maxChain, xpEarned, meta = {})
   if (song.filePath) {
     existing.filePath = song.filePath;
   }
+
+  // Issue #108: Persist compact Per-Bar Mastery Ledger (weakBarHistory)
+  const barHistory = existing.weakBarHistory && typeof existing.weakBarHistory === 'object'
+    ? { ...existing.weakBarHistory }
+    : {};
+  for (const [mStr, st] of Object.entries(songSessionStats.measureStats || {})) {
+    const attempts = (st.clean || 0) + (st.fumbled || 0) + (st.missed || 0);
+    if (attempts <= 0) continue;
+    const pct = Math.round((((st.clean || 0) + (st.fumbled || 0) * 0.5) / attempts) * 100);
+    if (pct < 100 || Object.prototype.hasOwnProperty.call(barHistory, mStr)) {
+      barHistory[mStr] = pct;
+    }
+  }
+  const barKeys = Object.keys(barHistory);
+  if (barKeys.length > 40) {
+    for (const k of barKeys.slice(0, barKeys.length - 40)) {
+      delete barHistory[k];
+    }
+  }
+  existing.weakBarHistory = barHistory;
 
   songPlayHistory[key] = existing;
   bardProfile.lastSongTitle = title;

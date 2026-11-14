@@ -141,6 +141,36 @@ function formatKeyDisplayName(vfKeySpec) {
   return MAJOR_KEY_DISPLAY[vfKeySpec] || MINOR_KEY_DISPLAY[vfKeySpec] || vfKeySpec;
 }
 
+const MINOR_KEY_TO_FIFTHS = Object.fromEntries(
+  Object.entries(VF_MINOR_KEYS_BY_FIFTHS).map(([f, k]) => [k, Number(f)])
+);
+const CANONICAL_MAJOR_BY_PC = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+const CANONICAL_MINOR_BY_PC = ['Cm', 'C#m', 'Dm', 'Ebm', 'Em', 'Fm', 'F#m', 'Gm', 'G#m', 'Am', 'Bbm', 'Bm'];
+
+/**
+ * Transpose a VexFlow key signature by `semitones` (preserving major/minor mode).
+ * Octave shifts (semitones % 12 === 0) preserve the original key signature & spelling.
+ */
+function transposeVfKeySpec(vfKeySpec, semitones = 0) {
+  const normalized = normalizeVfKeySpec(vfKeySpec);
+  const shift = ((Math.round(Number(semitones) || 0) % 12) + 12) % 12;
+  if (shift === 0) return normalized;
+
+  if (MINOR_KEY_TO_FIFTHS[normalized] !== undefined) {
+    const fifths = MINOR_KEY_TO_FIFTHS[normalized];
+    const origPc = ((fifths * 7 + 9) % 12 + 12) % 12;
+    return CANONICAL_MINOR_BY_PC[(origPc + shift) % 12] || normalized;
+  }
+
+  if (MAJOR_KEY_TO_FIFTHS[normalized] !== undefined) {
+    const fifths = MAJOR_KEY_TO_FIFTHS[normalized];
+    const origPc = ((fifths * 7) % 12 + 12) % 12;
+    return CANONICAL_MAJOR_BY_PC[(origPc + shift) % 12] || normalized;
+  }
+
+  return normalized;
+}
+
 /**
  * Build piecewise tempo map supporting multi-tempo MIDI/MusicXML headers and negative lead-in time.
  */
@@ -1072,6 +1102,13 @@ function buildScoreData(song, options = {}) {
     keyIsEstimated = true;
   }
   const keySigMap = buildKeySigMap(explicitKeySigs, fallbackKey);
+  const transposeSemitones = Math.round(Number(song.transposeSemitones) || 0);
+  if (explicitKeySigs.length > 0 && ((transposeSemitones % 12) + 12) % 12 !== 0) {
+    for (const entry of keySigMap.entries) {
+      entry.vfKeySpec = transposeVfKeySpec(entry.vfKeySpec, transposeSemitones);
+      entry.displayName = formatKeyDisplayName(entry.vfKeySpec);
+    }
+  }
 
   // Measure Grid Construction: prefer explicit MusicXML measure boundaries (captures pickups/repeats cleanly)
   const rawMaxTickNotes = allPrepared.reduce((mx, n) => Math.max(mx, n.endTicks), 0);
@@ -2498,6 +2535,7 @@ module.exports = {
   VF_MINOR_KEYS_BY_FIFTHS,
   normalizeVfKeySpec,
   formatKeyDisplayName,
+  transposeVfKeySpec,
   buildTempoMap,
   buildTimeSigMap,
   buildKeySigMap,

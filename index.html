@@ -188,7 +188,7 @@
           <button id="btn-open-quest-board" class="tavern-btn btn-quest-board" title="Open The Quest Board: Paste a YouTube URL to transcribe into MIDI or browse BitMIDI, VGMusic & YouTube">
             &#128302; Quest Board
           </button>
-          <input id="midi-file-input" type="file" accept=".mid,.midi,.xml,.musicxml,.mxl" hidden />
+          <input id="midi-file-input" type="file" accept=".mid,.midi,.xml,.musicxml,.mxl,.pdf,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff" hidden />
           <button id="btn-load-midi" class="tavern-btn tavern-btn-primary" title="Import a .mid, .musicxml, .xml, or .mxl file (or drag & drop onto window)">
             &#128220; Import Spell
           </button>
@@ -285,11 +285,50 @@
                 <input id="toggle-midi-cleanup" type="checkbox" class="tavern-checkbox" checked />
               </div>
 
+              <div class="popover-row">
+                <label for="toggle-chord-banner" title="Show live chord symbol &amp; next-chord preview pill above the Spell Highway">Live Chord Banner</label>
+                <input id="toggle-chord-banner" type="checkbox" class="tavern-checkbox" checked />
+              </div>
+
+              <div class="popover-row popover-row-stack">
+                <div class="popover-row-inline">
+                  <span title="Non-destructively transpose playable &amp; backing MIDI notes (-12 to +12 semitones) per song">Capo / Transpose</span>
+                  <div class="capo-stepper-controls">
+                    <button id="btn-capo-oct-down" type="button" class="btn-icon capo-step-btn" title="Shift -1 Octave (-12 st)">-1 Oct</button>
+                    <button id="btn-capo-semi-down" type="button" class="btn-icon capo-step-btn" title="Transpose -1 Semitone">-1</button>
+                    <strong id="capo-transpose-value" class="capo-value-readout">0 st</strong>
+                    <button id="btn-capo-semi-up" type="button" class="btn-icon capo-step-btn" title="Transpose +1 Semitone">+1</button>
+                    <button id="btn-capo-oct-up" type="button" class="btn-icon capo-step-btn" title="Shift +1 Octave (+12 st)">+1 Oct</button>
+                    <button id="btn-capo-reset" type="button" class="btn-icon" title="Reset Transpose to 0 st" aria-label="Reset Transpose">&#8634;</button>
+                  </div>
+                </div>
+                <div id="capo-audio-warning" class="capo-audio-warning hidden" role="status">
+                  Backing audio is unmuted &amp; remains in original key; mute Backing Audio or use &plusmn;12 st to match pitch.
+                </div>
+              </div>
+
               <div id="settings-sync-row" class="popover-row hidden">
                 <span>Backing Audio Sync</span>
                 <button id="btn-settings-open-sync" type="button" class="btn-mini-sim" title="Calibrate Backing Audio Start Offset &amp; Tempo Drift">
                   &#127911; Audio Sync
                 </button>
+              </div>
+
+              <div class="popover-row popover-row-stack">
+                <div class="popover-row-inline">
+                  <label for="input-latency-slider" title="Compensate for Bluetooth/OS audio output delay in Arcade and Rhythm modes (-150 to +150 ms)">Input Latency</label>
+                  <div class="latency-controls-inline">
+                    <strong id="input-latency-value" class="latency-value-readout">0 ms</strong>
+                    <button id="btn-latency-reset" type="button" class="btn-icon" title="Reset Input Latency to 0 ms" aria-label="Reset Input Latency">&#8634;</button>
+                  </div>
+                </div>
+                <input id="input-latency-slider" type="range" min="-150" max="150" value="0" step="5" class="tavern-slider" aria-label="Global input latency offset in milliseconds" />
+                <div class="latency-wizard-row">
+                  <button id="btn-latency-wizard" type="button" class="btn-mini-sim" title="Play 5 quarter-note clicks and tap Space or any key on beats 2-5 to auto-calibrate latency">
+                    &#127919; Tap Wizard (5 Beats)
+                  </button>
+                  <span id="latency-wizard-status" class="latency-wizard-status hidden" aria-live="polite"></span>
+                </div>
               </div>
 
               <div class="popover-divider"></div>
@@ -477,6 +516,7 @@
           <button id="btn-rehearsal-popover" type="button" class="tavern-btn btn-rehearsal-caret" disabled title="Rehearsal Loop &amp; Auto-Ramp Options" aria-label="Rehearsal Loop Options" aria-expanded="false" aria-controls="rehearsal-popover">
             &#9662;
           </button>
+          <span id="encore-drill-badge" class="encore-drill-badge hidden" title="Active Encore Drill weak-bar queue"></span>
 
           <div id="rehearsal-popover" class="conservatory-popover rehearsal-popover hidden" role="dialog" aria-label="Rehearsal Loop Settings">
             <div class="popover-header">
@@ -525,6 +565,9 @@
       <div class="highway-routing-controls">
         <button id="btn-wait-mode" class="tavern-btn btn-wait-active" title="Wait Mode pauses falling notes at the strike line until you play the required pitch(es), with 100ms chord roll forgiveness">
           &#9203; Wait: <span id="wait-mode-state">ON</span>
+        </button>
+        <button id="btn-rhythm-mode" type="button" class="tavern-btn btn-rhythm-mode" aria-pressed="false" title="Rhythm Practice Mode: notes fall continuously in time with Perfect / Great / Good timing judgment">
+          &#129345; Rhythm: <span id="rhythm-mode-state">OFF</span>
         </button>
 
         <!-- Issue #20: Unified 1-Click Practice Hand Selector -->
@@ -610,6 +653,11 @@
 
           <!-- Phase 10 (Issue #19): Translucent Center Highway HUD Pill -->
           <div id="highway-center-hud" aria-live="polite">
+            <div id="hud-chord-banner" class="hud-chord-banner hidden" title="Live Arcane Chord Voicing &amp; Next Chord Preview">
+              <span class="chord-banner-label">Chord</span>
+              <strong id="hud-chord-current" class="chord-banner-current">--</strong>
+              <span id="hud-chord-next" class="chord-banner-next hidden"></span>
+            </div>
             <div class="center-combo-pill">
               <span class="chain-label">Chain</span>
               <strong id="hud-spell-chain" class="chain-number">0</strong>
@@ -717,11 +765,19 @@
           </div>
         </div>
 
-        <!-- Issue #62: Post-Song Breakdown (What Tripped Me Up) -->
+        <!-- Issue #111 & #28: Early / On-Time / Late Timing Spread Summary Pill -->
+        <div id="modal-timing-spread-pill" class="timing-spread-pill hidden"></div>
+
+        <!-- Issue #62 & #108: Post-Song Breakdown (What Tripped Me Up & Encore Drill) -->
         <div id="modal-breakdown-section" class="modal-breakdown-section hidden">
           <div class="breakdown-header">
             <span class="breakdown-title">&#9876;&#65039; Phrase Accuracy &amp; What Tripped You Up</span>
-            <span id="modal-breakdown-summary" class="breakdown-summary"></span>
+            <div class="breakdown-header-actions">
+              <span id="modal-breakdown-summary" class="breakdown-summary"></span>
+              <button id="btn-encore-drill" type="button" class="tavern-btn btn-encore-drill hidden" title="Auto-queue all weak bars chronologically into Rehearsal Loop Mode">
+                &#9876;&#65039; Encore Drill
+              </button>
+            </div>
           </div>
           <div id="modal-section-bars" class="breakdown-sections-grid"></div>
           <div id="modal-weak-measures" class="breakdown-weak-list"></div>
@@ -730,6 +786,67 @@
         <div class="modal-actions">
           <button id="btn-modal-replay" class="tavern-btn tavern-btn-cast">&#128260; Cast Spell Again</button>
           <button id="btn-modal-close" class="tavern-btn tavern-btn-primary">&#128220; Return to Conservatory</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Issue #78: Sheet Music OMR Progress & Review Modal -->
+    <div id="omr-review-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="omr-modal-title">
+      <div class="omr-review-dialog">
+        <div class="quest-modal-top-bar">
+          <div>
+            <div class="modal-header-ornament">&#9830; OPTICAL MUSIC RECOGNITION &#9830;</div>
+            <h2 id="omr-modal-title" class="modal-main-title">&#128220; Sheet Music OMR Review</h2>
+            <p id="omr-source-subtitle" class="modal-song-subtitle">Scanning sheet music into MusicXML...</p>
+          </div>
+          <button id="btn-close-omr-modal" type="button" class="btn-icon quest-close-btn" title="Cancel / Discard OMR" aria-label="Close OMR Modal">&#10005;</button>
+        </div>
+
+        <div id="omr-progress-section" class="omr-progress-section">
+          <div class="omr-progress-track">
+            <div id="omr-progress-fill" class="omr-progress-fill" style="width: 0%;"></div>
+          </div>
+          <p id="omr-status-text" class="omr-status-text">Initializing OMR engine...</p>
+          <div class="modal-actions">
+            <button id="btn-omr-cancel" type="button" class="tavern-btn">Cancel</button>
+          </div>
+        </div>
+
+        <div id="omr-review-section" class="omr-review-section hidden">
+          <div class="omr-summary-row">
+            <span id="omr-confidence-badge" class="omr-confidence-badge conf-high">Confidence: High</span>
+            <span id="omr-summary-stats" class="omr-summary-stats">0 measures &bull; 0 notes</span>
+          </div>
+
+          <div class="omr-overrides-grid">
+            <div class="omr-field">
+              <label for="omr-title-input">Spell Title</label>
+              <input id="omr-title-input" type="text" class="tavern-input" placeholder="Untitled Sheet Spell" />
+            </div>
+            <div class="omr-field omr-field-sm">
+              <label for="omr-bpm-input">Tempo (BPM)</label>
+              <input id="omr-bpm-input" type="number" min="30" max="300" value="120" class="tavern-input" />
+            </div>
+            <div class="omr-field omr-field-sm">
+              <span>Detected Key / Meter</span>
+              <strong id="omr-detected-meta" class="omr-detected-meta">C Major &bull; 4/4</strong>
+            </div>
+          </div>
+
+          <div id="omr-warnings-box" class="omr-warnings-box hidden"></div>
+
+          <div class="omr-flagged-wrap">
+            <div class="omr-flagged-header">
+              <span>Flagged Measures for Review</span>
+              <span id="omr-flagged-count" class="omr-flagged-count">0 flagged</span>
+            </div>
+            <ul id="omr-flagged-list" class="omr-flagged-list"></ul>
+          </div>
+
+          <div class="modal-actions">
+            <button id="btn-omr-reject" type="button" class="tavern-btn">Reject &amp; Discard</button>
+            <button id="btn-omr-confirm" type="button" class="tavern-btn tavern-btn-cast">&#10024; Import to Grimoire</button>
+          </div>
         </div>
       </div>
     </div>

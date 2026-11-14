@@ -10,3 +10,8 @@ resampy>=0.4.3
 pretty_midi>=0.2.10
 mir-eval>=0.7
 # Install basic-pitch with: pip install --no-deps --ignore-requires-python basic-pitch
+
+# Optical Music Recognition (Issue #78: PDF / Scan -> MusicXML)
+homr>=0.7.1
+pypdfium2>=5.0.0
+Pillow>=10.0.0
