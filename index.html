@@ -185,6 +185,9 @@
           <button id="btn-toggle-grimoire" class="tavern-btn btn-gold-outline" title="Toggle The Grimoire Spellbook Sidebar & Imports/ Folder Watcher">
             &#128214; Grimoire (<span id="grimoire-count-badge">0</span>)
           </button>
+          <button id="btn-open-setlists" class="tavern-btn btn-gold-outline" title="Build, save, and play Setlists (back-to-back songs)">
+            <img src="assets/images/icons/icon-setlist.png" alt="" class="tavern-inline-icon" /> Setlists
+          </button>
           <button id="btn-open-quest-board" class="tavern-btn btn-quest-board" title="Open The Quest Board: Paste a YouTube URL to transcribe into MIDI or browse BitMIDI, VGMusic & YouTube">
             &#128302; Quest Board
           </button>
@@ -667,6 +670,14 @@
               <span id="hud-last-xp-gain" class="last-xp-gain">Ready to cast...</span>
             </div>
 
+            <div id="hud-crowd-meter" class="crowd-meter-pill mood-warming" title="Tavern Crowd Meter: Audience mood reacts to accuracy and sets your XP multiplier">
+              <img src="assets/images/icons/icon-crowd-meter.png" alt="" class="tavern-inline-icon crowd-crest-icon" />
+              <span id="hud-crowd-emoji" class="crowd-emoji">&#127866;</span>
+              <span id="hud-crowd-mood" class="crowd-mood-label">Warming Up</span>
+              <span class="crowd-meter-track"><span id="hud-crowd-fill" class="crowd-meter-fill" style="width: 50%;"></span></span>
+              <strong id="hud-crowd-mult" class="crowd-mult-badge">1.0x</strong>
+            </div>
+
             <div id="strike-zone-status" class="strike-status-pill">
               <span id="strike-status-text">Strike Zone: Ready (100ms Chord Grace Active)</span>
             </div>
@@ -783,7 +794,13 @@
           <div id="modal-weak-measures" class="breakdown-weak-list"></div>
         </div>
 
+        <div id="modal-setlist-banner" class="modal-setlist-banner hidden">
+          <div id="modal-setlist-status" class="modal-setlist-status"></div>
+          <div id="modal-setlist-next" class="modal-setlist-next"></div>
+        </div>
+
         <div class="modal-actions">
+          <button id="btn-modal-next-setlist" type="button" class="tavern-btn tavern-btn-cast hidden">&#9197;&#65039; Next Song in Setlist</button>
           <button id="btn-modal-replay" class="tavern-btn tavern-btn-cast">&#128260; Cast Spell Again</button>
           <button id="btn-modal-close" class="tavern-btn tavern-btn-primary">&#128220; Return to Conservatory</button>
         </div>
@@ -847,6 +864,45 @@
             <button id="btn-omr-reject" type="button" class="tavern-btn">Reject &amp; Discard</button>
             <button id="btn-omr-confirm" type="button" class="tavern-btn tavern-btn-cast">&#10024; Import to Grimoire</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Issue #64: Tavern Setlists Modal (Play Songs Back to Back) -->
+    <div id="setlist-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="setlist-modal-title">
+      <div class="setlist-dialog">
+        <div class="quest-modal-top-bar">
+          <div>
+            <div class="modal-header-ornament">&#9830; BARDIC GIG QUEUE &#9830;</div>
+            <h2 id="setlist-modal-title" class="modal-main-title">&#127926; Tavern Setlists</h2>
+            <p class="modal-song-subtitle">Queue songs from your Grimoire, save named setlists, and play them back to back</p>
+          </div>
+          <button id="btn-close-setlist-modal" type="button" class="btn-icon quest-close-btn" title="Close Setlists" aria-label="Close Setlists">&#10005;</button>
+        </div>
+
+        <div class="setlist-saved-row">
+          <select id="setlist-saved-select" class="tavern-select" aria-label="Saved setlists">
+            <option value="">-- New Setlist --</option>
+          </select>
+          <button id="btn-setlist-load" type="button" class="tavern-btn">Load</button>
+          <button id="btn-setlist-delete" type="button" class="tavern-btn" title="Delete selected setlist">Delete</button>
+        </div>
+
+        <div class="setlist-name-row">
+          <input id="setlist-name-input" type="text" class="tavern-input" placeholder="Setlist Name (e.g. Friday Tavern Gig)" />
+          <button id="btn-setlist-save" type="button" class="tavern-btn btn-gold-outline">&#128190; Save Setlist</button>
+        </div>
+
+        <div class="setlist-add-row">
+          <select id="setlist-add-song-select" class="tavern-select" aria-label="Add song to setlist"></select>
+          <button id="btn-setlist-add-song" type="button" class="tavern-btn tavern-btn-primary">+ Add Song</button>
+        </div>
+
+        <ul id="setlist-queue-list" class="setlist-queue-list"></ul>
+
+        <div class="modal-actions">
+          <button id="btn-setlist-clear" type="button" class="tavern-btn">Clear Queue</button>
+          <button id="btn-setlist-play" type="button" class="tavern-btn tavern-btn-cast">&#9654; Play Setlist</button>
         </div>
       </div>
     </div>

@@ -20,6 +20,16 @@ const { shell } = require('electron');
 const { createD20TrayRoller } = require('./d20-roller');
 const { isMusicXmlFileName, convertMusicXmlToMidiBuffer } = require('./musicxml-converter');
 const { isOmrSheetFileName, analyzeOmrConfidence, applyOmrOverridesToMusicXml } = require('./omr-confidence');
+const {
+  getCrowdMoodForEnergy,
+  applyCrowdEnergyDelta,
+  createSetlistRecord,
+  moveSetlistItem,
+  removeSetlistItem,
+  loadSavedSetlists,
+  saveSetlistRecord,
+  deleteSetlistRecord
+} = require('./tavern-setlists');
 const { isPianoCandidateTrackSmart, selectAutoPianoTracks, cleanPlayableHandNotes } = require('./midi-hygiene');
 const VexFlow = require('vexflow/bravura');
 const {
@@ -429,6 +439,30 @@ const omrFlaggedCount = document.getElementById('omr-flagged-count');
 const omrFlaggedList = document.getElementById('omr-flagged-list');
 const btnOmrReject = document.getElementById('btn-omr-reject');
 const btnOmrConfirm = document.getElementById('btn-omr-confirm');
+
+// DOM Elements — Issues #26 & #64: Tavern Crowd Meter & Setlists
+const hudCrowdMeter = document.getElementById('hud-crowd-meter');
+const hudCrowdEmoji = document.getElementById('hud-crowd-emoji');
+const hudCrowdMood = document.getElementById('hud-crowd-mood');
+const hudCrowdFill = document.getElementById('hud-crowd-fill');
+const hudCrowdMult = document.getElementById('hud-crowd-mult');
+const btnOpenSetlists = document.getElementById('btn-open-setlists');
+const setlistModal = document.getElementById('setlist-modal');
+const btnCloseSetlistModal = document.getElementById('btn-close-setlist-modal');
+const setlistSavedSelect = document.getElementById('setlist-saved-select');
+const btnSetlistLoad = document.getElementById('btn-setlist-load');
+const btnSetlistDelete = document.getElementById('btn-setlist-delete');
+const setlistNameInput = document.getElementById('setlist-name-input');
+const btnSetlistSave = document.getElementById('btn-setlist-save');
+const setlistAddSongSelect = document.getElementById('setlist-add-song-select');
+const btnSetlistAddSong = document.getElementById('btn-setlist-add-song');
+const setlistQueueList = document.getElementById('setlist-queue-list');
+const btnSetlistClear = document.getElementById('btn-setlist-clear');
+const btnSetlistPlay = document.getElementById('btn-setlist-play');
+const modalSetlistBanner = document.getElementById('modal-setlist-banner');
+const modalSetlistStatus = document.getElementById('modal-setlist-status');
+const modalSetlistNext = document.getElementById('modal-setlist-next');
+const btnModalNextSetlist = document.getElementById('btn-modal-next-setlist');
 const btnLinkBitmidi = document.getElementById('btn-link-bitmidi');
 const btnLinkVgmusic = document.getElementById('btn-link-vgmusic');
 const btnLinkYoutube = document.getElementById('btn-link-youtube');
@@ -1945,6 +1979,7 @@ function resetSongSessionStats() {
   songSessionStats.inspirationCharge = 0;
   songSessionStats.inspirationBurstRemainingSec = 0;
   songSessionStats.lastBurstHudSyncMs = 0;
+  songSessionStats.crowdEnergy = 50;
   updateLitrpgHUD();
 }
 
@@ -2110,6 +2145,12 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll, rh
     }
   }
 
+  const crowdDelta = isFumbledPause
+    ? 0.5
+    : (rhythmTier === 'perfect' || isCleanChordRoll ? 3.5 : (rhythmTier === 'good' ? 1.0 : (rhythmTier === 'miss' ? -2.0 : 2.5)));
+  songSessionStats.crowdEnergy = applyCrowdEnergyDelta(songSessionStats.crowdEnergy ?? 50, crowdDelta);
+  const crowdMood = getCrowdMoodForEnergy(songSessionStats.crowdEnergy);
+
   const diffMult = currentSong?.difficulty?.xpMultiplier ?? 1.0;
   const isInspired = isBardicInspirationActive();
   const inspirationMult = isInspired ? BARDIC_INSPIRATION_MULT : 1.0;
@@ -2119,7 +2160,7 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll, rh
   else if (rhythmTier === 'good') baseXpPerNote = Math.round(BASE_NOTE_XP * 0.65);
   else if (rhythmTier === 'miss') baseXpPerNote = FUMBLED_NOTE_XP;
 
-  const xpAwarded = Math.round(noteCount * baseXpPerNote * diffMult * inspirationMult);
+  const xpAwarded = Math.round(noteCount * baseXpPerNote * diffMult * inspirationMult * crowdMood.xpMultiplier);
   awardBardXp(xpAwarded);
 
   if (isFumbledPause) {
@@ -2199,6 +2240,7 @@ function recordSpellChainBreak(reasonText = 'Chain Broken! (Off-Key)') {
   }
 
   songSessionStats.spellChain = 0;
+  songSessionStats.crowdEnergy = applyCrowdEnergyDelta(songSessionStats.crowdEnergy ?? 50, -7);
   songSessionStats.lastGainText = reasonText;
   songSessionStats.lastGainFumbled = true;
   updateLitrpgHUD();
@@ -2227,11 +2269,20 @@ function updateLitrpgHUD() {
   hudSpellChain.textContent = String(songSessionStats.spellChain);
   hudMaxChain.textContent = `Max: ${songSessionStats.maxSpellChain}`;
 
+  const crowdMood = getCrowdMoodForEnergy(songSessionStats.crowdEnergy ?? 50);
+  if (hudCrowdMeter) {
+    hudCrowdMeter.className = `crowd-meter-pill mood-${crowdMood.id}`;
+  }
+  if (hudCrowdEmoji) hudCrowdEmoji.textContent = crowdMood.emoji;
+  if (hudCrowdMood) hudCrowdMood.textContent = crowdMood.label;
+  if (hudCrowdFill) hudCrowdFill.style.width = `${crowdMood.energy}%`;
+  if (hudCrowdMult) hudCrowdMult.textContent = `${crowdMood.xpMultiplier.toFixed(2).replace(/\.00$/, '.0')}x`;
+
   const diffMult = currentSong?.difficulty?.xpMultiplier ?? 1.0;
   const isInspired = isBardicInspirationActive();
   const isBurstActive = songSessionStats.inspirationBurstRemainingSec > 0;
   const isReady = !isBurstActive && songSessionStats.inspirationCharge >= 100;
-  const effectiveMult = diffMult * (isInspired ? BARDIC_INSPIRATION_MULT : 1.0);
+  const effectiveMult = diffMult * (isInspired ? BARDIC_INSPIRATION_MULT : 1.0) * crowdMood.xpMultiplier;
   hudXpMultiplier.textContent = `${effectiveMult.toFixed(1)}x XP`;
 
   hudLastXpGain.textContent = songSessionStats.lastGainText;
@@ -2908,6 +2959,7 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
   }
 
   renderPostSongBreakdown(totalAttempts, priorWeakBarHistory);
+  updatePerformanceModalSetlistUI();
   performanceCheckModal.classList.remove('hidden');
 
   if (totalAttempts === 0) {
@@ -7864,6 +7916,11 @@ window.addEventListener('keydown', (e) => {
       closeDeleteSpellConfirmModal();
       return;
     }
+    if (setlistModal && !setlistModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeSetlistModal();
+      return;
+    }
     if (omrReviewModal && !omrReviewModal.classList.contains('hidden')) {
       e.preventDefault();
       closeOmrReviewModal();
@@ -10651,6 +10708,311 @@ if (btnOmrReject) {
   });
 }
 if (btnOmrConfirm) btnOmrConfirm.addEventListener('click', confirmOmrImport);
+
+// ============================================================================
+// ISSUE #64: TAVERN SETLISTS (BACK-TO-BACK SONG QUEUE & SAVED SETLISTS)
+// ============================================================================
+const setlistDraftState = {
+  id: null,
+  name: '',
+  items: []
+};
+
+const activeSetlistState = {
+  active: false,
+  name: '',
+  items: [],
+  currentIndex: 0,
+  totalXpEarned: 0,
+  countedSongIndex: -1
+};
+
+function findGrimoireEntryForSetlistItem(item) {
+  if (!item) return null;
+  for (const entry of grimoireSpells.values()) {
+    if (item.filePath && entry.filePath && entry.filePath === item.filePath) return entry;
+    if (item.songId && entry.songId && entry.songId === item.songId) return entry;
+    if (item.fileName && entry.fileName && entry.fileName.toLowerCase() === item.fileName.toLowerCase()) return entry;
+  }
+  return null;
+}
+
+function loadGrimoireEntryForSetlist(item) {
+  const entry = findGrimoireEntryForSetlistItem(item);
+  if (!entry) return false;
+  if (entry.filePath === 'BUILTIN_DEMO') {
+    loadBuiltInDemoSpell();
+    return true;
+  }
+  if (entry.filePath && fs.existsSync(entry.filePath)) {
+    const fileBuf = fs.readFileSync(entry.filePath);
+    const arrayBuf = fileBuf.buffer.slice(fileBuf.byteOffset, fileBuf.byteOffset + fileBuf.byteLength);
+    loadSongFromBuffer(arrayBuf, entry.fileName, entry.filePath);
+    return true;
+  }
+  return false;
+}
+
+function renderSetlistModal() {
+  const saved = loadSavedSetlists();
+  if (setlistSavedSelect) {
+    const prevVal = setlistSavedSelect.value;
+    setlistSavedSelect.innerHTML = '<option value="">-- New Setlist --</option>';
+    for (const s of saved) {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = `${s.name} (${s.items.length} song${s.items.length === 1 ? '' : 's'})`;
+      setlistSavedSelect.appendChild(opt);
+    }
+    if (setlistDraftState.id && saved.some((s) => s.id === setlistDraftState.id)) {
+      setlistSavedSelect.value = setlistDraftState.id;
+    } else if (prevVal && saved.some((s) => s.id === prevVal)) {
+      setlistSavedSelect.value = prevVal;
+    }
+  }
+
+  if (setlistAddSongSelect) {
+    setlistAddSongSelect.innerHTML = '';
+    const entries = Array.from(grimoireSpells.values()).sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    for (const entry of entries) {
+      const opt = document.createElement('option');
+      opt.value = JSON.stringify({
+        songId: entry.songId || '',
+        fileName: entry.fileName || '',
+        filePath: entry.filePath || '',
+        title: entry.title || entry.fileName || 'Untitled Spell'
+      });
+      opt.textContent = `${entry.title || entry.fileName} (${entry.spellLevel || 'Cantrip'})`;
+      setlistAddSongSelect.appendChild(opt);
+    }
+  }
+
+  if (setlistNameInput && document.activeElement !== setlistNameInput) {
+    setlistNameInput.value = setlistDraftState.name || '';
+  }
+
+  if (setlistQueueList) {
+    setlistQueueList.innerHTML = '';
+    if (setlistDraftState.items.length === 0) {
+      const emptyLi = document.createElement('li');
+      emptyLi.className = 'setlist-empty-hint';
+      emptyLi.textContent = 'No songs queued yet. Add songs from your Grimoire above!';
+      setlistQueueList.appendChild(emptyLi);
+    } else {
+      setlistDraftState.items.forEach((item, idx) => {
+        const li = document.createElement('li');
+        li.className = 'setlist-queue-item';
+        const titleSpan = document.createElement('span');
+        titleSpan.textContent = `${idx + 1}. ${item.title}`;
+
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'setlist-queue-actions';
+
+        const btnUp = document.createElement('button');
+        btnUp.type = 'button';
+        btnUp.className = 'btn-icon';
+        btnUp.textContent = '\u2191';
+        btnUp.disabled = idx === 0;
+        btnUp.title = 'Move Up';
+        btnUp.addEventListener('click', () => {
+          setlistDraftState.items = moveSetlistItem(setlistDraftState.items, idx, -1);
+          renderSetlistModal();
+        });
+
+        const btnDown = document.createElement('button');
+        btnDown.type = 'button';
+        btnDown.className = 'btn-icon';
+        btnDown.textContent = '\u2193';
+        btnDown.disabled = idx === setlistDraftState.items.length - 1;
+        btnDown.title = 'Move Down';
+        btnDown.addEventListener('click', () => {
+          setlistDraftState.items = moveSetlistItem(setlistDraftState.items, idx, 1);
+          renderSetlistModal();
+        });
+
+        const btnDel = document.createElement('button');
+        btnDel.type = 'button';
+        btnDel.className = 'btn-icon';
+        btnDel.textContent = '\u2715';
+        btnDel.title = 'Remove from Setlist';
+        btnDel.addEventListener('click', () => {
+          setlistDraftState.items = removeSetlistItem(setlistDraftState.items, idx);
+          renderSetlistModal();
+        });
+
+        actionsDiv.append(btnUp, btnDown, btnDel);
+        li.append(titleSpan, actionsDiv);
+        setlistQueueList.appendChild(li);
+      });
+    }
+  }
+
+  if (btnSetlistPlay) {
+    btnSetlistPlay.disabled = setlistDraftState.items.length === 0;
+  }
+}
+
+function openSetlistModal() {
+  if (!setlistModal) return;
+  closeAllConservatoryPopovers();
+  renderSetlistModal();
+  setlistModal.classList.remove('hidden');
+}
+
+function closeSetlistModal() {
+  if (setlistModal) setlistModal.classList.add('hidden');
+}
+
+function startSetlistPlayback(name, items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    showGrimoireToast('Add at least one song to play a setlist.', 'error');
+    return;
+  }
+  activeSetlistState.active = true;
+  activeSetlistState.name = String(name || '').trim() || 'Tavern Setlist';
+  activeSetlistState.items = items.map((i) => ({ ...i }));
+  activeSetlistState.currentIndex = 0;
+  activeSetlistState.totalXpEarned = 0;
+  activeSetlistState.countedSongIndex = -1;
+
+  closeSetlistModal();
+  if (loadGrimoireEntryForSetlist(activeSetlistState.items[0])) {
+    startPlayback();
+    showGrimoireToast(`\uD83C\uDFB6 Setlist "${activeSetlistState.name}" started (1/${activeSetlistState.items.length})`);
+  } else {
+    activeSetlistState.active = false;
+    showGrimoireToast('Could not load the first song in this setlist.', 'error');
+  }
+}
+
+function advanceToNextSetlistSong() {
+  if (!activeSetlistState.active) return;
+  const nextIdx = activeSetlistState.currentIndex + 1;
+  if (nextIdx >= activeSetlistState.items.length) {
+    activeSetlistState.active = false;
+    closePerformanceCheckModal();
+    return;
+  }
+  activeSetlistState.currentIndex = nextIdx;
+  closePerformanceCheckModal();
+  const nextItem = activeSetlistState.items[nextIdx];
+  if (loadGrimoireEntryForSetlist(nextItem)) {
+    startPlayback();
+    showGrimoireToast(`\uD83C\uDFB6 Setlist (${nextIdx + 1}/${activeSetlistState.items.length}): ${nextItem.title}`);
+  } else {
+    activeSetlistState.active = false;
+    showGrimoireToast(`Could not load "${nextItem.title}". Setlist stopped.`, 'error');
+  }
+}
+
+function updatePerformanceModalSetlistUI() {
+  if (!modalSetlistBanner || !modalSetlistStatus || !modalSetlistNext || !btnModalNextSetlist) return;
+  if (!activeSetlistState.active) {
+    modalSetlistBanner.classList.add('hidden');
+    btnModalNextSetlist.classList.add('hidden');
+    return;
+  }
+
+  if (activeSetlistState.countedSongIndex !== activeSetlistState.currentIndex) {
+    activeSetlistState.totalXpEarned += Number(songSessionStats.songXpEarned) || 0;
+    activeSetlistState.countedSongIndex = activeSetlistState.currentIndex;
+  }
+
+  const idx = activeSetlistState.currentIndex;
+  const total = activeSetlistState.items.length;
+  const hasNext = idx + 1 < total;
+  modalSetlistBanner.classList.remove('hidden');
+
+  if (hasNext) {
+    const nextItem = activeSetlistState.items[idx + 1];
+    modalSetlistStatus.textContent = `\uD83C\uDFB6 Setlist: ${activeSetlistState.name} (${idx + 1}/${total}) \u2022 Running Total: +${activeSetlistState.totalXpEarned.toLocaleString()} XP`;
+    modalSetlistNext.textContent = `Up Next: ${nextItem.title}`;
+    btnModalNextSetlist.classList.remove('hidden');
+  } else {
+    modalSetlistStatus.textContent = `\uD83C\uDF89 Setlist Complete: ${activeSetlistState.name} (${total} Songs!)`;
+    modalSetlistNext.textContent = `Total Setlist XP Earned: +${activeSetlistState.totalXpEarned.toLocaleString()} XP`;
+    btnModalNextSetlist.classList.add('hidden');
+    activeSetlistState.active = false;
+  }
+}
+
+if (btnOpenSetlists) btnOpenSetlists.addEventListener('click', openSetlistModal);
+if (btnCloseSetlistModal) btnCloseSetlistModal.addEventListener('click', closeSetlistModal);
+if (btnModalNextSetlist) btnModalNextSetlist.addEventListener('click', advanceToNextSetlistSong);
+
+if (btnSetlistAddSong) {
+  btnSetlistAddSong.addEventListener('click', () => {
+    const raw = setlistAddSongSelect?.value;
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      setlistDraftState.items.push(parsed);
+      renderSetlistModal();
+    } catch {
+      // Ignore malformed option
+    }
+  });
+}
+
+if (btnSetlistSave) {
+  btnSetlistSave.addEventListener('click', () => {
+    const name = (setlistNameInput?.value || '').trim() || 'Untitled Gig';
+    const saved = saveSetlistRecord(createSetlistRecord(name, setlistDraftState.items, setlistDraftState.id));
+    setlistDraftState.id = saved.id;
+    setlistDraftState.name = saved.name;
+    renderSetlistModal();
+    showGrimoireToast(`\uD83D\uDCBE Saved setlist "${saved.name}" (${saved.items.length} songs)`);
+  });
+}
+
+if (btnSetlistLoad) {
+  btnSetlistLoad.addEventListener('click', () => {
+    const id = setlistSavedSelect?.value;
+    if (!id) {
+      setlistDraftState.id = null;
+      setlistDraftState.name = '';
+      setlistDraftState.items = [];
+      renderSetlistModal();
+      return;
+    }
+    const found = loadSavedSetlists().find((s) => s.id === id);
+    if (!found) return;
+    setlistDraftState.id = found.id;
+    setlistDraftState.name = found.name;
+    setlistDraftState.items = found.items.map((i) => ({ ...i }));
+    renderSetlistModal();
+    showGrimoireToast(`Loaded setlist "${found.name}"`);
+  });
+}
+
+if (btnSetlistDelete) {
+  btnSetlistDelete.addEventListener('click', () => {
+    const id = setlistSavedSelect?.value;
+    if (!id) return;
+    deleteSetlistRecord(id);
+    if (setlistDraftState.id === id) {
+      setlistDraftState.id = null;
+      setlistDraftState.name = '';
+      setlistDraftState.items = [];
+    }
+    renderSetlistModal();
+    showGrimoireToast('Deleted setlist.');
+  });
+}
+
+if (btnSetlistClear) {
+  btnSetlistClear.addEventListener('click', () => {
+    setlistDraftState.items = [];
+    renderSetlistModal();
+  });
+}
+
+if (btnSetlistPlay) {
+  btnSetlistPlay.addEventListener('click', () => {
+    const name = (setlistNameInput?.value || '').trim() || setlistDraftState.name || 'Tavern Setlist';
+    startSetlistPlayback(name, setlistDraftState.items);
+  });
+}
 
 window.addEventListener('drop', async (e) => {
   e.preventDefault();
