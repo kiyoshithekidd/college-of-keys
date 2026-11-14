@@ -693,6 +693,17 @@
         <div id="grimoire-toast" class="grimoire-toast hidden">
           <span id="grimoire-toast-text">&#128214; New Spell Ingested into The Grimoire!</span>
         </div>
+
+        <!-- Issue #65: Achievement Unlock Celebration Banner -->
+        <div id="achievement-unlock-banner" class="achievement-unlock-banner hidden" role="status" aria-live="polite">
+          <img src="assets/images/icons/icon-achievement-seal.png" alt="" class="achievement-banner-icon" />
+          <div class="achievement-banner-body">
+            <span class="achievement-banner-kicker">Achievement Unlocked</span>
+            <strong id="achievement-banner-title" class="achievement-banner-title">First Spell Cast</strong>
+            <span id="achievement-banner-desc" class="achievement-banner-desc">Complete your first full song on the Spell Highway.</span>
+          </div>
+          <span id="achievement-banner-xp" class="achievement-banner-xp">+50 XP</span>
+        </div>
       </main>
     </div>
 
@@ -1202,6 +1213,15 @@
               <span id="annals-worst-accuracy" class="highlight-meta">&mdash; accuracy</span>
             </div>
           </div>
+        </div>
+
+        <!-- Issue #65: Bardic Achievements & Milestones -->
+        <div id="annals-achievements-section" class="annals-achievements-section">
+          <div class="annals-achievements-header">
+            <h3 class="annals-section-heading">&#127942; Bardic Achievements &amp; Milestones</h3>
+            <span id="annals-achievements-count" class="annals-achievements-count">0 / 7 Unlocked</span>
+          </div>
+          <div id="annals-achievements-grid" class="annals-achievements-grid"></div>
         </div>
 
         <!-- Song Performance History Ledger -->

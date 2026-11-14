@@ -30,6 +30,12 @@ const {
   saveSetlistRecord,
   deleteSetlistRecord
 } = require('./tavern-setlists');
+const {
+  ACHIEVEMENT_ICON_PATH,
+  normalizeUnlockedAchievements,
+  evaluateAchievements,
+  getAchievementSummary
+} = require('./bard-achievements');
 const { isPianoCandidateTrackSmart, selectAutoPianoTracks, cleanPlayableHandNotes } = require('./midi-hygiene');
 const VexFlow = require('vexflow/bravura');
 const {
@@ -530,7 +536,13 @@ const annalsBestSong = document.getElementById('annals-best-song');
 const annalsBestAccuracy = document.getElementById('annals-best-accuracy');
 const annalsWorstSong = document.getElementById('annals-worst-song');
 const annalsWorstAccuracy = document.getElementById('annals-worst-accuracy');
+const annalsAchievementsCount = document.getElementById('annals-achievements-count');
+const annalsAchievementsGrid = document.getElementById('annals-achievements-grid');
 const annalsHistoryList = document.getElementById('annals-history-list');
+const achievementUnlockBanner = document.getElementById('achievement-unlock-banner');
+const achievementBannerTitle = document.getElementById('achievement-banner-title');
+const achievementBannerDesc = document.getElementById('achievement-banner-desc');
+const achievementBannerXp = document.getElementById('achievement-banner-xp');
 
 const howToPlayModal = document.getElementById('how-to-play-modal');
 const btnCloseHowToPlay = document.getElementById('btn-close-how-to-play');
@@ -657,7 +669,8 @@ const bardProfile = {
   bestCareerChain: 0,
   songsCompleted: 0,
   practiceDays: {},
-  dailyQuests: null
+  dailyQuests: null,
+  unlockedAchievements: {}
 };
 
 // Issue #66: Current month/year displayed in the Hearthfire Streak Calendar popover
@@ -1810,6 +1823,7 @@ function loadBardProfile() {
     if (loaded.dailyQuests && typeof loaded.dailyQuests === 'object' && Array.isArray(loaded.dailyQuests.quests)) {
       bardProfile.dailyQuests = loaded.dailyQuests;
     }
+    bardProfile.unlockedAchievements = normalizeUnlockedAchievements(loaded.unlockedAchievements);
   }
 
   // Load per-song play history stats store (Issue #52 & #68)
@@ -1920,6 +1934,7 @@ function saveBardProfile() {
     lastSongPath: bardProfile.lastSongPath || null,
     practiceDays: bardProfile.practiceDays || {},
     dailyQuests: bardProfile.dailyQuests || null,
+    unlockedAchievements: bardProfile.unlockedAchievements || {},
     updatedAt: new Date().toISOString()
   };
 
@@ -2099,6 +2114,60 @@ function awardBardXp(xpAmount) {
   saveBardProfile();
 }
 
+let achievementBannerTimer = null;
+
+function showAchievementUnlockBanner(newlyUnlocked) {
+  if (!Array.isArray(newlyUnlocked) || newlyUnlocked.length === 0) return;
+  const first = newlyUnlocked[0];
+  const totalXp = newlyUnlocked.reduce((sum, a) => sum + (Number(a.xpReward) || 0), 0);
+
+  if (achievementUnlockBanner && achievementBannerTitle && achievementBannerDesc && achievementBannerXp) {
+    if (newlyUnlocked.length === 1) {
+      achievementBannerTitle.textContent = first.title;
+      achievementBannerDesc.textContent = first.description;
+    } else {
+      achievementBannerTitle.textContent = `${newlyUnlocked.length} Achievements Unlocked!`;
+      achievementBannerDesc.textContent = newlyUnlocked.map((a) => a.title).join(' • ');
+    }
+    achievementBannerXp.textContent = `+${totalXp} XP`;
+    achievementUnlockBanner.classList.remove('hidden');
+
+    if (achievementBannerTimer) {
+      clearTimeout(achievementBannerTimer);
+    }
+    achievementBannerTimer = setTimeout(() => {
+      achievementUnlockBanner.classList.add('hidden');
+      achievementBannerTimer = null;
+    }, 5200);
+  }
+}
+
+function checkAndUnlockAchievements(context = {}) {
+  const streakStats = typeof computePracticeStreak === 'function'
+    ? computePracticeStreak(bardProfile.practiceDays)
+    : { currentStreak: 0 };
+
+  const evalContext = {
+    songsCompleted: bardProfile.songsCompleted,
+    streakDays: streakStats.currentStreak,
+    ...context
+  };
+
+  const result = evaluateAchievements(evalContext, bardProfile.unlockedAchievements);
+  if (result.newlyUnlocked.length > 0) {
+    bardProfile.unlockedAchievements = result.nextUnlockedMap;
+    if (result.totalBonusXp > 0) {
+      awardBardXp(result.totalBonusXp);
+    } else {
+      saveBardProfile();
+    }
+    if (typeof updateLitrpgHUD === 'function') updateLitrpgHUD();
+    if (typeof updateTavernMenuStats === 'function') updateTavernMenuStats();
+    showAchievementUnlockBanner(result.newlyUnlocked);
+  }
+  return result;
+}
+
 /**
  * Record completion of a Strike Group (single note or multi-note chord)
  * and compute LitRPG XP, Spell Chain, and Bardic Inspiration multipliers.
@@ -2150,6 +2219,9 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll, rh
     : (rhythmTier === 'perfect' || isCleanChordRoll ? 3.5 : (rhythmTier === 'good' ? 1.0 : (rhythmTier === 'miss' ? -2.0 : 2.5)));
   songSessionStats.crowdEnergy = applyCrowdEnergyDelta(songSessionStats.crowdEnergy ?? 50, crowdDelta);
   const crowdMood = getCrowdMoodForEnergy(songSessionStats.crowdEnergy);
+  if (crowdMood.id === 'enchanted') {
+    checkAndUnlockAchievements({ crowdMoodId: crowdMood.id });
+  }
 
   const diffMult = currentSong?.difficulty?.xpMultiplier ?? 1.0;
   const isInspired = isBardicInspirationActive();
@@ -2897,6 +2969,16 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
         cleanChordRolls: songSessionStats.cleanChordRolls
       }
     ) || questOutcome;
+
+    const isFullDifficulty =
+      (!playbackState.waitMode && playbackState.playbackSpeed >= 1.0 && playbackState.handIsolation === 'both') ||
+      Number(currentSong?.difficulty?.index) >= 9;
+    checkAndUnlockAchievements({
+      songsCompleted: bardProfile.songsCompleted,
+      accuracyPct,
+      totalAttempts,
+      isFullDifficulty
+    });
   }
 
   if (modalQuestsBanner && modalQuestsList && modalQuestsXpPill) {
@@ -3013,6 +3095,8 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
         applyD20OutcomeToModal(outcome, false);
         if (outcome.tier === 'nat-20') {
           playNat20Flourish();
+          checkAndUnlockAchievements({ rolledFace });
+          refreshModalXpSection();
         } else if (outcome.tier === 'nat-1') {
           playNat1TomatoSound();
         }
@@ -10933,6 +11017,8 @@ function updatePerformanceModalSetlistUI() {
     modalSetlistNext.textContent = `Total Setlist XP Earned: +${activeSetlistState.totalXpEarned.toLocaleString()} XP`;
     btnModalNextSetlist.classList.add('hidden');
     activeSetlistState.active = false;
+    checkAndUnlockAchievements({ setlistCompleted: true });
+    refreshModalXpSection();
   }
 }
 
@@ -11441,6 +11527,61 @@ function openBardAnnalsModal() {
     annalsWorstAccuracy.textContent = stats.worst ? `${stats.worst.lastAccuracy}% latest trial` : '— accuracy';
   }
 
+  // Issue #65: Render Bardic Achievements & Milestones safely with createElement / textContent
+  const achSummary = getAchievementSummary(bardProfile.unlockedAchievements);
+  if (annalsAchievementsCount) {
+    annalsAchievementsCount.textContent = `${achSummary.unlockedCount} / ${achSummary.totalCount} Unlocked`;
+  }
+  if (annalsAchievementsGrid) {
+    while (annalsAchievementsGrid.firstChild) {
+      annalsAchievementsGrid.removeChild(annalsAchievementsGrid.firstChild);
+    }
+    for (const item of achSummary.items) {
+      const card = document.createElement('div');
+      card.className = `achievement-card ${item.unlocked ? 'unlocked' : 'locked'}`;
+
+      const icon = document.createElement('img');
+      icon.src = ACHIEVEMENT_ICON_PATH;
+      icon.alt = '';
+      icon.className = 'achievement-card-icon';
+
+      const body = document.createElement('div');
+      body.className = 'achievement-card-body';
+
+      const topRow = document.createElement('div');
+      topRow.className = 'achievement-card-top';
+
+      const titleEl = document.createElement('strong');
+      titleEl.className = 'achievement-card-title';
+      titleEl.textContent = item.title;
+
+      const xpEl = document.createElement('span');
+      xpEl.className = 'achievement-card-xp';
+      xpEl.textContent = item.unlocked ? `+${item.xpReward} XP ✓` : `+${item.xpReward} XP`;
+
+      topRow.appendChild(titleEl);
+      topRow.appendChild(xpEl);
+
+      const descEl = document.createElement('span');
+      descEl.className = 'achievement-card-desc';
+      descEl.textContent = item.description;
+
+      body.appendChild(topRow);
+      body.appendChild(descEl);
+
+      if (item.unlocked && item.unlockedAt) {
+        const metaEl = document.createElement('span');
+        metaEl.className = 'achievement-card-meta';
+        metaEl.textContent = `Unlocked ${new Date(item.unlockedAt).toLocaleDateString()}`;
+        body.appendChild(metaEl);
+      }
+
+      card.appendChild(icon);
+      card.appendChild(body);
+      annalsAchievementsGrid.appendChild(card);
+    }
+  }
+
   // Issue #68: Build rehearsal ledger safely with createElement / textContent without innerHTML
   if (annalsHistoryList) {
     while (annalsHistoryList.firstChild) {
@@ -11794,6 +11935,9 @@ function recordPracticeDayActivity({ type = 'song', xpEarned = 0, date = new Dat
     xpEarned: xp,
     updatedAt: new Date().toISOString()
   };
+  checkAndUnlockAchievements({
+    streakDays: computePracticeStreak(bardProfile.practiceDays, date).currentStreak
+  });
 }
 
 /**
