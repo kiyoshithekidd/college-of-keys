@@ -6051,3 +6051,118 @@ body.view-mode-notation .grimoire-toast {
     transform: translate(-50%, 0) scale(1);
   }
 }
+
+/* ============================================================================
+   ISSUE #54: TRAINER'S GUILD INTERACTIVE TUTORIAL COACH HUD
+   ============================================================================ */
+
+.station-icon-img {
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
+  object-fit: cover;
+  border: 1px solid rgba(212, 175, 55, 0.55);
+  display: block;
+}
+
+.modal-header-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid rgba(212, 175, 55, 0.6);
+  flex-shrink: 0;
+}
+
+.tutorial-coach-banner {
+  position: fixed;
+  top: 72px;
+  right: 20px;
+  z-index: 950;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(440px, calc(100vw - 40px));
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(32, 23, 14, 0.96), rgba(18, 13, 10, 0.97));
+  border: 1.5px solid rgba(212, 175, 55, 0.7);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6), 0 0 18px rgba(212, 175, 55, 0.22);
+}
+
+.tutorial-coach-banner.hidden {
+  display: none;
+}
+
+.tutorial-coach-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid rgba(212, 175, 55, 0.6);
+  flex-shrink: 0;
+}
+
+.tutorial-coach-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tutorial-coach-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tutorial-coach-step {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--radiant-gold);
+}
+
+.tutorial-coach-progress {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #1a120b;
+  background: var(--radiant-gold);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.tutorial-coach-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-parchment);
+}
+
+.tutorial-coach-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.tutorial-exit-btn {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.tutorial-exit-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+}
