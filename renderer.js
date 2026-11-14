@@ -36,6 +36,12 @@ const {
   evaluateAchievements,
   getAchievementSummary
 } = require('./bard-achievements');
+const {
+  TUTORIAL_REWARD_XP,
+  createTutorialState,
+  advanceTutorialState,
+  getTutorialBannerViewModel
+} = require('./guild-tutorial');
 const { isPianoCandidateTrackSmart, selectAutoPianoTracks, cleanPlayableHandNotes } = require('./midi-hygiene');
 const VexFlow = require('vexflow/bravura');
 const {
@@ -546,7 +552,14 @@ const achievementBannerXp = document.getElementById('achievement-banner-xp');
 
 const howToPlayModal = document.getElementById('how-to-play-modal');
 const btnCloseHowToPlay = document.getElementById('btn-close-how-to-play');
+const btnStartGuidedTutorial = document.getElementById('btn-start-guided-tutorial');
 const btnHowToPlayReady = document.getElementById('btn-how-to-play-ready');
+const tutorialCoachBanner = document.getElementById('tutorial-coach-banner');
+const tutorialCoachStep = document.getElementById('tutorial-coach-step');
+const tutorialCoachProgress = document.getElementById('tutorial-coach-progress');
+const tutorialCoachTitle = document.getElementById('tutorial-coach-title');
+const tutorialCoachHint = document.getElementById('tutorial-coach-hint');
+const btnExitTutorial = document.getElementById('btn-exit-tutorial');
 
 // Issue #52 State: Main Menu Visibility & Persistent Song Play History
 let isTavernMenuVisible = true;
@@ -670,7 +683,8 @@ const bardProfile = {
   songsCompleted: 0,
   practiceDays: {},
   dailyQuests: null,
-  unlockedAchievements: {}
+  unlockedAchievements: {},
+  tutorialCompleted: false
 };
 
 // Issue #66: Current month/year displayed in the Hearthfire Streak Calendar popover
@@ -1824,6 +1838,7 @@ function loadBardProfile() {
       bardProfile.dailyQuests = loaded.dailyQuests;
     }
     bardProfile.unlockedAchievements = normalizeUnlockedAchievements(loaded.unlockedAchievements);
+    bardProfile.tutorialCompleted = Boolean(loaded.tutorialCompleted);
   }
 
   // Load per-song play history stats store (Issue #52 & #68)
@@ -1935,6 +1950,7 @@ function saveBardProfile() {
     practiceDays: bardProfile.practiceDays || {},
     dailyQuests: bardProfile.dailyQuests || null,
     unlockedAchievements: bardProfile.unlockedAchievements || {},
+    tutorialCompleted: Boolean(bardProfile.tutorialCompleted),
     updatedAt: new Date().toISOString()
   };
 
@@ -2202,6 +2218,13 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll, rh
     }
     if (songSessionStats.spellChain > bardProfile.bestCareerChain) {
       bardProfile.bestCareerChain = songSessionStats.spellChain;
+    }
+    if (typeof updateTutorialProgress === 'function') {
+      updateTutorialProgress({
+        type: 'note-hit',
+        noteCount,
+        maxChain: songSessionStats.maxSpellChain
+      });
     }
   }
 
@@ -2979,6 +3002,10 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
       totalAttempts,
       isFullDifficulty
     });
+
+    if (typeof updateTutorialProgress === 'function') {
+      updateTutorialProgress({ type: 'song-completed' });
+    }
   }
 
   if (modalQuestsBanner && modalQuestsList && modalQuestsXpPill) {
@@ -3557,6 +3584,9 @@ async function startPlayback() {
   playbackState.lastFrameTimestamp = performance.now();
   btnPlayPause.textContent = '⏸ Pause';
   btnPlayPause.classList.add('playing');
+  if (typeof updateTutorialProgress === 'function') {
+    updateTutorialProgress({ type: 'playback-started' });
+  }
 }
 
 function pausePlayback() {
@@ -11794,6 +11824,69 @@ if (btnHowToPlayReady) {
   btnHowToPlayReady.addEventListener('click', () => {
     closeHowToPlayModal();
   });
+}
+
+let tutorialState = createTutorialState();
+
+function renderTutorialCoachBanner() {
+  if (!tutorialCoachBanner) return;
+  const vm = getTutorialBannerViewModel(tutorialState);
+  tutorialCoachBanner.classList.toggle('hidden', !vm.visible);
+  if (!vm.visible) return;
+  if (tutorialCoachStep) tutorialCoachStep.textContent = vm.stepBadge;
+  if (tutorialCoachProgress) tutorialCoachProgress.textContent = vm.progressText;
+  if (tutorialCoachTitle) tutorialCoachTitle.textContent = vm.title;
+  if (tutorialCoachHint) tutorialCoachHint.textContent = vm.hint;
+}
+
+function updateTutorialProgress(event) {
+  if (!tutorialState.active) return;
+  const wasActive = tutorialState.active;
+  tutorialState = advanceTutorialState(tutorialState, event);
+  renderTutorialCoachBanner();
+
+  if (wasActive && tutorialState.completed && event?.type === 'song-completed') {
+    const firstCompletion = !bardProfile.tutorialCompleted;
+    bardProfile.tutorialCompleted = true;
+    if (firstCompletion) {
+      awardBardXp(TUTORIAL_REWARD_XP);
+      if (typeof updateLitrpgHUD === 'function') updateLitrpgHUD();
+      if (typeof updateTavernMenuStats === 'function') updateTavernMenuStats();
+      showGrimoireToast(`\uD83C\uDF93 Trainer's Guild Tutorial Complete! +${TUTORIAL_REWARD_XP} Bonus XP`);
+    } else {
+      saveBardProfile();
+      showGrimoireToast("\uD83C\uDF93 Trainer's Guild Tutorial Complete!");
+    }
+  }
+}
+
+function startInteractiveTutorial() {
+  closeHowToPlayModal();
+  if (isTavernMenuVisible) {
+    hideTavernMenu();
+  }
+  loadBuiltInDemoSpell();
+
+  playbackState.waitMode = true;
+  if (waitModeStateText) waitModeStateText.textContent = 'ON';
+  if (btnWaitMode) btnWaitMode.classList.add('btn-wait-active');
+
+  tutorialState = advanceTutorialState(createTutorialState(), { type: 'start' });
+  renderTutorialCoachBanner();
+  showGrimoireToast("\uD83C\uDF93 Trainer's Guild Tutorial Active — Press Play or Space to begin!");
+}
+
+function exitInteractiveTutorial() {
+  tutorialState = advanceTutorialState(tutorialState, { type: 'exit' });
+  renderTutorialCoachBanner();
+}
+
+if (btnStartGuidedTutorial) {
+  btnStartGuidedTutorial.addEventListener('click', startInteractiveTutorial);
+}
+
+if (btnExitTutorial) {
+  btnExitTutorial.addEventListener('click', exitInteractiveTutorial);
 }
 
 if (howToPlayModal) {

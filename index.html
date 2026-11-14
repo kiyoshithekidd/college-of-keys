@@ -75,12 +75,12 @@
           </button>
 
           <!-- Station 4: Trainer's Guild: How to Play (Left Doorway / Notice) -->
-          <button id="btn-menu-how-to-play" class="tavern-station-card station-training" title="View gameplay orientation, controls &amp; scoring guide">
-            <div class="station-icon">&#127891;</div>
+          <button id="btn-menu-how-to-play" class="tavern-station-card station-training" title="View gameplay orientation, controls &amp; start the Guided Tutorial">
+            <div class="station-icon"><img src="assets/images/icons/icon-guild-mentor.png" alt="" class="station-icon-img" /></div>
             <div class="station-details">
               <span class="station-badge">Trainer's Guild</span>
               <strong class="station-title">How to Play</strong>
-              <span class="station-desc">Controls, Wait Mode &amp; roll rules</span>
+              <span class="station-desc">Orientation &amp; Guided Tutorial</span>
             </div>
             <div class="station-action-arrow">&#8594;</div>
           </button>
@@ -704,6 +704,20 @@
           </div>
           <span id="achievement-banner-xp" class="achievement-banner-xp">+50 XP</span>
         </div>
+
+        <!-- Issue #54: Trainer's Guild Interactive Tutorial Coach HUD -->
+        <div id="tutorial-coach-banner" class="tutorial-coach-banner hidden" role="region" aria-label="Trainer's Guild Interactive Tutorial">
+          <img src="assets/images/icons/icon-guild-mentor.png" alt="" class="tutorial-coach-icon" />
+          <div class="tutorial-coach-body">
+            <div class="tutorial-coach-top">
+              <span id="tutorial-coach-step" class="tutorial-coach-step">STEP 1 / 4</span>
+              <span id="tutorial-coach-progress" class="tutorial-coach-progress">Waiting for Play</span>
+            </div>
+            <strong id="tutorial-coach-title" class="tutorial-coach-title">Press Play to Begin</strong>
+            <span id="tutorial-coach-hint" class="tutorial-coach-hint">We've loaded the Demo Spell with Wait Mode ON. Press Play (or Space) to start the Spell Highway.</span>
+          </div>
+          <button id="btn-exit-tutorial" type="button" class="tutorial-exit-btn" title="Exit Guided Tutorial">Exit</button>
+        </div>
       </main>
     </div>
 
@@ -1243,7 +1257,7 @@
       <div class="modal-card how-to-play-card">
         <div class="modal-header">
           <div class="modal-header-left">
-            <div class="arcane-crest">&#9830;</div>
+            <img src="assets/images/icons/icon-guild-mentor.png" alt="" class="modal-header-icon" />
             <div>
               <h2 id="how-to-play-title" class="modal-title">Trainer's Guild Orientation</h2>
               <span class="modal-subtitle">How to Cast Musical Spells in the College of Keys</span>
@@ -1287,7 +1301,8 @@
         </div>
 
         <div class="modal-actions">
-          <button id="btn-how-to-play-ready" class="tavern-btn tavern-btn-primary">&#9876; Take the Stage</button>
+          <button id="btn-start-guided-tutorial" class="tavern-btn tavern-btn-primary">&#127891; Start Guided Tutorial</button>
+          <button id="btn-how-to-play-ready" class="tavern-btn tavern-btn-secondary">&#9876; Take the Stage</button>
         </div>
       </div>
     </div>
