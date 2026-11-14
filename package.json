@@ -4,7 +4,7 @@
   "description": "College of Keys — A D&D 5E Bard LitRPG Piano Practice App",
   "main": "main.js",
   "scripts": {
-    "start": "start.bat"
+    "start": "electron ."
   },
   "repository": {
     "type": "git",

@@ -489,9 +489,13 @@ function decomposeQuarterSpan(spanQ, { isRest = false } = {}) {
   const tokens = isRest
     ? [
         { q: 4.0, dur: 'wr', dots: 0 },
+        { q: 3.0, dur: 'hrd', dots: 1 },
         { q: 2.0, dur: 'hr', dots: 0 },
+        { q: 1.5, dur: 'qrd', dots: 1 },
         { q: 1.0, dur: 'qr', dots: 0 },
+        { q: 0.75, dur: '8rd', dots: 1 },
         { q: 0.5, dur: '8r', dots: 0 },
+        { q: 0.375, dur: '16rd', dots: 1 },
         { q: 0.25, dur: '16r', dots: 0 }
       ]
     : [
@@ -617,7 +621,7 @@ function solveMeasureHandEvents(segments, measure, clef, tempoMap, vfRef) {
   }
 
   for (const [beatIdx, list] of beatSegmentsMap.entries()) {
-    if (list.length < 2) continue;
+    if (list.length < 3) continue;
     let errBin = 0;
     let errTrip = 0;
     let hasOffThird = false;
@@ -633,7 +637,7 @@ function solveMeasureHandEvents(segments, measure, clef, tempoMap, vfRef) {
         hasOffThird = true;
       }
     }
-    if (hasOffThird && errTrip + 0.03 < errBin && beatIdx + 1 <= totalQuarters + 0.01) {
+    if (hasOffThird && errTrip + 0.04 < errBin && beatIdx + 1 <= totalQuarters + 0.01) {
       beatUseTriplet[beatIdx] = true;
     }
   }
@@ -1608,11 +1612,13 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
    * Build and draw a single measure onto an offscreen transparent canvas tile,
    * recording exact rendered notehead coordinates and monotonic tick anchors.
    */
-  const renderMeasureTile = (scoreData, measureIndex, dpr = 1) => {
+  const renderMeasureTile = (scoreData, measureIndex, dpr = 1, { rhAlpha = 1, lhAlpha = 1 } = {}) => {
     const measure = scoreData.measures[measureIndex];
     if (!measure) return null;
 
-    const cacheKey = `${scoreData.scoreId}:${dpr}:${measureIndex}`;
+    const normRhAlpha = Math.round(rhAlpha * 100) / 100;
+    const normLhAlpha = Math.round(lhAlpha * 100) / 100;
+    const cacheKey = `${scoreData.scoreId}:${dpr}:${measureIndex}:${normRhAlpha}:${normLhAlpha}`;
     if (tileCache.has(cacheKey)) {
       const hit = tileCache.get(cacheKey);
       touchLru(cacheKey, hit);
@@ -1653,8 +1659,8 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
 
     const showBarTimeSig = measureIndex === 0 || measure.showTimeSigChange;
     if (measure.showKeySigChange && measure.vfKeySpec) {
-      staveTreble.addKeySignature(measure.vfKeySpec);
-      staveBass.addKeySignature(measure.vfKeySpec);
+      staveTreble.addKeySignature(measure.vfKeySpec, measure.prevVfKeySpec || undefined);
+      staveBass.addKeySignature(measure.vfKeySpec, measure.prevVfKeySpec || undefined);
     }
     if (showBarTimeSig && measure.timeSigLabel) {
       staveTreble.addTimeSignature(measure.timeSigLabel);
@@ -1758,7 +1764,9 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
       }
     }
 
-    const drawBuiltHand = (built) => {
+    const drawBuiltHand = (built, handAlpha = 1) => {
+      rawCtx.save();
+      rawCtx.globalAlpha = handAlpha;
       try {
         built.voice.draw(vfCtx, built.stave);
         for (const b of built.beams) {
@@ -1783,23 +1791,47 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
           const isInternalChain = next && !next.ev.isRest && next.ev.tieFromPrev;
           try {
             if (isInternalChain) {
-              const idxs = cur.ev.keys.map((_, kIdx) => kIdx).filter((kIdx) => kIdx < next.ev.keys.length);
-              const tie = new vf.StaveTie({
-                firstNote: cur.sn,
-                lastNote: next.sn,
-                firstIndexes: idxs,
-                lastIndexes: idxs
-              });
-              tie.setContext(vfCtx).draw();
+              const firstIndexes = [];
+              const lastIndexes = [];
+              const curMidis = Array.isArray(cur.ev.midis) ? cur.ev.midis : [];
+              const nextMidis = Array.isArray(next.ev.midis) ? next.ev.midis : [];
+              if (curMidis.length > 0 && nextMidis.length > 0) {
+                for (let kIdx = 0; kIdx < curMidis.length; kIdx++) {
+                  const matchIdx = nextMidis.indexOf(curMidis[kIdx]);
+                  if (matchIdx !== -1) {
+                    firstIndexes.push(kIdx);
+                    lastIndexes.push(matchIdx);
+                  }
+                }
+              } else {
+                for (let kIdx = 0; kIdx < cur.ev.keys.length && kIdx < next.ev.keys.length; kIdx++) {
+                  firstIndexes.push(kIdx);
+                  lastIndexes.push(kIdx);
+                }
+              }
+              if (firstIndexes.length > 0) {
+                const tie = new vf.StaveTie({
+                  firstNote: cur.sn,
+                  lastNote: next.sn,
+                  firstIndexes,
+                  lastIndexes
+                });
+                tie.setContext(vfCtx).draw();
+              }
             } else {
-              const idxs = cur.ev.keys.map((_, kIdx) => kIdx);
-              const outTie = new vf.StaveTie({
-                firstNote: cur.sn,
-                lastNote: null,
-                firstIndexes: idxs,
-                lastIndexes: idxs
-              });
-              outTie.setContext(vfCtx).draw();
+              const refs = Array.isArray(cur.ev.noteRefs) ? cur.ev.noteRefs : [];
+              const idxs = refs.length === cur.ev.keys.length
+                ? cur.ev.keys.map((_, kIdx) => kIdx).filter((kIdx) => refs[kIdx] && refs[kIdx].endTime > measure.endTime + 0.005)
+                : cur.ev.keys.map((_, kIdx) => kIdx);
+              if (idxs.length > 0) {
+                const outTie = new vf.StaveTie({
+                  firstNote: cur.sn,
+                  lastNote: null,
+                  firstIndexes: idxs,
+                  lastIndexes: idxs
+                });
+                outTie.setContext(vfCtx).draw();
+              }
             }
           } catch {
             // Safe tie fallback
@@ -1808,23 +1840,29 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
 
         if (cur.ev.tieFromPrev && (i === 0 || list[i - 1].ev.isRest || !list[i - 1].ev.tieToNext)) {
           try {
-            const idxs = cur.ev.keys.map((_, kIdx) => kIdx);
-            const inTie = new vf.StaveTie({
-              firstNote: null,
-              lastNote: cur.sn,
-              firstIndexes: idxs,
-              lastIndexes: idxs
-            });
-            inTie.setContext(vfCtx).draw();
+            const refs = Array.isArray(cur.ev.noteRefs) ? cur.ev.noteRefs : [];
+            const idxs = refs.length === cur.ev.keys.length
+              ? cur.ev.keys.map((_, kIdx) => kIdx).filter((kIdx) => refs[kIdx] && refs[kIdx].isTiedContinuation)
+              : cur.ev.keys.map((_, kIdx) => kIdx);
+            if (idxs.length > 0) {
+              const inTie = new vf.StaveTie({
+                firstNote: null,
+                lastNote: cur.sn,
+                firstIndexes: idxs,
+                lastIndexes: idxs
+              });
+              inTie.setContext(vfCtx).draw();
+            }
           } catch {
             // Safe tie fallback
           }
         }
       }
+      rawCtx.restore();
     };
 
-    drawBuiltHand(rhBuilt);
-    drawBuiltHand(lhBuilt);
+    drawBuiltHand(rhBuilt, rhAlpha);
+    drawBuiltHand(lhBuilt, lhAlpha);
 
     // Draw measure number & chord symbols along top parchment margin
     rawCtx.save();
@@ -2169,9 +2207,11 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
     else lastIdx = Math.min(scoreData.measures.length - 1, lastIdx + 1);
     firstIdx = Math.max(0, firstIdx - 1);
 
+    const rhAlpha = rhOpacity < 0.95 ? Math.max(0.28, rhOpacity) : 1;
+    const lhAlpha = lhOpacity < 0.95 ? Math.max(0.28, lhOpacity) : 1;
     const visibleTiles = [];
     for (let idx = firstIdx; idx <= lastIdx; idx++) {
-      const tile = renderMeasureTile(scoreData, idx, dpr);
+      const tile = renderMeasureTile(scoreData, idx, dpr, { rhAlpha, lhAlpha });
       if (tile) visibleTiles.push(tile);
     }
 
@@ -2269,30 +2309,7 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
       const drawH = tile.height * renderScale;
       if (drawX + drawW < rect.x - 10 || drawX > rect.x + rect.width + 10) continue;
 
-      if (rhOpacity >= 0.95 && lhOpacity >= 0.95) {
-        ctx.drawImage(tile.canvas, drawX, drawYOffset, drawW, drawH);
-      } else {
-        // Clip Treble vs Bass halves at exact geometric midpoint between E4 (89) & A3 (153)
-        const midLogicalY = 121;
-        const splitMidY = drawYOffset + midLogicalY * renderScale;
-        ctx.save();
-        ctx.globalAlpha = Math.max(0.28, rhOpacity);
-        ctx.drawImage(
-          tile.canvas,
-          0, 0, tile.canvas.width, Math.floor((midLogicalY / tile.height) * tile.canvas.height),
-          drawX, drawYOffset, drawW, midLogicalY * renderScale
-        );
-        ctx.restore();
-
-        ctx.save();
-        ctx.globalAlpha = Math.max(0.28, lhOpacity);
-        ctx.drawImage(
-          tile.canvas,
-          0, Math.floor((midLogicalY / tile.height) * tile.canvas.height), tile.canvas.width, Math.ceil(((tile.height - midLogicalY) / tile.height) * tile.canvas.height),
-          drawX, splitMidY, drawW, (tile.height - midLogicalY) * renderScale
-        );
-        ctx.restore();
-      }
+      ctx.drawImage(tile.canvas, drawX, drawYOffset, drawW, drawH);
     }
 
     // 4. Live Notehead Highlight Ellipses, Wait-Lock Emerald, Crimson Overdue Rings & 8va Folded Tags

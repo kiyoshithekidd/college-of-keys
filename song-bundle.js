@@ -190,17 +190,16 @@ function resolveBundleForSong({
   if (!isDemoFile && !matchedRecord && songId && songId !== 'builtin::demo') {
     matchedRecord = entries.find((rec) => {
       if (!rec || !rec.songId || rec.songId !== songId || rec.notesPath === 'BUILTIN_DEMO') return false;
-      if (!filePath) return true;
       const recNotes = rec.notesPath ? fromPortablePath(rec.notesPath, baseDir) : null;
-      // Only fall back to songId when re-linking a missing/moved file, not stealing another existing file's bundle
+      // Only fall back to songId when re-linking a missing/moved file or an unbacked record, never stealing another existing file's bundle
       return !recNotes || !fs.existsSync(recNotes);
     }) || null;
   }
-  if (!isDemoFile && !matchedRecord && fileName) {
+  if (!isDemoFile && !matchedRecord && filePath && fileName) {
     const lowerName = String(fileName).toLowerCase();
     const byName = entries.filter((rec) => {
       if (!rec || !rec.fileName || String(rec.fileName).toLowerCase() !== lowerName || rec.notesPath === 'BUILTIN_DEMO') return false;
-      if (!filePath) return true;
+      if (rec.songId && songId && songId !== 'builtin::demo' && rec.songId !== songId) return false;
       const recNotes = rec.notesPath ? fromPortablePath(rec.notesPath, baseDir) : null;
       return !recNotes || !fs.existsSync(recNotes);
     });
@@ -450,10 +449,13 @@ function removeBundleRecordForSong({ storePath, projectRoot, filePath, songId, f
       }
     } else if (filePath === 'BUILTIN_DEMO') {
       shouldDelete = rec.notesPath === 'BUILTIN_DEMO';
-    } else {
-      const matchId = Boolean(songId && rec.songId && rec.songId === songId);
-      const matchName = Boolean(fileName && rec.fileName && rec.fileName.toLowerCase() === fileName.toLowerCase());
-      shouldDelete = matchId || matchName;
+    } else if (rec.notesPath !== 'BUILTIN_DEMO') {
+      const hasExistingFile = Boolean(recNotes && fs.existsSync(recNotes));
+      if (!hasExistingFile) {
+        const matchId = Boolean(songId && rec.songId && rec.songId === songId);
+        const matchName = Boolean(!songId && fileName && rec.fileName && rec.fileName.toLowerCase() === fileName.toLowerCase());
+        shouldDelete = matchId || matchName;
+      }
     }
 
     if (shouldDelete) {

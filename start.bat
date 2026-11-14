@@ -5,8 +5,6 @@ if exist "%~dp0node_modules\electron\dist\electron.exe" (
   "%~dp0node_modules\electron\dist\electron.exe" "%~dp0."
 ) else if exist "%LOCALAPPDATA%\college-of-keys-runtime\node_modules\electron\dist\electron.exe" (
   "%LOCALAPPDATA%\college-of-keys-runtime\node_modules\electron\dist\electron.exe" "%~dp0."
-) else if exist "C:\Users\Kiyos\AppData\Local\college-of-keys-runtime\node_modules\electron\dist\electron.exe" (
-  "C:\Users\Kiyos\AppData\Local\college-of-keys-runtime\node_modules\electron\dist\electron.exe" "%~dp0."
 ) else (
   npx electron "%~dp0."
 )

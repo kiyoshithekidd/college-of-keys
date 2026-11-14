@@ -189,15 +189,38 @@ function buildD20GeometryAndPhysics(radius = 0.85) {
 }
 
 function createD20TrayRoller(containerEl, { onBounce, onSettled, reducedMotion = false } = {}) {
+  const triggerCpuFallback = () => {
+    const face = Math.floor(Math.random() * 20) + 1;
+    if (typeof onSettled === 'function') {
+      onSettled(face);
+    }
+    return {
+      fastSettle: () => face,
+      dispose: () => {},
+      isSettled: () => true,
+      isFallback: true
+    };
+  };
+
+  if (reducedMotion || !containerEl) {
+    return triggerCpuFallback();
+  }
+
   const width = Math.max(320, containerEl.clientWidth || 520);
   const height = Math.max(240, containerEl.clientHeight || 380);
+
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  } catch {
+    return triggerCpuFallback();
+  }
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(36, width / height, 0.1, 100);
   camera.position.set(0, 10.8, 3.8);
   camera.lookAt(0, 0.3, 0);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(width, height);
   renderer.shadowMap.enabled = true;
