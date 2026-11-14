@@ -292,6 +292,23 @@
                 </button>
               </div>
 
+              <div class="popover-row popover-row-stack">
+                <div class="popover-row-inline">
+                  <label for="input-latency-slider" title="Compensate for Bluetooth/OS audio output delay in Arcade and Rhythm modes (-150 to +150 ms)">Input Latency</label>
+                  <div class="latency-controls-inline">
+                    <strong id="input-latency-value" class="latency-value-readout">0 ms</strong>
+                    <button id="btn-latency-reset" type="button" class="btn-icon" title="Reset Input Latency to 0 ms" aria-label="Reset Input Latency">&#8634;</button>
+                  </div>
+                </div>
+                <input id="input-latency-slider" type="range" min="-150" max="150" value="0" step="5" class="tavern-slider" aria-label="Global input latency offset in milliseconds" />
+                <div class="latency-wizard-row">
+                  <button id="btn-latency-wizard" type="button" class="btn-mini-sim" title="Play 5 quarter-note clicks and tap Space or any key on beats 2-5 to auto-calibrate latency">
+                    &#127919; Tap Wizard (5 Beats)
+                  </button>
+                  <span id="latency-wizard-status" class="latency-wizard-status hidden" aria-live="polite"></span>
+                </div>
+              </div>
+
               <div class="popover-divider"></div>
 
               <div class="popover-row">
@@ -477,6 +494,7 @@
           <button id="btn-rehearsal-popover" type="button" class="tavern-btn btn-rehearsal-caret" disabled title="Rehearsal Loop &amp; Auto-Ramp Options" aria-label="Rehearsal Loop Options" aria-expanded="false" aria-controls="rehearsal-popover">
             &#9662;
           </button>
+          <span id="encore-drill-badge" class="encore-drill-badge hidden" title="Active Encore Drill weak-bar queue"></span>
 
           <div id="rehearsal-popover" class="conservatory-popover rehearsal-popover hidden" role="dialog" aria-label="Rehearsal Loop Settings">
             <div class="popover-header">
@@ -525,6 +543,9 @@
       <div class="highway-routing-controls">
         <button id="btn-wait-mode" class="tavern-btn btn-wait-active" title="Wait Mode pauses falling notes at the strike line until you play the required pitch(es), with 100ms chord roll forgiveness">
           &#9203; Wait: <span id="wait-mode-state">ON</span>
+        </button>
+        <button id="btn-rhythm-mode" type="button" class="tavern-btn btn-rhythm-mode" aria-pressed="false" title="Rhythm Practice Mode: notes fall continuously in time with Perfect / Great / Good timing judgment">
+          &#129345; Rhythm: <span id="rhythm-mode-state">OFF</span>
         </button>
 
         <!-- Issue #20: Unified 1-Click Practice Hand Selector -->
@@ -717,11 +738,19 @@
           </div>
         </div>
 
-        <!-- Issue #62: Post-Song Breakdown (What Tripped Me Up) -->
+        <!-- Issue #111 & #28: Early / On-Time / Late Timing Spread Summary Pill -->
+        <div id="modal-timing-spread-pill" class="timing-spread-pill hidden"></div>
+
+        <!-- Issue #62 & #108: Post-Song Breakdown (What Tripped Me Up & Encore Drill) -->
         <div id="modal-breakdown-section" class="modal-breakdown-section hidden">
           <div class="breakdown-header">
             <span class="breakdown-title">&#9876;&#65039; Phrase Accuracy &amp; What Tripped You Up</span>
-            <span id="modal-breakdown-summary" class="breakdown-summary"></span>
+            <div class="breakdown-header-actions">
+              <span id="modal-breakdown-summary" class="breakdown-summary"></span>
+              <button id="btn-encore-drill" type="button" class="tavern-btn btn-encore-drill hidden" title="Auto-queue all weak bars chronologically into Rehearsal Loop Mode">
+                &#9876;&#65039; Encore Drill
+              </button>
+            </div>
           </div>
           <div id="modal-section-bars" class="breakdown-sections-grid"></div>
           <div id="modal-weak-measures" class="breakdown-weak-list"></div>

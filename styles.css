@@ -5283,6 +5283,151 @@ body.view-mode-notation .grimoire-toast {
   gap: 8px;
 }
 
+/* ============================================================================
+   BUNDLE 1: INPUT LATENCY (#111), RHYTHM MODE (#28) & ENCORE DRILL (#108)
+   ============================================================================ */
 
+.popover-row-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
 
+.popover-row-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 
+.latency-controls-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.latency-value-readout {
+  font-family: 'Consolas', monospace;
+  font-size: 0.78rem;
+  color: var(--radiant-gold);
+  min-width: 54px;
+  text-align: right;
+}
+
+.latency-wizard-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.latency-wizard-status {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #fde68a;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(212, 175, 55, 0.14);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+}
+
+.latency-wizard-status.pulsing {
+  animation: latencyBeatPulse 0.45s ease-out;
+}
+
+@keyframes latencyBeatPulse {
+  0% { transform: scale(1.08); box-shadow: 0 0 12px rgba(255, 215, 0, 0.65); }
+  100% { transform: scale(1); box-shadow: none; }
+}
+
+.btn-rhythm-mode {
+  background: rgba(28, 22, 18, 0.9);
+  border: 1px solid rgba(138, 109, 47, 0.45);
+  color: #d6cbb9;
+}
+
+.btn-rhythm-mode.btn-rhythm-active {
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.28) 0%, rgba(6, 78, 59, 0.55) 100%);
+  border-color: rgba(52, 211, 153, 0.78);
+  color: #a7f3d0;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.28);
+}
+
+.timing-spread-pill {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(20, 15, 11, 0.88);
+  border: 1px solid rgba(212, 175, 55, 0.32);
+  color: #f4ebd9;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.timing-spread-pill strong {
+  color: var(--radiant-gold);
+}
+
+.encore-drill-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fde68a;
+  background: rgba(180, 83, 9, 0.28);
+  border: 1px solid rgba(245, 158, 11, 0.65);
+  white-space: nowrap;
+}
+
+.breakdown-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-encore-drill {
+  padding: 4px 10px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  background: linear-gradient(180deg, rgba(217, 119, 6, 0.35) 0%, rgba(120, 53, 15, 0.65) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.75);
+  color: #fef3c7;
+}
+
+.btn-encore-drill:hover {
+  border-color: #fbbf24;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.35);
+}
+
+.breakdown-delta-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  margin-left: 6px;
+  background: rgba(52, 211, 153, 0.14);
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  color: #6ee7b7;
+}
+
+.breakdown-delta-tag.conquered {
+  background: rgba(255, 215, 0, 0.16);
+  border-color: rgba(255, 215, 0, 0.6);
+  color: #fde68a;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .latency-wizard-status.pulsing {
+    animation: none !important;
+  }
+}
