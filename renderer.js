@@ -30,6 +30,7 @@ const {
   BUNDLE_STORE_FILENAME,
   clampAudioOffsetSec,
   clampAudioTempoRatio,
+  clampTransposeSemitones,
   isSameFilePath: isBundleSameFilePath,
   getSidecarBundlePath,
   loadBundlesStore,
@@ -152,6 +153,17 @@ const settingsPopover = document.getElementById('settings-popover');
 const btnCloseSettings = document.getElementById('btn-close-settings');
 const toggleQwertyLabelsCheckbox = document.getElementById('toggle-qwerty-labels');
 const toggleMidiCleanupCheckbox = document.getElementById('toggle-midi-cleanup');
+const toggleChordBannerCheckbox = document.getElementById('toggle-chord-banner');
+const hudChordBanner = document.getElementById('hud-chord-banner');
+const hudChordCurrent = document.getElementById('hud-chord-current');
+const hudChordNext = document.getElementById('hud-chord-next');
+const btnCapoOctDown = document.getElementById('btn-capo-oct-down');
+const btnCapoSemiDown = document.getElementById('btn-capo-semi-down');
+const capoTransposeValue = document.getElementById('capo-transpose-value');
+const btnCapoSemiUp = document.getElementById('btn-capo-semi-up');
+const btnCapoOctUp = document.getElementById('btn-capo-oct-up');
+const btnCapoReset = document.getElementById('btn-capo-reset');
+const capoAudioWarning = document.getElementById('capo-audio-warning');
 const settingsSyncRow = document.getElementById('settings-sync-row');
 const btnSettingsOpenSync = document.getElementById('btn-settings-open-sync');
 const btnSpellDetails = document.getElementById('btn-spell-details');
@@ -1268,6 +1280,7 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     spotifyUrl: bundle.spotifyUrl || null,
     audioOffsetSec: bundle.audioOffsetSec ?? 0,
     audioTempoRatio: bundle.audioTempoRatio ?? 1.0,
+    transposeSemitones: clampTransposeSemitones(bundle.transposeSemitones ?? 0),
     midiCleanupOverride: typeof bundle.midiCleanupEnabled === 'boolean' ? bundle.midiCleanupEnabled : null,
     midiCleanStats: { enabled: false, selectionNote: null, snapped: 0, removed: 0, trimmed: 0 },
     hasCustomBundle: Boolean(bundle.hasCustomBundle),
@@ -1321,11 +1334,13 @@ function populateTrackSelectorDropdown(song) {
   });
 }
 
-function foldAndDeduplicateHandNotes(noteArr, handTrack) {
+function foldAndDeduplicateHandNotes(noteArr, handTrack, transposeSemitones = 0) {
   let foldedCount = 0;
+  const shift = Math.round(Number(transposeSemitones) || 0);
   const sorted = noteArr
     .map((n) => {
-      const { foldedMidi, wasFolded, semitoneShift } = foldMidiNoteDetails(n.originalMidi);
+      const transposedMidi = Math.max(0, Math.min(127, n.originalMidi + shift));
+      const { foldedMidi, wasFolded, semitoneShift } = foldMidiNoteDetails(transposedMidi);
       if (wasFolded) foldedCount++;
       return {
         ...n,
@@ -1366,6 +1381,8 @@ function foldAndDeduplicateHandNotes(noteArr, handTrack) {
 function assignSongTracksAndDifficulty(mode = 'auto-piano') {
   if (!currentSong) return;
   currentSong.selectedTrackMode = mode;
+  const transposeSemitones = clampTransposeSemitones(currentSong.transposeSemitones ?? 0);
+  currentSong.transposeSemitones = transposeSemitones;
 
   const rawTracks = currentSong.rawTracks;
   const chosenPlayableIndices = new Set();
@@ -1385,7 +1402,7 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
     chosenPlayableIndices.add(idx);
 
     for (const n of chosen.notes) {
-      const foldedCheck = foldMidiTo61Keys(n.originalMidi);
+      const foldedCheck = foldMidiTo61Keys(Math.max(0, Math.min(127, n.originalMidi + transposeSemitones)));
       if (foldedCheck >= MIDDLE_C) {
         track1Raw.push(n);
       } else {
@@ -1415,12 +1432,13 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
     trimmed
   };
 
-  const foldedT1 = foldAndDeduplicateHandNotes(track1Raw, 1);
-  const foldedT2 = foldAndDeduplicateHandNotes(track2Raw, 2);
+  const foldedT1 = foldAndDeduplicateHandNotes(track1Raw, 1, transposeSemitones);
+  const foldedT2 = foldAndDeduplicateHandNotes(track2Raw, 2, transposeSemitones);
 
   currentSong.track1Notes = foldedT1.notes;
   currentSong.track2Notes = foldedT2.notes;
   currentSong.foldedNotesCount = foldedT1.foldedCount + foldedT2.foldedCount;
+  currentSong._computedMidiChordMarkers = null;
 
   currentSong.backingBandTracks = rawTracks.filter((t, idx) => !chosenPlayableIndices.has(idx) && !t.isDuplicate);
 
@@ -1428,7 +1446,7 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
   for (const bt of currentSong.backingBandTracks) {
     if (bt.isPercussion) continue;
     for (const n of bt.notes) {
-      const foldedMidi = foldMidiTo61Keys(n.originalMidi);
+      const foldedMidi = foldMidiTo61Keys(Math.max(0, Math.min(127, n.originalMidi + transposeSemitones)));
       bandNotes.push({
         ...n,
         midi: foldedMidi,
@@ -1463,6 +1481,8 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
   updateSpellInspectorHUD();
   updateNotationQualityBanner();
   updateLitrpgHUD();
+  updateCapoControlsUI();
+  updateChordBannerHUD(playbackState.currentTime);
 }
 
 function updateNotationQualityBanner() {
@@ -3548,6 +3568,232 @@ function getFirstPlayableNoteSec(song = currentSong) {
   return Number.isFinite(minTime) ? Math.max(0, minTime) : 0;
 }
 
+const CHORD_BANNER_STORAGE_KEY = 'collegeOfKeys.showChordBanner';
+let showChordBanner = (() => {
+  try {
+    return window?.localStorage?.getItem(CHORD_BANNER_STORAGE_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+})();
+
+function saveShowChordBannerPreference(enabled) {
+  try {
+    window?.localStorage?.setItem(CHORD_BANNER_STORAGE_KEY, enabled ? 'true' : 'false');
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+const CHORD_SHARP_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const CHORD_FLAT_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+const CHORD_NOTE_TO_PC = {
+  C: 0, 'B#': 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, Fb: 4,
+  F: 5, 'E#': 5, 'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11, Cb: 11
+};
+const CHORD_TEMPLATES = [
+  { suffix: '', intervals: [0, 4, 7] },
+  { suffix: 'm', intervals: [0, 3, 7] },
+  { suffix: '7', intervals: [0, 4, 7, 10] },
+  { suffix: 'maj7', intervals: [0, 4, 7, 11] },
+  { suffix: 'm7', intervals: [0, 3, 7, 10] },
+  { suffix: 'dim', intervals: [0, 3, 6] },
+  { suffix: 'aug', intervals: [0, 4, 8] },
+  { suffix: 'sus4', intervals: [0, 5, 7] },
+  { suffix: 'sus2', intervals: [0, 2, 7] }
+];
+
+function transposePitchClassName(noteToken, semitones = 0) {
+  const pc = CHORD_NOTE_TO_PC[noteToken];
+  if (pc === undefined) return noteToken;
+  const shift = ((Math.round(Number(semitones) || 0) % 12) + 12) % 12;
+  if (shift === 0) return noteToken;
+  const nextPc = (pc + shift) % 12;
+  const preferFlats = noteToken.includes('b') || [1, 3, 5, 8, 10].includes(nextPc);
+  return preferFlats ? CHORD_FLAT_NAMES[nextPc] : CHORD_SHARP_NAMES[nextPc];
+}
+
+function transposeChordSymbol(symbol, semitones = 0) {
+  if (!symbol || typeof symbol !== 'string') return '';
+  const shift = ((Math.round(Number(semitones) || 0) % 12) + 12) % 12;
+  if (shift === 0) return symbol;
+  const match = symbol.trim().match(/^([A-G][#b]?)(.*?)(?:\/([A-G][#b]?))?$/);
+  if (!match) return symbol;
+  const [, root, quality, bass] = match;
+  const nextRoot = transposePitchClassName(root, shift);
+  const nextBass = bass ? `/${transposePitchClassName(bass, shift)}` : '';
+  return `${nextRoot}${quality}${nextBass}`;
+}
+
+function computeMidiChordMarkers(song) {
+  if (!song) return [];
+  const notes = [...(song.track1Notes || []), ...(song.track2Notes || [])]
+    .filter((n) => n && Number.isFinite(n.time) && Number.isFinite(n.midi))
+    .sort((a, b) => a.time - b.time || a.midi - b.midi);
+  if (notes.length === 0) return [];
+
+  const bpm = Math.max(30, Math.min(300, Number(song.bpm) || 120));
+  const beatSec = 60 / bpm;
+  const beatsPerWindow = (Number(song.beatsPerMeasure) || 4) >= 4 ? 2 : Math.max(1, Number(song.beatsPerMeasure) || 2);
+  const windowSec = Math.max(0.45, Math.min(2.4, beatSec * beatsPerWindow));
+  const totalDur = Math.max(windowSec, Number(song.duration) || (notes[notes.length - 1].time + 0.5));
+
+  const markers = [];
+  let prevSymbol = null;
+  for (let wStart = 0; wStart < totalDur; wStart += windowSec) {
+    const wEnd = wStart + windowSec;
+    const active = notes.filter((n) => {
+      const nEnd = n.time + Math.max(0.08, Number(n.duration) || 0.25);
+      return (n.time >= wStart - 0.05 && n.time < wEnd - 0.02) || (n.time < wStart && nEnd > wStart + 0.06);
+    });
+    if (active.length < 2) continue;
+
+    const pcs = new Set(active.map((n) => ((n.midi % 12) + 12) % 12));
+    if (pcs.size < 2) continue;
+    const lowestMidi = Math.min(...active.map((n) => n.midi));
+    const bassPc = ((lowestMidi % 12) + 12) % 12;
+
+    let bestScore = -Infinity;
+    let bestSymbol = null;
+    for (const rootPc of pcs) {
+      for (const tpl of CHORD_TEMPLATES) {
+        let matched = 0;
+        for (const iv of tpl.intervals) {
+          if (pcs.has((rootPc + iv) % 12)) matched++;
+        }
+        if (matched < 2) continue;
+        const missing = tpl.intervals.length - matched;
+        const extra = pcs.size - matched;
+        let score = matched * 2.2 - missing * 1.6 - extra * 0.65;
+        if (rootPc === bassPc) score += 0.9;
+        if (tpl.intervals.length === 3 && matched === 3) score += 0.4;
+        if (score > bestScore) {
+          bestScore = score;
+          const rootName = [1, 3, 5, 8, 10].includes(rootPc) ? CHORD_FLAT_NAMES[rootPc] : CHORD_SHARP_NAMES[rootPc];
+          bestSymbol = `${rootName}${tpl.suffix}`;
+        }
+      }
+    }
+
+    if (bestSymbol && bestScore >= 3.2 && bestSymbol !== prevSymbol) {
+      markers.push({ time: Number(wStart.toFixed(3)), symbol: bestSymbol });
+      prevSymbol = bestSymbol;
+    }
+  }
+  return markers;
+}
+
+function getEffectiveChordMarkers(song = currentSong) {
+  if (!song) return [];
+  const shift = Math.round(Number(song.transposeSemitones) || 0);
+  if (Array.isArray(song.chordMarkers) && song.chordMarkers.length > 0) {
+    if (((shift % 12) + 12) % 12 === 0) return song.chordMarkers;
+    return song.chordMarkers.map((m) => ({
+      time: m.time,
+      symbol: transposeChordSymbol(m.symbol, shift)
+    }));
+  }
+  if (!Array.isArray(song._computedMidiChordMarkers)) {
+    song._computedMidiChordMarkers = computeMidiChordMarkers(song);
+  }
+  return song._computedMidiChordMarkers;
+}
+
+function updateChordBannerHUD(currentTime = playbackState.currentTime) {
+  if (!hudChordBanner || !hudChordCurrent || !hudChordNext) return;
+  if (!showChordBanner || !currentSong) {
+    hudChordBanner.classList.add('hidden');
+    return;
+  }
+  const markers = getEffectiveChordMarkers(currentSong);
+  if (!markers || markers.length === 0) {
+    hudChordBanner.classList.add('hidden');
+    return;
+  }
+
+  let active = null;
+  let next = null;
+  const t = Number(currentTime) || 0;
+  for (let i = 0; i < markers.length; i++) {
+    const m = markers[i];
+    if (m.time <= t + 0.08) {
+      active = m;
+    } else {
+      if (!active || m.symbol !== active.symbol) {
+        next = m;
+        break;
+      }
+    }
+  }
+
+  const displayCurrent = active ? active.symbol : markers[0].symbol;
+  if (!active && markers[0].time > t + 0.08) {
+    next = markers[1] && markers[1].symbol !== displayCurrent ? markers[1] : null;
+  }
+
+  hudChordBanner.classList.remove('hidden');
+  hudChordCurrent.textContent = displayCurrent;
+  if (next) {
+    hudChordNext.textContent = `Next: ${next.symbol}`;
+    hudChordNext.classList.remove('hidden');
+  } else {
+    hudChordNext.classList.add('hidden');
+  }
+}
+
+function formatTransposeBadge(semitones = 0) {
+  const st = clampTransposeSemitones(semitones);
+  if (st === 0) return '0 st';
+  return `${st > 0 ? '+' : ''}${st} st`;
+}
+
+function updateCapoControlsUI() {
+  const st = clampTransposeSemitones(currentSong?.transposeSemitones ?? 0);
+  if (capoTransposeValue) {
+    capoTransposeValue.textContent = formatTransposeBadge(st);
+  }
+  const hasSong = Boolean(currentSong);
+  if (btnCapoOctDown) btnCapoOctDown.disabled = !hasSong || st <= -12;
+  if (btnCapoSemiDown) btnCapoSemiDown.disabled = !hasSong || st <= -12;
+  if (btnCapoSemiUp) btnCapoSemiUp.disabled = !hasSong || st >= 12;
+  if (btnCapoOctUp) btnCapoOctUp.disabled = !hasSong || st >= 12;
+  if (btnCapoReset) btnCapoReset.disabled = !hasSong || st === 0;
+
+  if (capoAudioWarning) {
+    const hasPitchMismatch = Boolean(
+      currentSong?.backingAudioEl &&
+      playbackState.backingBandEnabled &&
+      ((st % 12) + 12) % 12 !== 0
+    );
+    capoAudioWarning.classList.toggle('hidden', !hasPitchMismatch);
+  }
+}
+
+function setSongTransposeSemitones(nextSemitones) {
+  if (!currentSong) return;
+  const clamped = clampTransposeSemitones(nextSemitones);
+  if (clamped === (currentSong.transposeSemitones || 0)) return;
+  currentSong.transposeSemitones = clamped;
+  currentSong.hasCustomBundle = Boolean(
+    currentSong.sheetMusicPath ||
+    currentSong.backingAudioPath ||
+    currentSong.youtubeUrl ||
+    currentSong.spotifyUrl ||
+    Math.abs(currentSong.audioOffsetSec || 0) > 0.0001 ||
+    Math.abs((currentSong.audioTempoRatio ?? 1.0) - 1.0) > 0.0001 ||
+    typeof currentSong.midiCleanupOverride === 'boolean' ||
+    clamped !== 0
+  );
+  assignSongTracksAndDifficulty(currentSong.selectedTrackMode || 'auto-piano');
+  persistCurrentSongCalibration();
+  updateCapoControlsUI();
+  updateChordBannerHUD(playbackState.currentTime);
+  const label = clamped === 0
+    ? 'Original Key (0 st)'
+    : `${clamped > 0 ? '+' : ''}${clamped} st${Math.abs(clamped) === 12 ? ` (${clamped > 0 ? '+1' : '-1'} Oct)` : ''}`;
+  showGrimoireToast(`\uD83C\uDFB9 Capo: ${label}`);
+}
+
 function persistCurrentSongCalibration() {
   if (!currentSong) return;
   try {
@@ -3567,6 +3813,7 @@ function persistCurrentSongCalibration() {
         spotifyUrl: currentSong.spotifyUrl || undefined,
         audioOffsetSec: currentSong.audioOffsetSec ?? 0,
         audioTempoRatio: currentSong.audioTempoRatio ?? 1.0,
+        transposeSemitones: clampTransposeSemitones(currentSong.transposeSemitones ?? 0),
         midiCleanupEnabled: typeof currentSong.midiCleanupOverride === 'boolean'
           ? currentSong.midiCleanupOverride
           : null
@@ -7141,6 +7388,7 @@ function renderCanvas() {
 
     // 2. Draw 60 FPS Falling Spell Highway Notes
     strikeLineGuides = drawFallingSpellHighway(strikeLineY, width, highwayTopY, false);
+    updateChordBannerHUD(playbackState.currentTime);
 
     // 2b. Issue #30: Draw Rehearsal Loop A/B boundary lines on the Spell Highway
     if (currentSong && rehearsalLoopState.enabled && hasValidRehearsalLoop()) {
@@ -8261,6 +8509,48 @@ if (toggleQwertyLabelsCheckbox) {
   });
 }
 
+if (toggleChordBannerCheckbox) {
+  toggleChordBannerCheckbox.checked = showChordBanner;
+  toggleChordBannerCheckbox.addEventListener('change', (e) => {
+    showChordBanner = Boolean(e.target.checked);
+    saveShowChordBannerPreference(showChordBanner);
+    updateChordBannerHUD(playbackState.currentTime);
+    e.target.blur();
+  });
+}
+
+if (btnCapoOctDown) {
+  btnCapoOctDown.addEventListener('click', (e) => {
+    setSongTransposeSemitones((currentSong?.transposeSemitones || 0) - 12);
+    e.currentTarget.blur();
+  });
+}
+if (btnCapoSemiDown) {
+  btnCapoSemiDown.addEventListener('click', (e) => {
+    setSongTransposeSemitones((currentSong?.transposeSemitones || 0) - 1);
+    e.currentTarget.blur();
+  });
+}
+if (btnCapoSemiUp) {
+  btnCapoSemiUp.addEventListener('click', (e) => {
+    setSongTransposeSemitones((currentSong?.transposeSemitones || 0) + 1);
+    e.currentTarget.blur();
+  });
+}
+if (btnCapoOctUp) {
+  btnCapoOctUp.addEventListener('click', (e) => {
+    setSongTransposeSemitones((currentSong?.transposeSemitones || 0) + 12);
+    e.currentTarget.blur();
+  });
+}
+if (btnCapoReset) {
+  btnCapoReset.addEventListener('click', (e) => {
+    setSongTransposeSemitones(0);
+    e.currentTarget.blur();
+  });
+}
+updateCapoControlsUI();
+
 if (toggleMidiCleanupCheckbox) {
   toggleMidiCleanupCheckbox.addEventListener('change', (e) => {
     const enabled = Boolean(e.target.checked);
@@ -8276,7 +8566,8 @@ if (toggleMidiCleanupCheckbox) {
         currentSong.youtubeUrl ||
         currentSong.spotifyUrl ||
         Math.abs(currentSong.audioOffsetSec || 0) > 0.0001 ||
-        Math.abs((currentSong.audioTempoRatio ?? 1.0) - 1.0) > 0.0001
+        Math.abs((currentSong.audioTempoRatio ?? 1.0) - 1.0) > 0.0001 ||
+        clampTransposeSemitones(currentSong.transposeSemitones ?? 0) !== 0
       );
       assignSongTracksAndDifficulty(currentSong.selectedTrackMode || 'auto-piano');
       if (hadOverride) {
@@ -8578,6 +8869,7 @@ btnBackingBand.addEventListener('click', () => {
   playbackState.backingBandEnabled = !playbackState.backingBandEnabled;
   backingBandStateText.textContent = playbackState.backingBandEnabled ? 'ON' : 'OFF';
   btnBackingBand.classList.toggle('btn-toggle-active', playbackState.backingBandEnabled);
+  updateCapoControlsUI();
   if (!playbackState.backingBandEnabled && backingBandSynth) {
     backingBandSynth.releaseAll();
   }

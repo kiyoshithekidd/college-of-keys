@@ -285,6 +285,28 @@
                 <input id="toggle-midi-cleanup" type="checkbox" class="tavern-checkbox" checked />
               </div>
 
+              <div class="popover-row">
+                <label for="toggle-chord-banner" title="Show live chord symbol &amp; next-chord preview pill above the Spell Highway">Live Chord Banner</label>
+                <input id="toggle-chord-banner" type="checkbox" class="tavern-checkbox" checked />
+              </div>
+
+              <div class="popover-row popover-row-stack">
+                <div class="popover-row-inline">
+                  <span title="Non-destructively transpose playable &amp; backing MIDI notes (-12 to +12 semitones) per song">Capo / Transpose</span>
+                  <div class="capo-stepper-controls">
+                    <button id="btn-capo-oct-down" type="button" class="btn-icon capo-step-btn" title="Shift -1 Octave (-12 st)">-1 Oct</button>
+                    <button id="btn-capo-semi-down" type="button" class="btn-icon capo-step-btn" title="Transpose -1 Semitone">-1</button>
+                    <strong id="capo-transpose-value" class="capo-value-readout">0 st</strong>
+                    <button id="btn-capo-semi-up" type="button" class="btn-icon capo-step-btn" title="Transpose +1 Semitone">+1</button>
+                    <button id="btn-capo-oct-up" type="button" class="btn-icon capo-step-btn" title="Shift +1 Octave (+12 st)">+1 Oct</button>
+                    <button id="btn-capo-reset" type="button" class="btn-icon" title="Reset Transpose to 0 st" aria-label="Reset Transpose">&#8634;</button>
+                  </div>
+                </div>
+                <div id="capo-audio-warning" class="capo-audio-warning hidden" role="status">
+                  Backing audio is unmuted &amp; remains in original key; mute Backing Audio or use &plusmn;12 st to match pitch.
+                </div>
+              </div>
+
               <div id="settings-sync-row" class="popover-row hidden">
                 <span>Backing Audio Sync</span>
                 <button id="btn-settings-open-sync" type="button" class="btn-mini-sim" title="Calibrate Backing Audio Start Offset &amp; Tempo Drift">
@@ -631,6 +653,11 @@
 
           <!-- Phase 10 (Issue #19): Translucent Center Highway HUD Pill -->
           <div id="highway-center-hud" aria-live="polite">
+            <div id="hud-chord-banner" class="hud-chord-banner hidden" title="Live Arcane Chord Voicing &amp; Next Chord Preview">
+              <span class="chord-banner-label">Chord</span>
+              <strong id="hud-chord-current" class="chord-banner-current">--</strong>
+              <span id="hud-chord-next" class="chord-banner-next hidden"></span>
+            </div>
             <div class="center-combo-pill">
               <span class="chain-label">Chain</span>
               <strong id="hud-spell-chain" class="chain-number">0</strong>

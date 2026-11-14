@@ -18,6 +18,14 @@ const MIN_OFFSET_SEC = -30.0;
 const MAX_OFFSET_SEC = 30.0;
 const MIN_TEMPO_RATIO = 0.85;
 const MAX_TEMPO_RATIO = 1.15;
+const MIN_TRANSPOSE_SEMITONES = -12;
+const MAX_TRANSPOSE_SEMITONES = 12;
+
+function clampTransposeSemitones(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.max(MIN_TRANSPOSE_SEMITONES, Math.min(MAX_TRANSPOSE_SEMITONES, Math.round(num)));
+}
 
 function clampAudioOffsetSec(value) {
   const num = Number(value);
@@ -281,6 +289,9 @@ function resolveBundleForSong({
     typeof record?.midiCleanupEnabled === 'boolean'
       ? record.midiCleanupEnabled
       : (typeof fallbackRecord?.midiCleanupEnabled === 'boolean' ? fallbackRecord.midiCleanupEnabled : null);
+  const transposeSemitones = clampTransposeSemitones(
+    record?.transposeSemitones ?? fallbackRecord?.transposeSemitones ?? 0
+  );
 
   const youtubeUrl = sanitizeExternalHttpUrl(record?.youtubeUrl ?? fallbackRecord?.youtubeUrl);
   const spotifyUrl = sanitizeExternalHttpUrl(record?.spotifyUrl ?? fallbackRecord?.spotifyUrl);
@@ -302,6 +313,7 @@ function resolveBundleForSong({
     audioOffsetSec,
     audioTempoRatio,
     midiCleanupEnabled,
+    transposeSemitones,
     sidecarPath: sidecarPath && fs.existsSync(sidecarPath) ? sidecarPath : null,
     hasCustomBundle: Boolean(
       sheetMusicPath ||
@@ -312,7 +324,8 @@ function resolveBundleForSong({
       spotifyUrl ||
       Math.abs(audioOffsetSec) > 0.0001 ||
       Math.abs(audioTempoRatio - 1.0) > 0.0001 ||
-      typeof midiCleanupEnabled === 'boolean'
+      typeof midiCleanupEnabled === 'boolean' ||
+      transposeSemitones !== 0
     )
   };
 }
@@ -380,6 +393,9 @@ function saveBundleRecord({
     midiCleanupEnabled: record.midiCleanupEnabled !== undefined
       ? (typeof record.midiCleanupEnabled === 'boolean' ? record.midiCleanupEnabled : null)
       : (typeof existing.midiCleanupEnabled === 'boolean' ? existing.midiCleanupEnabled : null),
+    transposeSemitones: clampTransposeSemitones(
+      record.transposeSemitones !== undefined ? record.transposeSemitones : (existing.transposeSemitones ?? 0)
+    ),
     updatedAt: new Date().toISOString()
   };
 
@@ -411,6 +427,7 @@ function saveBundleRecord({
         audioOffsetSec: nextEntry.audioOffsetSec,
         audioTempoRatio: nextEntry.audioTempoRatio,
         midiCleanupEnabled: nextEntry.midiCleanupEnabled,
+        transposeSemitones: nextEntry.transposeSemitones,
         updatedAt: nextEntry.updatedAt
       };
       try {
@@ -553,6 +570,7 @@ module.exports = {
   SHEET_REF_EXTS,
   clampAudioOffsetSec,
   clampAudioTempoRatio,
+  clampTransposeSemitones,
   normalizeComparablePath,
   isSameFilePath,
   toPortablePath,
