@@ -22,6 +22,7 @@
 | **Phase 10** | **2-Bar Conservatory UI/UX Overhaul (`v1.1.0` — Inline Bard Banner, Popovers & 1-Click Practice Selector)** | **Completed** |
 | **Maintenance** | **Rhythm-Game & Audio Quality Remediation (`v1.1.1`–`v1.1.2`, Fixes #31–#38, #44–#51, #55–#60)** | **Completed** |
 | **v1.2.0** | **Grand-Staff Sheet Music Split View (`#39`), MusicXML (`#40`), Song Bundles (`#76`), 3D d20 Dice Tray (`#25`), Inspiration Meter (`#24`), Practice Suite (`#30`, `#62`, `#63`) & Smooth 60 FPS Notation (`#96`, `#97`)** | **Completed** |
+| **v1.3.0** | **OMR Sheet Import (`#78`), Tavern Crowd Meter (`#26`), Setlists (`#64`), Achievements (`#65`), Interactive Tutorial (`#54`), Bard Colleges (`#27`) & 4-Act Story Campaign (`#29`)** | **Completed** |
 
 ---
 
@@ -77,6 +78,13 @@
 - **Rehearsal Loop (`#30`), Practice Tempo (`#63`) & Post-Song Breakdown (`#62`):** Set `[A]`/`[B]` phrase loops (`[` / `]` / `\`), slow tempo from `0.5x` to `1.25x` with pitch preservation (`-` / `=`), and jump straight into weak measures from the post-song breakdown.
 - **Grimoire Song Bundles & Sync Calibrator (`#76`):** Pair playable notes, sheet music references, and backing audio with Beat 1 alignment, RMS Auto-Align, and non-destructive **Smart MIDI Hygiene**.
 
+### 7. Bardic Career, Colleges, Setlists & Sheet-Music OMR (`v1.3.0`)
+- **4-Act Story Campaign (`#29` — *The Ballad of the Silver Keys*):** Progress from **Act I: Cobblestone Street Corner** (`DC 10`) → **The Silver Flagon Tavern** (`DC 12`) → **Grand Conservatory Hall** (`DC 15`) → **The Royal Court** (`DC 18`) with custom venue stage backdrops, story intros/epilogues, and DC-gated unlocks.
+- **Bard Colleges as Learning Tracks (`#27`):** Enroll in **College of Lore** (sight-reading & theory), **College of Cadence** (speed & accuracy), or **College of Revelry** (performance & showmanship), each with 3 curated drills and recommended Grimoire repertoire.
+- **Tavern Crowd Meter (`#26`) & Setlists (`#64`):** Keep the crowd energized from *Restless* (`0.85x` XP) up to *Enchanted* (`1.5x` XP), and build/save multi-song **Setlists** with back-to-back stage transitions.
+- **Achievements (`#65`) & Interactive Tutorial (`#54`):** Unlock 7 persistent Bardic milestones with in-moment celebration banners and view them in **The Bardic Annals**; launch the 4-step **Trainer's Guild Guided Tutorial** directly from the Tavern Menu.
+- **OMR Sheet-Music Import (`#78`):** Import PDF/image sheet music via Audiveris + confidence review (`omr-confidence.js`).
+
 ---
 
 ## Controls & Input Modes
@@ -112,7 +120,8 @@ npm start
 - [`renderer.js`](./renderer.js) — 61-key canvas geometry (`C2`–`C7`), Web MIDI listener, Mouse/QWERTY input, and `Tone.Sampler` / `Tone.PolySynth` audio engine.
 - [`notation-engine.js`](./notation-engine.js) — VexFlow 5 + Bravura Grand-Staff sheet music engine, LRU tile cache, and smooth tracking playhead.
 - [`d20-roller.js`](./d20-roller.js) — Three.js + `cannon-es` 3D physics d20 Performance Check dice tray.
-- [`musicxml-converter.js`](./musicxml-converter.js), [`midi-hygiene.js`](./midi-hygiene.js) & [`song-bundle.js`](./song-bundle.js) — Pure-JS MusicXML-to-MIDI converter, Smart MIDI Hygiene, and Grimoire Song Bundle sync.
+- [`musicxml-converter.js`](./musicxml-converter.js), [`midi-hygiene.js`](./midi-hygiene.js), [`song-bundle.js`](./song-bundle.js) & [`omr-confidence.js`](./omr-confidence.js) — Pure-JS MusicXML-to-MIDI converter, Smart MIDI Hygiene, Grimoire Song Bundle sync, and OMR confidence review.
+- [`tavern-setlists.js`](./tavern-setlists.js), [`bard-achievements.js`](./bard-achievements.js), [`guild-tutorial.js`](./guild-tutorial.js), [`bard-colleges.js`](./bard-colleges.js) & [`bard-campaign.js`](./bard-campaign.js) — Tavern Crowd Meter, Setlists, Achievements, Interactive Tutorial, Bard Colleges, and 4-Act Story Campaign modules.
 - [`PERSONAS.md`](./PERSONAS.md) — Core user personas (The Returning Adult, The Gamer Bard, The Rock Band Player, Casual Song Player, Young Learner, Conservatory Purist) guiding all feature decisions.
 - [`Gemini.md`](./Gemini.md) — Detailed architectural plan, engineering decisions & rationale log, open-source benchmark notes, and build log.
 - [`CHANGELOG.md`](./CHANGELOG.md) — Versioned phase-by-phase changelog.
