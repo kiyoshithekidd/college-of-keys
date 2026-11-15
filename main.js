@@ -1,5 +1,29 @@
-const { app, BrowserWindow, session } = require('electron');
+const { app, BrowserWindow, session, ipcMain, shell } = require('electron');
+const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
+
+ipcMain.handle('open-folder-in-explorer', async (_event, targetDir) => {
+  try {
+    if (!targetDir || typeof targetDir !== 'string') {
+      return { ok: false, error: 'Missing target folder path.' };
+    }
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+    const openErr = await shell.openPath(targetDir);
+    if (!openErr) {
+      return { ok: true };
+    }
+    if (process.platform === 'win32') {
+      spawn('explorer.exe', [path.resolve(targetDir)], { detached: true, stdio: 'ignore' }).unref();
+      return { ok: true };
+    }
+    return { ok: false, error: openErr };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+});
 
 function createWindow() {
   // Automatically grant Web MIDI & Microphone (for Backlog Vocals) permissions in Electron's Chromium session

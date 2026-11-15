@@ -16,7 +16,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { pathToFileURL } = require('url');
-const { shell } = require('electron');
+const { shell, ipcRenderer, webUtils } = require('electron');
 const { createD20TrayRoller } = require('./d20-roller');
 const { isMusicXmlFileName, convertMusicXmlToMidiBuffer } = require('./musicxml-converter');
 const { isOmrSheetFileName, analyzeOmrConfidence, applyOmrOverridesToMusicXml } = require('./omr-confidence');
@@ -6465,8 +6465,56 @@ function saveActiveSpellToGrimoire() {
     scanWatchedDirectories(false);
     showGrimoireToast(`💾 Saved "${currentSong.title}" to The Grimoire (./Imports/${safeName})!`);
     renderGrimoireSidebar();
+    if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
+      renderSpellbookSpread();
+    }
   } catch (err) {
     showGrimoireToast(`Could not save spell to Imports/: ${err.message}`, 'error');
+  }
+}
+
+function resolveLocalFilePath(file) {
+  if (!file) return null;
+  try {
+    if (webUtils && typeof webUtils.getPathForFile === 'function') {
+      const p = webUtils.getPathForFile(file);
+      if (p) return p;
+    }
+  } catch {
+    // Fall back to legacy File.path
+  }
+  return file.path || null;
+}
+
+function isPathInsideDir(targetPath, dirPath) {
+  if (!targetPath || !dirPath || targetPath === 'BUILTIN_DEMO') return false;
+  try {
+    const rel = path.relative(path.resolve(dirPath), path.resolve(targetPath));
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  } catch {
+    return false;
+  }
+}
+
+async function openImportsFolderInExplorer() {
+  try {
+    if (!fs.existsSync(IMPORTS_DIR)) {
+      fs.mkdirSync(IMPORTS_DIR, { recursive: true });
+    }
+    if (ipcRenderer && typeof ipcRenderer.invoke === 'function') {
+      const res = await ipcRenderer.invoke('open-folder-in-explorer', IMPORTS_DIR);
+      if (res && res.ok) return;
+      if (res && res.error) {
+        showGrimoireToast(`Could not open Imports folder: ${res.error}`, 'error');
+        return;
+      }
+    }
+    const openErr = await shell.openPath(IMPORTS_DIR);
+    if (openErr) {
+      showGrimoireToast(`Could not open Imports folder: ${openErr}`, 'error');
+    }
+  } catch (err) {
+    showGrimoireToast(`Could not open Imports folder: ${err.message}`, 'error');
   }
 }
 
@@ -8384,8 +8432,15 @@ midiFileInput.addEventListener('change', async (e) => {
     if (isOmrSheetFileName(file.name)) {
       await startOmrImportFromFile(file);
     } else {
+      const resolvedPath = resolveLocalFilePath(file);
       const buffer = await file.arrayBuffer();
-      loadSongFromBuffer(buffer, file.name, file.path || null);
+      loadSongFromBuffer(buffer, file.name, resolvedPath);
+      const alreadyWatched =
+        isPathInsideDir(resolvedPath, IMPORTS_DIR) ||
+        isPathInsideDir(resolvedPath, MIDI_TEST_DIR);
+      if (currentSong && !alreadyWatched) {
+        saveActiveSpellToGrimoire();
+      }
     }
   } catch (err) {
     showGrimoireToast(`Failed to import "${file.name}": ${err.message}`, 'error');
@@ -9342,18 +9397,8 @@ if (btnSpellbookSaveCurrent) {
 }
 
 if (btnSpellbookOpenImports) {
-  btnSpellbookOpenImports.addEventListener('click', async () => {
-    try {
-      if (!fs.existsSync(IMPORTS_DIR)) {
-        fs.mkdirSync(IMPORTS_DIR, { recursive: true });
-      }
-      const openErr = await shell.openPath(IMPORTS_DIR);
-      if (openErr) {
-        showGrimoireToast(`Could not open Imports folder: ${openErr}`, 'error');
-      }
-    } catch (err) {
-      showGrimoireToast(`Could not open Imports folder: ${err.message}`, 'error');
-    }
+  btnSpellbookOpenImports.addEventListener('click', () => {
+    openImportsFolderInExplorer();
   });
 }
 
@@ -10667,18 +10712,8 @@ if (btnLinkYoutube) {
 }
 
 if (btnQuestOpenImports) {
-  btnQuestOpenImports.addEventListener('click', async () => {
-    try {
-      if (!fs.existsSync(IMPORTS_DIR)) {
-        fs.mkdirSync(IMPORTS_DIR, { recursive: true });
-      }
-      const openErr = await shell.openPath(IMPORTS_DIR);
-      if (openErr) {
-        showGrimoireToast(`Could not open Imports folder: ${openErr}`, 'error');
-      }
-    } catch (err) {
-      showGrimoireToast(`Could not open Imports folder: ${err.message}`, 'error');
-    }
+  btnQuestOpenImports.addEventListener('click', () => {
+    openImportsFolderInExplorer();
   });
 }
 
@@ -11273,8 +11308,15 @@ window.addEventListener('drop', async (e) => {
     return;
   }
   try {
+    const resolvedPath = resolveLocalFilePath(file);
     const buffer = await file.arrayBuffer();
-    loadSongFromBuffer(buffer, file.name, file.path || null);
+    loadSongFromBuffer(buffer, file.name, resolvedPath);
+    const alreadyWatched =
+      isPathInsideDir(resolvedPath, IMPORTS_DIR) ||
+      isPathInsideDir(resolvedPath, MIDI_TEST_DIR);
+    if (currentSong && !alreadyWatched) {
+      saveActiveSpellToGrimoire();
+    }
   } catch (err) {
     showGrimoireToast(`Failed to import "${file.name}": ${err.message}`, 'error');
   }
