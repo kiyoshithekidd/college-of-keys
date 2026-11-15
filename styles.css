@@ -671,6 +671,37 @@ html, body {
   gap: 9px;
 }
 
+.conservatory-popover.career-popover {
+  width: 220px;
+  padding: 6px;
+  gap: 4px;
+}
+
+.career-popover-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-parchment);
+  font-size: 0.84rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.career-popover-item:hover,
+.career-popover-item:focus-visible {
+  background: rgba(212, 175, 55, 0.16);
+  border-color: rgba(212, 175, 55, 0.45);
+  color: var(--radiant-gold);
+  outline: none;
+}
+
 .sync-control-section {
   display: flex;
   flex-direction: column;
@@ -1429,6 +1460,12 @@ html, body {
   justify-content: center;
   z-index: 100;
   padding: 20px;
+}
+
+#bard-colleges-modal,
+#campaign-modal,
+#setlist-modal {
+  z-index: 1450;
 }
 
 .performance-modal-card {
@@ -4052,11 +4089,49 @@ body.view-mode-notation .grimoire-toast {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: 3.5%;
+  bottom: 3%;
   width: 38%;
-  min-width: 310px;
-  max-width: 450px;
+  min-width: 320px;
+  max-width: 460px;
   z-index: 6;
+}
+
+.tavern-scene-stage #tavern-bard-card.spotlight-collapsed {
+  padding: 9px 14px;
+  gap: 0;
+}
+
+.bard-details-toggle-btn {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(212, 175, 55, 0.5);
+  background: rgba(212, 175, 55, 0.14);
+  color: var(--radiant-gold);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.bard-details-toggle-btn:hover,
+.bard-details-toggle-btn:focus-visible {
+  background: rgba(212, 175, 55, 0.28);
+  border-color: #ffd700;
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.tavern-bard-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tavern-bard-details.hidden {
+  display: none !important;
 }
 
 .tavern-bard-spotlight {

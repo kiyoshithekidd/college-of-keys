@@ -475,6 +475,8 @@ const hudCrowdEmoji = document.getElementById('hud-crowd-emoji');
 const hudCrowdMood = document.getElementById('hud-crowd-mood');
 const hudCrowdFill = document.getElementById('hud-crowd-fill');
 const hudCrowdMult = document.getElementById('hud-crowd-mult');
+const btnCareerPopover = document.getElementById('btn-career-popover');
+const careerPopover = document.getElementById('career-popover');
 const btnOpenSetlists = document.getElementById('btn-open-setlists');
 const setlistModal = document.getElementById('setlist-modal');
 const btnCloseSetlistModal = document.getElementById('btn-close-setlist-modal');
@@ -507,6 +509,8 @@ let hasEnteredTavernSession = false;
 
 const btnReturnTavern = document.getElementById('btn-return-tavern');
 const tavernBardCard = document.getElementById('tavern-bard-card');
+const btnToggleBardDetails = document.getElementById('btn-toggle-bard-details');
+const tavernBardDetails = document.getElementById('tavern-bard-details');
 const menuBardLevel = document.getElementById('menu-bard-level');
 const menuBardTitle = document.getElementById('menu-bard-title');
 const menuTotalXp = document.getElementById('menu-total-xp');
@@ -8055,7 +8059,8 @@ function closeAllConservatoryPopovers({ returnFocus = false } = {}) {
     [settingsPopover, btnToggleSettings],
     [spellDetailsPopover, btnSpellDetails],
     [rehearsalPopover, btnRehearsalPopover],
-    [audioSyncPopover, btnAudioSync]
+    [audioSyncPopover, btnAudioSync],
+    [careerPopover, btnCareerPopover]
   ];
   let anyWasOpen = false;
   let focusTarget = null;
@@ -9137,8 +9142,29 @@ if (btnCloseSpellDetails) {
   });
 }
 
+if (btnCareerPopover && careerPopover) {
+  btnCareerPopover.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const willOpen = careerPopover.classList.contains('hidden');
+    closeAllConservatoryPopovers();
+    if (willOpen) {
+      careerPopover.classList.remove('hidden');
+      btnCareerPopover.classList.add('active');
+      btnCareerPopover.setAttribute('aria-expanded', 'true');
+    }
+  });
+}
+
 document.addEventListener('click', (e) => {
   const target = e.target;
+  if (
+    careerPopover &&
+    !careerPopover.classList.contains('hidden') &&
+    !careerPopover.contains(target) &&
+    !(btnCareerPopover && btnCareerPopover.contains(target))
+  ) {
+    closeAllConservatoryPopovers();
+  }
   if (
     settingsPopover &&
     !settingsPopover.classList.contains('hidden') &&
@@ -11146,7 +11172,12 @@ function updatePerformanceModalSetlistUI() {
   }
 }
 
-if (btnOpenSetlists) btnOpenSetlists.addEventListener('click', openSetlistModal);
+if (btnOpenSetlists) {
+  btnOpenSetlists.addEventListener('click', () => {
+    closeAllConservatoryPopovers();
+    openSetlistModal();
+  });
+}
 if (btnCloseSetlistModal) btnCloseSetlistModal.addEventListener('click', closeSetlistModal);
 if (btnModalNextSetlist) btnModalNextSetlist.addEventListener('click', advanceToNextSetlistSong);
 
@@ -11831,6 +11862,23 @@ if (btnReturnTavern) {
   });
 }
 
+if (btnToggleBardDetails && tavernBardDetails && tavernBardCard) {
+  const toggleBardDetails = (e) => {
+    e.stopPropagation();
+    const isNowHidden = tavernBardDetails.classList.toggle('hidden');
+    tavernBardCard.classList.toggle('spotlight-collapsed', isNowHidden);
+    btnToggleBardDetails.setAttribute('aria-expanded', String(!isNowHidden));
+    btnToggleBardDetails.innerHTML = isNowHidden ? '&#9662; Career &amp; Tracks' : '&#9652; Hide Tracks';
+  };
+  btnToggleBardDetails.addEventListener('click', toggleBardDetails);
+  btnToggleBardDetails.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      toggleBardDetails(e);
+    }
+  });
+}
+
 if (tavernBardCard) {
   tavernBardCard.addEventListener('click', () => {
     openBardAnnalsModal();
@@ -12229,7 +12277,10 @@ if (btnMenuColleges) {
 }
 
 if (btnOpenColleges) {
-  btnOpenColleges.addEventListener('click', openCollegesModal);
+  btnOpenColleges.addEventListener('click', () => {
+    closeAllConservatoryPopovers();
+    openCollegesModal();
+  });
 }
 
 if (btnCloseColleges) {
@@ -12463,7 +12514,10 @@ if (btnMenuCampaign) {
 }
 
 if (btnOpenCampaign) {
-  btnOpenCampaign.addEventListener('click', openCampaignModal);
+  btnOpenCampaign.addEventListener('click', () => {
+    closeAllConservatoryPopovers();
+    openCampaignModal();
+  });
 }
 
 if (btnCloseCampaign) {

@@ -97,7 +97,7 @@
           </button>
 
           <!-- Center Foreground: Bard Character Spotlight (Over the Round Green Rug) -->
-          <div id="tavern-bard-card" class="tavern-bard-spotlight" role="button" tabindex="0" title="Click to view Bardic Annals &amp; Song History">
+          <div id="tavern-bard-card" class="tavern-bard-spotlight spotlight-collapsed" role="button" tabindex="0" title="Click to view Bardic Annals &amp; Song History">
             <div class="bard-spotlight-header">
               <div class="bard-avatar-crest">&#9830;</div>
               <div class="bard-spotlight-info">
@@ -105,39 +105,44 @@
                   <span id="menu-bard-level" class="bard-level-pill">LVL 1</span>
                   <strong id="menu-bard-title" class="menu-bard-title">Tavern Busker</strong>
                 </div>
-                <span class="menu-bard-sublabel">Character of the College &bull; Click to Open Bardic Annals</span>
+                <span class="menu-bard-sublabel">Click for Annals &bull; Expand for Tracks</span>
               </div>
               <div class="menu-career-xp-box">
                 <span class="bard-label">Career XP</span>
                 <strong id="menu-total-xp">0 XP</strong>
               </div>
+              <button id="btn-toggle-bard-details" type="button" class="bard-details-toggle-btn" aria-expanded="false" aria-controls="tavern-bard-details" title="Expand or collapse XP bar, Streak, Colleges &amp; Campaign">
+                &#9662; Career &amp; Tracks
+              </button>
             </div>
-            <div class="xp-bar-section menu-xp-section">
-              <div class="xp-bar-labels">
-                <span id="menu-xp-progress-text">0 / 1,000 XP</span>
-                <span id="menu-next-level-text" class="song-xp-tag">Next Rank</span>
+            <div id="tavern-bard-details" class="tavern-bard-details hidden">
+              <div class="xp-bar-section menu-xp-section">
+                <div class="xp-bar-labels">
+                  <span id="menu-xp-progress-text">0 / 1,000 XP</span>
+                  <span id="menu-next-level-text" class="song-xp-tag">Next Rank</span>
+                </div>
+                <div class="xp-bar-track">
+                  <div id="menu-xp-bar-fill" class="xp-bar-fill" style="width: 0%;"></div>
+                </div>
               </div>
-              <div class="xp-bar-track">
-                <div id="menu-xp-bar-fill" class="xp-bar-fill" style="width: 0%;"></div>
-              </div>
+              <!-- Issue #66: Hearthfire Practice Streak Pill (toggles Month Calendar Popover) -->
+              <button id="btn-tavern-streak-pill" type="button" class="tavern-streak-pill" aria-expanded="false" aria-controls="tavern-streak-popover" title="View Hearthfire Practice Streak Calendar">
+                <img src="./assets/images/icons/streak-flame-transparent.png" alt="" class="streak-flame-img" />
+                <strong id="menu-streak-count" class="streak-pill-count">0-Day Streak</strong>
+                <span id="menu-streak-status" class="streak-pill-status">Light the hearth today</span>
+                <span class="streak-pill-cta">&#128197; Ledger</span>
+              </button>
+              <button id="btn-menu-colleges" type="button" class="tavern-college-pill" title="Choose a Bard College Learning Track (Lore, Cadence, Revelry)">
+                <img id="menu-college-icon" src="assets/images/icons/icon-college-lore.png" alt="" class="tavern-college-pill-icon" />
+                <strong id="menu-college-name" class="tavern-college-pill-name">Choose Bard College</strong>
+                <span id="menu-college-progress" class="tavern-college-pill-cta">Learning Tracks &rarr;</span>
+              </button>
+              <button id="btn-menu-campaign" type="button" class="tavern-college-pill tavern-campaign-pill" title="Open Campaign Map: The Ballad of the Silver Keys">
+                <img src="assets/images/icons/icon-campaign-map.png" alt="" class="tavern-college-pill-icon" />
+                <strong class="tavern-college-pill-name">Campaign Tour</strong>
+                <span id="menu-campaign-progress" class="tavern-college-pill-cta">0 / 4 Venues &rarr;</span>
+              </button>
             </div>
-            <!-- Issue #66: Hearthfire Practice Streak Pill (toggles Month Calendar Popover) -->
-            <button id="btn-tavern-streak-pill" type="button" class="tavern-streak-pill" aria-expanded="false" aria-controls="tavern-streak-popover" title="View Hearthfire Practice Streak Calendar">
-              <img src="./assets/images/icons/streak-flame-transparent.png" alt="" class="streak-flame-img" />
-              <strong id="menu-streak-count" class="streak-pill-count">0-Day Streak</strong>
-              <span id="menu-streak-status" class="streak-pill-status">Light the hearth today</span>
-              <span class="streak-pill-cta">&#128197; Ledger</span>
-            </button>
-            <button id="btn-menu-colleges" type="button" class="tavern-college-pill" title="Choose a Bard College Learning Track (Lore, Cadence, Revelry)">
-              <img id="menu-college-icon" src="assets/images/icons/icon-college-lore.png" alt="" class="tavern-college-pill-icon" />
-              <strong id="menu-college-name" class="tavern-college-pill-name">Choose Bard College</strong>
-              <span id="menu-college-progress" class="tavern-college-pill-cta">Learning Tracks &rarr;</span>
-            </button>
-            <button id="btn-menu-campaign" type="button" class="tavern-college-pill tavern-campaign-pill" title="Open Campaign Map: The Ballad of the Silver Keys">
-              <img src="assets/images/icons/icon-campaign-map.png" alt="" class="tavern-college-pill-icon" />
-              <strong class="tavern-college-pill-name">Campaign Tour</strong>
-              <span id="menu-campaign-progress" class="tavern-college-pill-cta">0 / 4 Venues &rarr;</span>
-            </button>
           </div>
 
           <!-- Issue #66: Expandable Hearthfire Month Calendar Popover -->
@@ -195,21 +200,28 @@
           <button id="btn-toggle-grimoire" class="tavern-btn btn-gold-outline" title="Toggle The Grimoire Spellbook Sidebar & Imports/ Folder Watcher">
             &#128214; Grimoire (<span id="grimoire-count-badge">0</span>)
           </button>
-          <button id="btn-open-setlists" class="tavern-btn btn-gold-outline" title="Build, save, and play Setlists (back-to-back songs)">
-            <img src="assets/images/icons/icon-setlist.png" alt="" class="tavern-inline-icon" /> Setlists
-          </button>
-          <button id="btn-open-colleges" class="tavern-btn btn-gold-outline" title="Browse Bard Colleges &amp; Learning Tracks (Lore, Cadence, Revelry)">
-            <img src="assets/images/icons/icon-college-lore.png" alt="" class="tavern-inline-icon" /> Colleges
-          </button>
-          <button id="btn-open-campaign" class="tavern-btn btn-gold-outline" title="Open Campaign Map: Gigs at Venues">
-            <img src="assets/images/icons/icon-campaign-map.png" alt="" class="tavern-inline-icon" /> Campaign
-          </button>
+          <div class="popover-anchor">
+            <button id="btn-career-popover" type="button" class="tavern-btn btn-gold-outline" aria-expanded="false" aria-controls="career-popover" title="Open Setlists, Bard Colleges, Campaign Tour &amp; Annals">
+              &#127917; Career &#9662;
+            </button>
+            <div id="career-popover" class="conservatory-popover career-popover hidden" role="menu" aria-label="Bardic Career Menu">
+              <button id="btn-open-setlists" type="button" class="career-popover-item" role="menuitem">
+                <img src="assets/images/icons/icon-setlist.png" alt="" class="tavern-inline-icon" /> Tavern Setlists
+              </button>
+              <button id="btn-open-colleges" type="button" class="career-popover-item" role="menuitem">
+                <img src="assets/images/icons/icon-college-lore.png" alt="" class="tavern-inline-icon" /> Bard Colleges
+              </button>
+              <button id="btn-open-campaign" type="button" class="career-popover-item" role="menuitem">
+                <img src="assets/images/icons/icon-campaign-map.png" alt="" class="tavern-inline-icon" /> Campaign Tour
+              </button>
+            </div>
+          </div>
           <button id="btn-open-quest-board" class="tavern-btn btn-quest-board" title="Open The Quest Board: Paste a YouTube URL to transcribe into MIDI or browse BitMIDI, VGMusic & YouTube">
             &#128302; Quest Board
           </button>
           <input id="midi-file-input" type="file" accept=".mid,.midi,.xml,.musicxml,.mxl,.pdf,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff" hidden />
           <button id="btn-load-midi" class="tavern-btn tavern-btn-primary" title="Import a .mid, .musicxml, .xml, or .mxl file (or drag & drop onto window)">
-            &#128220; Import Spell
+            &#128220; Import
           </button>
           <button id="btn-sample-midi" class="tavern-btn" title="Load built-in multi-track sample MIDI">
             &#10024; Demo
