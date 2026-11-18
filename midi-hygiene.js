@@ -357,10 +357,190 @@ function cleanPlayableHandNotes(noteArr, handTrack, { maxChordVoices = 4 } = {})
   return { notes: cleaned, snappedCount, removedCount, trimmedSustainCount };
 }
 
+/**
+ * Issue #123: Build a playable two-hand piano arrangement from a full-mix polyphonic note list.
+ * - Right Hand (`rhNotes`, MIDI >= 60): Extracts the primary lead/vocal melody contour (1 note per onset slice,
+ *   smoothed for voice-leading proximity and trimmed so melody notes don't overlap muddily).
+ * - Left Hand (`lhNotes`, MIDI < 60): Replaces raw low-frequency drum/guitar/bass clutter with clean 2-beat
+ *   harmonic bass + fifth/third chord intervals derived from the active pitch-class histogram.
+ */
+function buildFullSongArrangement(rawNotes = [], bpm = 120) {
+  if (!Array.isArray(rawNotes) || rawNotes.length === 0) {
+    return { rhNotes: [], lhNotes: [], allNotes: [] };
+  }
+
+  const normalized = rawNotes
+    .map((n) => ({
+      ...n,
+      midi: Number(n.midi ?? n.originalMidi ?? 60),
+      time: Number(n.time ?? n.start ?? 0),
+      duration: Math.max(0.08, Number(n.duration ?? 0.25)),
+      velocity: Math.max(40, Math.min(120, Number(n.velocity ?? 88)))
+    }))
+    .filter((n) => n.duration >= 0.095 && n.velocity >= 42)
+    .sort((a, b) => a.time - b.time || a.midi - b.midi);
+
+  if (normalized.length === 0) {
+    return { rhNotes: [], lhNotes: [], allNotes: [] };
+  }
+
+  const beatSec = 60 / Math.max(45, Math.min(220, Number(bpm) || 120));
+  const barWindowSec = Math.max(0.65, Math.min(2.4, beatSec * 2));
+
+  // 1. Group into 65ms onset slices for Right-Hand melody extraction
+  const slices = [];
+  let curSlice = [];
+  let curAnchor = null;
+  for (const n of normalized) {
+    if (curAnchor === null || (n.time - curAnchor) <= 0.065) {
+      if (curAnchor === null) curAnchor = n.time;
+      curSlice.push(n);
+    } else {
+      slices.push({ anchor: curAnchor, notes: curSlice });
+      curSlice = [n];
+      curAnchor = n.time;
+    }
+  }
+  if (curSlice.length > 0) {
+    slices.push({ anchor: curAnchor, notes: curSlice });
+  }
+
+  const rhNotes = [];
+  let prevMelodyPitch = 67;
+
+  for (const slice of slices) {
+    const hasMidHigh = slice.notes.some((x) => x.midi >= 55);
+    const cands = [];
+    for (const n of slice.notes) {
+      if (n.midi < 50 && hasMidHigh) continue;
+      let foldedP = n.midi;
+      while (foldedP < 60) foldedP += 12;
+      while (foldedP > 84) foldedP -= 12;
+      const proxBonus = Math.max(0, 14 - Math.abs(foldedP - prevMelodyPitch)) * 2.2;
+      const regBonus = (n.midi >= 58 && n.midi <= 84) ? 18 : 0;
+      const score = n.velocity * 1.1 + Math.min(0.8, n.duration) * 28 + proxBonus + regBonus + (n.midi * 0.35);
+      cands.push({ score, foldedP, n });
+    }
+    if (cands.length === 0) continue;
+    cands.sort((a, b) => b.score - a.score);
+    const best = cands[0];
+
+    if (rhNotes.length > 0 && (slice.anchor - rhNotes[rhNotes.length - 1].time) < 0.095) {
+      const prev = rhNotes[rhNotes.length - 1];
+      if (best.n.velocity > prev.velocity + 8) {
+        prev.midi = best.foldedP;
+        prev.originalMidi = best.foldedP;
+        prev.duration = Number(Math.max(0.14, Math.min(1.8, best.n.duration)).toFixed(3));
+        prev.velocity = Math.max(68, Math.min(118, best.n.velocity));
+        prevMelodyPitch = best.foldedP;
+      }
+      continue;
+    }
+
+    if (rhNotes.length > 0) {
+      const prev = rhNotes[rhNotes.length - 1];
+      const maxPrevDur = Number(Math.max(0.09, slice.anchor - prev.time - 0.015).toFixed(3));
+      if (prev.duration > maxPrevDur) {
+        prev.duration = maxPrevDur;
+      }
+    }
+
+    const startT = Number(slice.anchor.toFixed(3));
+    rhNotes.push({
+      ...best.n,
+      midi: best.foldedP,
+      originalMidi: best.foldedP,
+      time: startT,
+      start: startT,
+      duration: Number(Math.max(0.14, Math.min(2.2, best.n.duration)).toFixed(3)),
+      velocity: Math.max(70, Math.min(118, best.n.velocity)),
+      handTrack: 1
+    });
+    prevMelodyPitch = best.foldedP;
+  }
+
+  // 2. Left-Hand harmonic root + fifth/third accompaniment per 2-beat window
+  const minT = Math.min(...normalized.map((n) => n.time));
+  const maxT = Math.max(...normalized.map((n) => n.time + n.duration));
+  const lhNotes = [];
+
+  for (let wStart = minT; wStart < maxT - 0.05; wStart = Number((wStart + barWindowSec).toFixed(3))) {
+    const wEnd = wStart + barWindowSec;
+    const winNotes = normalized.filter((n) => n.time < wEnd && (n.time + n.duration) > wStart);
+    if (winNotes.length === 0) continue;
+
+    const pcWeights = new Array(12).fill(0);
+    const lowPcWeights = new Array(12).fill(0);
+    const onsetsInWin = winNotes.filter((n) => n.time >= wStart - 0.04).map((n) => n.time);
+    const anchorOnset = Number(Math.max(wStart, onsetsInWin.length > 0 ? Math.min(...onsetsInWin) : wStart).toFixed(3));
+
+    for (const n of winNotes) {
+      const pc = ((n.midi % 12) + 12) % 12;
+      const overlap = Math.max(0.05, Math.min(wEnd, n.time + n.duration) - Math.max(wStart, n.time));
+      const weight = overlap * (n.velocity / 90);
+      pcWeights[pc] += weight;
+      if (n.midi < 60) {
+        lowPcWeights[pc] += weight * 1.8;
+      }
+    }
+
+    let bestRootPc = 0;
+    let bestScore = -1;
+    for (let rootPc = 0; rootPc < 12; rootPc++) {
+      const fifthPc = (rootPc + 7) % 12;
+      const maj3Pc = (rootPc + 4) % 12;
+      const min3Pc = (rootPc + 3) % 12;
+      const score =
+        lowPcWeights[rootPc] * 1.6 +
+        pcWeights[rootPc] * 1.3 +
+        pcWeights[fifthPc] * 0.85 +
+        Math.max(pcWeights[maj3Pc], pcWeights[min3Pc]) * 0.75;
+      if (score > bestScore) {
+        bestScore = score;
+        bestRootPc = rootPc;
+      }
+    }
+
+    const rootMidi = 36 + bestRootPc;
+    const fifthMidi = rootMidi + 7;
+    const maj3Pc = (bestRootPc + 4) % 12;
+    const min3Pc = (bestRootPc + 3) % 12;
+    const thirdInterval = pcWeights[maj3Pc] >= pcWeights[min3Pc] ? 4 : 3;
+    let upperLhMidi = fifthMidi < 59 ? fifthMidi : (rootMidi + thirdInterval);
+    if (upperLhMidi >= 60) upperLhMidi -= 12;
+
+    const chordDur = Number(Math.max(0.28, Math.min(barWindowSec * 0.88, maxT - anchorOnset)).toFixed(3));
+    lhNotes.push({
+      midi: rootMidi,
+      originalMidi: rootMidi,
+      time: anchorOnset,
+      start: anchorOnset,
+      duration: chordDur,
+      velocity: 80,
+      handTrack: 2
+    });
+    if (upperLhMidi !== rootMidi && upperLhMidi >= 36 && upperLhMidi < 60) {
+      lhNotes.push({
+        midi: upperLhMidi,
+        originalMidi: upperLhMidi,
+        time: anchorOnset,
+        start: anchorOnset,
+        duration: chordDur,
+        velocity: 72,
+        handTrack: 2
+      });
+    }
+  }
+
+  const allNotes = [...rhNotes, ...lhNotes].sort((a, b) => a.time - b.time || a.midi - b.midi);
+  return { rhNotes, lhNotes, allNotes };
+}
+
 module.exports = {
   isUtilityTrack,
   isLeadMelodyTrack,
   isPianoCandidateTrackSmart,
   selectAutoPianoTracks,
-  cleanPlayableHandNotes
+  cleanPlayableHandNotes,
+  buildFullSongArrangement
 };

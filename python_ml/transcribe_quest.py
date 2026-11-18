@@ -234,10 +234,201 @@ def clean_and_quantize_neural_notes(raw_notes: list) -> list:
     return cleaned
 
 
-def try_basic_pitch_transcription(wav_path: Path, output_midi_path: Path, song_title: str = "Transcribed Spell") -> bool:
+def build_full_song_arrangement(raw_notes: list, bpm: int = 120) -> list:
+    """
+    Issue #123: Full-Song Piano Arrangement Builder ("Anything Piano" / "Musigana" style).
+    Transforms a raw full-mix transcription (vocals, drums, guitar, bass, etc.) into a
+    clean, playable two-hand piano arrangement:
+      - Right Hand (Melody, MIDI >= 60): Extracts the primary monophonic/lead vocal or melody contour
+        by selecting the most prominent high-register note in each onset window, smoothing octave jumps,
+        and trimming overlapping melody tails so the right hand plays a singable lead line.
+      - Left Hand (Chords & Bass, MIDI < 60): Instead of dumping every low-frequency drum/guitar/bass
+        artifact onto the left hand, segments the song into harmonic beats (~2 beats per window),
+        estimates the root pitch class & triad quality from the harmonic pitch-class histogram,
+        and emits a clean 2-note Left-Hand accompaniment (Root Bass + Fifth/Third) anchored to
+        actual song activity.
+    """
+    cleaned = clean_and_quantize_neural_notes(raw_notes)
+    if not cleaned:
+        return []
+
+    beat_sec = 60.0 / max(45.0, min(220.0, float(bpm or 120)))
+    bar_window_sec = max(0.65, min(2.4, beat_sec * 2.0))  # Half-bar (2-beat) harmonic windows
+
+    # 1. RIGHT HAND: Extract primary lead melody contour
+    # Group notes into 65ms onset slices and pick the most salient melody candidate per slice
+    sorted_notes = sorted(cleaned, key=lambda n: (n["start"], n["midi"]))
+    slices = []
+    cur_slice = []
+    cur_anchor = None
+
+    for n in sorted_notes:
+        if cur_anchor is None or (n["start"] - cur_anchor) <= 0.065:
+            if cur_anchor is None:
+                cur_anchor = n["start"]
+            cur_slice.append(n)
+        else:
+            slices.append((cur_anchor, cur_slice))
+            cur_slice = [n]
+            cur_anchor = n["start"]
+    if cur_slice:
+        slices.append((cur_anchor, cur_slice))
+
+    rh_melody = []
+    prev_melody_pitch = 67  # Default anchor near G4
+
+    for anchor_t, group in slices:
+        # Prefer notes in the vocal/melody register (55..88); fold into 60..84 for RH playability
+        melody_cands = []
+        for n in group:
+            p = int(n["midi"])
+            dur = float(n["duration"])
+            vel = int(n.get("velocity", 85))
+            # Skip ultra-low bass rumbles when looking for lead melody unless nothing else exists
+            if p < 50 and any(x["midi"] >= 55 for x in group):
+                continue
+            folded_p = p
+            while folded_p < 60:
+                folded_p += 12
+            while folded_p > 84:
+                folded_p -= 12
+            # Score by register prominence + velocity + duration + proximity to previous melody pitch
+            proximity_bonus = max(0.0, 14.0 - abs(folded_p - prev_melody_pitch)) * 2.2
+            register_bonus = 18.0 if 58 <= p <= 84 else 0.0
+            score = vel * 1.1 + min(0.8, dur) * 28.0 + proximity_bonus + register_bonus + (p * 0.35)
+            melody_cands.append((score, folded_p, n))
+
+        if not melody_cands:
+            continue
+
+        melody_cands.sort(key=lambda item: item[0], reverse=True)
+        _, chosen_pitch, best_note = melody_cands[0]
+
+        # Enforce minimum 90ms inter-onset spacing on RH melody so rapid drum/hi-hat transients don't machine-gun
+        if rh_melody and (anchor_t - rh_melody[-1]["start"]) < 0.095:
+            if best_note.get("velocity", 85) > rh_melody[-1].get("velocity", 85) + 8:
+                rh_melody[-1] = {
+                    "midi": chosen_pitch,
+                    "start": rh_melody[-1]["start"],
+                    "duration": round(max(0.14, min(1.8, float(best_note["duration"]))), 3),
+                    "velocity": max(68, min(118, int(best_note.get("velocity", 92)))),
+                    "hand": "rh",
+                }
+                prev_melody_pitch = chosen_pitch
+            continue
+
+        # Trim previous melody note so RH stays cleanly monophonic (legato without muddy overlaps)
+        if rh_melody:
+            prev_n = rh_melody[-1]
+            max_prev_dur = round(max(0.09, anchor_t - prev_n["start"] - 0.015), 3)
+            if prev_n["duration"] > max_prev_dur:
+                prev_n["duration"] = max_prev_dur
+
+        rh_melody.append({
+            "midi": chosen_pitch,
+            "start": round(float(anchor_t), 3),
+            "duration": round(max(0.14, min(2.2, float(best_note["duration"]))), 3),
+            "velocity": max(70, min(118, int(best_note.get("velocity", 92)))),
+            "hand": "rh",
+        })
+        prev_melody_pitch = chosen_pitch
+
+    # 2. LEFT HAND: Derive clean harmonic bass + chord intervals per window
+    min_t = min(n["start"] for n in cleaned)
+    max_t = max(n["start"] + n["duration"] for n in cleaned)
+    lh_accompaniment = []
+
+    w_start = min_t
+    while w_start < max_t - 0.05:
+        w_end = w_start + bar_window_sec
+        win_notes = [
+            n for n in cleaned
+            if (n["start"] < w_end and (n["start"] + n["duration"]) > w_start)
+        ]
+        if win_notes:
+            # Weight pitch classes (0..11) by duration & lower-register emphasis
+            pc_weights = [0.0] * 12
+            low_pc_weights = [0.0] * 12
+            first_onset_in_win = min(
+                (n["start"] for n in win_notes if n["start"] >= w_start - 0.04),
+                default=w_start,
+            )
+            anchor_onset = round(max(w_start, first_onset_in_win), 3)
+
+            for n in win_notes:
+                pc = int(n["midi"]) % 12
+                overlap = max(0.05, min(w_end, n["start"] + n["duration"]) - max(w_start, n["start"]))
+                weight = overlap * (float(n.get("velocity", 80)) / 90.0)
+                pc_weights[pc] += weight
+                if int(n["midi"]) < 60:
+                    low_pc_weights[pc] += weight * 1.8
+
+            # Score all 12 possible roots by root + fifth + major/minor third presence
+            best_root_pc = 0
+            best_root_score = -1.0
+            for root_pc in range(12):
+                fifth_pc = (root_pc + 7) % 12
+                maj3_pc = (root_pc + 4) % 12
+                min3_pc = (root_pc + 3) % 12
+                score = (
+                    low_pc_weights[root_pc] * 1.6
+                    + pc_weights[root_pc] * 1.3
+                    + pc_weights[fifth_pc] * 0.85
+                    + max(pc_weights[maj3_pc], pc_weights[min3_pc]) * 0.75
+                )
+                if score > best_root_score:
+                    best_root_score = score
+                    best_root_pc = root_pc
+
+            # Place root bass note in comfortable Left Hand register: C2 (36) .. B2 (47)
+            root_midi = 36 + best_root_pc
+            if root_midi < 40:
+                # Keep very low C2..D#2 either at 48..51 or with open fifth above so it's warm, not muddy
+                fifth_midi = root_midi + 7
+            else:
+                fifth_midi = root_midi + 7
+
+            # Choose fifth (open power/voicing) or tenth/octave-fifth within LH range (< 60)
+            maj3_pc = (best_root_pc + 4) % 12
+            min3_pc = (best_root_pc + 3) % 12
+            third_interval = 4 if pc_weights[maj3_pc] >= pc_weights[min3_pc] else 3
+            upper_lh_midi = fifth_midi if fifth_midi < 59 else (root_midi + third_interval)
+            if upper_lh_midi >= 60:
+                upper_lh_midi -= 12
+
+            chord_dur = round(max(0.28, min(bar_window_sec * 0.88, max_t - anchor_onset)), 3)
+            lh_accompaniment.append({
+                "midi": int(root_midi),
+                "start": anchor_onset,
+                "duration": chord_dur,
+                "velocity": 80,
+                "hand": "lh",
+            })
+            if upper_lh_midi != root_midi and 36 <= upper_lh_midi < 60:
+                lh_accompaniment.append({
+                    "midi": int(upper_lh_midi),
+                    "start": anchor_onset,
+                    "duration": chord_dur,
+                    "velocity": 72,
+                    "hand": "lh",
+                })
+
+        w_start = round(w_start + bar_window_sec, 3)
+
+    combined = rh_melody + lh_accompaniment
+    combined.sort(key=lambda n: (n["start"], n["midi"]))
+    return combined if combined else cleaned
+
+
+def try_basic_pitch_transcription(
+    wav_path: Path,
+    output_midi_path: Path,
+    song_title: str = "Transcribed Spell",
+    arrangement_mode: str = "piano-cover",
+) -> bool:
     """
     Run Spotify's `basic-pitch` neural network (`nmp.onnx` via ONNXRuntime) on a decoded .wav file,
-    clean the extracted polyphonic note events for 61-key piano playability, and write a 2-track
+    clean or arrange the extracted polyphonic note events for 61-key piano playability, and write a 2-track
     Standard MIDI File (Track 1 = RH Gold, Track 2 = LH Blue).
     """
     try:
@@ -246,7 +437,8 @@ def try_basic_pitch_transcription(wav_path: Path, output_midi_path: Path, song_t
     except Exception:
         return False
 
-    log_status("transcribing", "Running Spotify basic-pitch neural network (ONNX) audio-to-MIDI inference...", 55)
+    mode_label = "Full-Song Piano Arrangement" if arrangement_mode == "full-song" else "Piano Cover"
+    log_status("transcribing", f"Running Spotify basic-pitch neural network ({mode_label} mode)...", 55)
     try:
         model = Model(ICASSP_2022_MODEL_PATH)
         _, midi_data, note_events = predict(
@@ -281,18 +473,22 @@ def try_basic_pitch_transcription(wav_path: Path, output_midi_path: Path, song_t
                 "velocity": vel,
             })
 
-        cleaned_notes = clean_and_quantize_neural_notes(raw_notes)
-        if not cleaned_notes and raw_notes:
-            cleaned_notes = raw_notes
+        if arrangement_mode == "full-song":
+            final_notes = build_full_song_arrangement(raw_notes, bpm=detected_bpm)
+        else:
+            final_notes = clean_and_quantize_neural_notes(raw_notes)
+
+        if not final_notes and raw_notes:
+            final_notes = raw_notes
 
         log_status(
             "writing_midi",
-            f"Spotify basic-pitch extracted {len(cleaned_notes)} clean piano notes ({detected_bpm} BPM). Writing MIDI...",
+            f"Spotify basic-pitch ({mode_label}) produced {len(final_notes)} playable piano notes ({detected_bpm} BPM). Writing MIDI...",
             88,
         )
         write_standard_midi_file(
             output_midi_path,
-            cleaned_notes,
+            final_notes,
             song_title=song_title,
             bpm=detected_bpm,
         )
@@ -367,12 +563,18 @@ def read_wav_mono_float(wav_path: Path, max_seconds: float = 180.0):
     return samples, framerate
 
 
-def transcribe_wav_polyphonic_dsp(wav_path: Path, output_midi_path: Path, song_title: str):
+def transcribe_wav_polyphonic_dsp(
+    wav_path: Path,
+    output_midi_path: Path,
+    song_title: str,
+    arrangement_mode: str = "piano-cover",
+):
     """
     Polyphonic spectral peak-tracking audio-to-MIDI transcriber across the 61-key range (MIDI 36..96).
     Uses `numpy` real FFT when available, or pure-Python Goertzel spectral energy detection if numpy is absent.
     """
-    log_status("transcribing", "Analyzing polyphonic harmonic spectrum (C2–C7 / MIDI 36–96)...", 65)
+    mode_label = "Full-Song Piano Arrangement" if arrangement_mode == "full-song" else "Piano Cover"
+    log_status("transcribing", f"Analyzing polyphonic harmonic spectrum ({mode_label} mode, C2–C7)...", 65)
     samples, sr = read_wav_mono_float(wav_path)
     total_duration = len(samples) / float(max(1, sr))
 
@@ -522,8 +724,19 @@ def transcribe_wav_polyphonic_dsp(wav_path: Path, output_midi_path: Path, song_t
             while raw_bpm > 170.0:
                 raw_bpm /= 2.0
             estimated_bpm = max(55, min(200, int(round(raw_bpm))))
-    log_status("writing_midi", f"Extracted {len(extracted_notes)} playable notes ({estimated_bpm} BPM). Writing Standard MIDI File...", 85)
-    write_standard_midi_file(output_midi_path, extracted_notes, song_title=song_title, bpm=estimated_bpm)
+
+    if arrangement_mode == "full-song":
+        final_notes = build_full_song_arrangement(extracted_notes, bpm=estimated_bpm)
+    else:
+        final_notes = extracted_notes
+
+    mode_label = "Full-Song Piano Arrangement" if arrangement_mode == "full-song" else "Piano Cover"
+    log_status(
+        "writing_midi",
+        f"Extracted {len(final_notes)} playable notes in {mode_label} mode ({estimated_bpm} BPM). Writing Standard MIDI File...",
+        85,
+    )
+    write_standard_midi_file(output_midi_path, final_notes, song_title=song_title, bpm=estimated_bpm)
 
 
 # ============================================================================
@@ -764,6 +977,12 @@ def main():
         help="Optional safe filename stem (without extension) for the saved output files",
     )
     parser.add_argument(
+        "--mode",
+        choices=["piano-cover", "full-song"],
+        default="piano-cover",
+        help="Transcription mode (Issue #123): 'piano-cover' (exact piano transcription) or 'full-song' (RH vocal/lead melody + LH chord/bass arrangement)",
+    )
+    parser.add_argument(
         "--audio-only",
         action="store_true",
         help="Download/convert clean backing audio only without running AI MIDI transcription (Song Bundle mode)",
@@ -782,6 +1001,7 @@ def main():
     args = parser.parse_args()
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    arrangement_mode = args.mode or "piano-cover"
 
     try:
         with tempfile.TemporaryDirectory() as tmp_dir_str:
@@ -856,12 +1076,18 @@ def main():
                 inference_audio_path,
                 dest_midi_path,
                 song_title=title,
+                arrangement_mode=arrangement_mode,
             )
 
             # 4. Fallback to built-in Polyphonic DSP Transcriber only if basic-pitch is unavailable
             if not used_basic_pitch:
                 if has_pcm_wav:
-                    transcribe_wav_polyphonic_dsp(pcm_wav, dest_midi_path, song_title=title)
+                    transcribe_wav_polyphonic_dsp(
+                        pcm_wav,
+                        dest_midi_path,
+                        song_title=title,
+                        arrangement_mode=arrangement_mode,
+                    )
                 else:
                     raise RuntimeError(
                         "Could not decode audio stream to PCM WAV (ffmpeg/audioread unavailable or unsupported format)."
@@ -876,6 +1102,7 @@ def main():
                     "midi_path": str(dest_midi_path),
                     "backing_path": str(dest_backing_path) if dest_backing_path.exists() else None,
                     "audio_only": False,
+                    "arrangement_mode": arrangement_mode,
                     "engine": "spotify-basic-pitch" if used_basic_pitch else "polyphonic-harmonic-dsp",
                 },
             )

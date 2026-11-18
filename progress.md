@@ -1,9 +1,9 @@
 # College of Keys — Progress & Roadmap
 
-Last Updated: 2026-11-14
+Last Updated: 2026-11-17
 
 ## Completed & Merged to `main`
-- **Bug Backlog:** `#98`–`#105`, `#107`, `#110`
+- **Bug Backlog & Maintenance:** `#98`–`#105`, `#107`, `#110`, `#121` (Electron `v45.3.4` runtime upgrade), `#122`
 - **Bundle 1 (Practice & Progression):** `#111`, `#28`, `#108`
 - **Bundle 2 (Notation & Polish):** `#106`, `#109`
 - **OMR Confidence & Review:** `#78`
@@ -13,6 +13,7 @@ Last Updated: 2026-11-14
 - **Interactive Tutorial Scenario:** `#54` (`guild-tutorial.js`, `icon-guild-mentor.png`, 4-step Trainer's Guild coach HUD)
 - **Bard Colleges as Learning Tracks:** `#27` (`bard-colleges.js`, `icon-college-lore.png`, `icon-college-cadence.png`, `icon-college-revelry.png`, College Select modal, 9 drills, per-college repertoire)
 - **Campaign Mode: Gigs at Venues:** `#29` (`bard-campaign.js`, `icon-campaign-map.png`, 3 new venue stage backdrops, 4-act story progression with DC unlocks)
+- **Quest Board Arrangement Mode:** `#123` (`python_ml/transcribe_quest.py --mode piano-cover|full-song`, `buildFullSongArrangement` in `midi-hygiene.js`, Quest Board mode selector cards, and in-app `Full-Song Piano Arrangement` track mode)
 
 ---
 
@@ -23,3 +24,4 @@ Last Updated: 2026-11-14
 2. **#42 — `[Backlog] Multi-Instrument Highways (v2)`** (`persona: rock-band`)
 3. **#43 — `[Backlog] Epic A: Spell-Singing (Vocals / Let's Sing Mode)`** (`persona: rock-band`, `persona: young-learner`)
 4. **#23 — `[Backlog] Mobile iOS Port (iPad Mini)`** (`persona: returning-adult`)
+

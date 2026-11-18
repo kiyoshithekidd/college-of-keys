@@ -1102,11 +1102,36 @@
           </div>
         </div>
 
-        <!-- TAB 2: Existing In-App YouTube / Audio-to-MIDI ML Pipeline -->
+        <!-- TAB 2: Existing In-App YouTube / Audio-to-MIDI ML Pipeline + Issue #123 Arrangement Mode -->
         <div id="quest-tab-panel-transcribe" class="quest-section-box quest-tab-panel hidden" role="tabpanel" aria-labelledby="btn-quest-tab-transcribe">
           <div class="quest-section-header">
-            <span class="quest-section-title">&#10024; YouTube-to-MIDI Arcane Transcriber (<code>yt-dlp</code> + Polyphonic Audio-to-MIDI)</span>
-            <span class="quest-hint-text">Experimental neural transcription when no MIDI exists</span>
+            <span class="quest-section-title">&#10024; YouTube-to-MIDI Arcane Transcriber &amp; Arrangement Builder</span>
+            <span class="quest-hint-text">No MIDI file? Choose whether the recording is a solo piano cover or a full band/vocal song</span>
+          </div>
+
+          <!-- Issue #123: Explicit Mode Choice Before Converting (Piano Cover vs. Full-Song Arrangement) -->
+          <div class="quest-arrangement-mode-group" role="radiogroup" aria-label="Transcription Arrangement Mode">
+            <label class="quest-mode-card active" id="quest-mode-card-piano-cover">
+              <input type="radio" name="quest-arrangement-mode" id="quest-mode-piano-cover" value="piano-cover" checked />
+              <div class="quest-mode-card-body">
+                <div class="quest-mode-card-title">
+                  <span>&#127929; Piano Cover Mode</span>
+                  <span class="quest-mode-badge">Exact Piano</span>
+                </div>
+                <p class="quest-mode-card-desc">Transcribes what the piano plays directly. Best for solo piano covers &amp; tutorials.</p>
+              </div>
+            </label>
+
+            <label class="quest-mode-card" id="quest-mode-card-full-song">
+              <input type="radio" name="quest-arrangement-mode" id="quest-mode-full-song" value="full-song" />
+              <div class="quest-mode-card-body">
+                <div class="quest-mode-card-title">
+                  <span>&#127908; Full-Song Arrangement</span>
+                  <span class="quest-mode-badge badge-gold">Melody + Chords</span>
+                </div>
+                <p class="quest-mode-card-desc">Turns any song into a two-hand piano arrangement: vocal/lead melody on Right Hand, chords &amp; bass on Left Hand.</p>
+              </div>
+            </label>
           </div>
 
           <div class="quest-input-grid">
@@ -1131,11 +1156,14 @@
           </div>
 
           <div class="quest-action-row">
-            <button id="btn-run-quest-url" class="tavern-btn tavern-btn-cast quest-btn-main" title="Download YouTube audio and transcribe into ./Imports">
-              &#128302; Transcribe YouTube Spell
+            <button id="btn-run-quest-url" class="tavern-btn tavern-btn-cast quest-btn-main" title="Download YouTube audio and transcribe into ./Imports using the selected mode">
+              &#128302; Transcribe (Piano Cover)
             </button>
             <button id="btn-run-quest-selftest" class="tavern-btn btn-gold-outline" title="Synthesize a polyphonic test audio track and run the Python ML pipeline right now">
               &#9889; Run ML Self-Test (2s)
+            </button>
+            <button id="btn-quest-switch-to-bundle" type="button" class="tavern-btn" title="Already have a clean .mid or .musicxml file? Pair it with backing audio in Bundle Mode">
+              &#128279; Have a MIDI? Use Bundle Mode
             </button>
             <button id="btn-quest-load-result" class="tavern-btn tavern-btn-primary hidden" title="Load the newly transcribed spell onto the Spell Highway!">
               &#9654; Load Transcribed Spell Now

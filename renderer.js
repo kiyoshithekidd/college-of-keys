@@ -59,7 +59,12 @@ const {
   evaluateVenueCheck,
   getCampaignVenueViewModels
 } = require('./bard-campaign');
-const { isPianoCandidateTrackSmart, selectAutoPianoTracks, cleanPlayableHandNotes } = require('./midi-hygiene');
+const {
+  isPianoCandidateTrackSmart,
+  selectAutoPianoTracks,
+  cleanPlayableHandNotes,
+  buildFullSongArrangement
+} = require('./midi-hygiene');
 const VexFlow = require('vexflow/bravura');
 const {
   buildScoreData,
@@ -443,7 +448,12 @@ const questYoutubeUrlInput = document.getElementById('quest-youtube-url');
 const questCustomTitleInput = document.getElementById('quest-custom-title');
 const btnRunQuestUrl = document.getElementById('btn-run-quest-url');
 const btnRunQuestSelfTest = document.getElementById('btn-run-quest-selftest');
+const btnQuestSwitchToBundle = document.getElementById('btn-quest-switch-to-bundle');
 const btnQuestLoadResult = document.getElementById('btn-quest-load-result');
+const questModePianoCover = document.getElementById('quest-mode-piano-cover');
+const questModeFullSong = document.getElementById('quest-mode-full-song');
+const questModeCardPianoCover = document.getElementById('quest-mode-card-piano-cover');
+const questModeCardFullSong = document.getElementById('quest-mode-card-full-song');
 const questProgressMessage = document.getElementById('quest-progress-message');
 const questProgressPct = document.getElementById('quest-progress-pct');
 const questProgressFill = document.getElementById('quest-progress-fill');
@@ -1464,6 +1474,11 @@ function populateTrackSelectorDropdown(song) {
   autoOpt.textContent = 'Auto Piano (RH Gold + LH Blue)';
   playableTrackSelect.appendChild(autoOpt);
 
+  const arrangeOpt = document.createElement('option');
+  arrangeOpt.value = 'full-song-arrangement';
+  arrangeOpt.textContent = 'Full-Song Piano Arrangement (RH Melody + LH Chords)';
+  playableTrackSelect.appendChild(arrangeOpt);
+
   song.rawTracks.forEach((t, i) => {
     const opt = document.createElement('option');
     opt.value = `track-${i}`;
@@ -1537,6 +1552,19 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
     track1Raw = sel.track1Raw;
     track2Raw = sel.track2Raw;
     selectionNote = sel.selectionNote || null;
+  } else if (mode === 'full-song-arrangement') {
+    const pitchedNotes = [];
+    rawTracks.forEach((t, idx) => {
+      if (t.isPercussion || t.isDuplicate) return;
+      chosenPlayableIndices.add(idx);
+      for (const n of t.notes) {
+        pitchedNotes.push(n);
+      }
+    });
+    const arranged = buildFullSongArrangement(pitchedNotes, currentSong.bpm || 120);
+    track1Raw = arranged.rhNotes.map((n, idx) => ({ ...n, id: n.id || `arr_rh_${idx}` }));
+    track2Raw = arranged.lhNotes.map((n, idx) => ({ ...n, id: n.id || `arr_lh_${idx}` }));
+    selectionNote = 'Full-Song Piano Arrangement (RH Melody + LH Chords & Bass)';
   } else if (mode.startsWith('track-')) {
     const idx = Number(mode.replace('track-', ''));
     const chosen = rawTracks[idx] || rawTracks[0];
@@ -10469,6 +10497,40 @@ function appendQuestLogLine(line) {
   questLogOutput.scrollTop = questLogOutput.scrollHeight;
 }
 
+function getSelectedQuestArrangementMode() {
+  if (questModeFullSong && questModeFullSong.checked) {
+    return 'full-song';
+  }
+  return 'piano-cover';
+}
+
+function syncQuestArrangementModeUI() {
+  const mode = getSelectedQuestArrangementMode();
+  if (questModeCardPianoCover) {
+    questModeCardPianoCover.classList.toggle('active', mode === 'piano-cover');
+  }
+  if (questModeCardFullSong) {
+    questModeCardFullSong.classList.toggle('active', mode === 'full-song');
+  }
+  if (btnRunQuestUrl) {
+    btnRunQuestUrl.innerHTML = mode === 'full-song'
+      ? '&#127908; Arrange Full Song'
+      : '&#128302; Transcribe (Piano Cover)';
+  }
+}
+
+if (questModePianoCover) {
+  questModePianoCover.addEventListener('change', syncQuestArrangementModeUI);
+}
+if (questModeFullSong) {
+  questModeFullSong.addEventListener('change', syncQuestArrangementModeUI);
+}
+if (btnQuestSwitchToBundle) {
+  btnQuestSwitchToBundle.addEventListener('click', () => {
+    setQuestBoardTab('bundle', { focusActiveTab: true });
+  });
+}
+
 /**
  * Spawn `python_ml/transcribe_quest.py` in the background and stream `[QUEST_STATUS]` JSON progress!
  */
@@ -10480,6 +10542,8 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
 
   const rawUrlOrPath = (questYoutubeUrlInput?.value || '').trim();
   const customTitle = (questCustomTitleInput?.value || '').trim();
+  const arrangementMode = getSelectedQuestArrangementMode();
+  const modeLabel = arrangementMode === 'full-song' ? 'Full-Song Arrangement' : 'Piano Cover';
 
   if (!selfTest && !rawUrlOrPath) {
     showGrimoireToast('Please paste a YouTube URL (or local audio path), or click "Run ML Self-Test"!', 'error');
@@ -10494,7 +10558,7 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
   }
 
   const pythonExe = resolvePythonExecutable();
-  const args = [scriptPath, '--output-dir', IMPORTS_DIR];
+  const args = [scriptPath, '--output-dir', IMPORTS_DIR, '--mode', arrangementMode];
 
   if (selfTest) {
     args.push('--self-test');
@@ -10514,16 +10578,16 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
   if (btnQuestLoadResult) btnQuestLoadResult.classList.add('hidden');
 
   if (questLogOutput) {
-    questLogOutput.textContent = `[Quest Started] Spawning: ${path.basename(pythonExe)} python_ml/transcribe_quest.py ${selfTest ? '--self-test' : rawUrlOrPath}`;
+    questLogOutput.textContent = `[Quest Started • ${modeLabel}] Spawning: ${path.basename(pythonExe)} python_ml/transcribe_quest.py --mode ${arrangementMode} ${selfTest ? '--self-test' : rawUrlOrPath}`;
   }
 
   setQuestStageUI(
     'running',
-    'Transcribing...',
+    arrangementMode === 'full-song' ? 'Arranging...' : 'Transcribing...',
     8,
     selfTest
-      ? 'Synthesizing polyphonic acoustic test audio (.wav) & running audio-to-MIDI transcriber...'
-      : `Connecting to yt-dlp & audio-to-MIDI pipeline for: ${rawUrlOrPath}`
+      ? `Synthesizing polyphonic acoustic test audio (.wav) & running ${modeLabel} pipeline...`
+      : `Connecting to yt-dlp & ${modeLabel} pipeline for: ${rawUrlOrPath}`
   );
 
   try {
@@ -10566,7 +10630,7 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
               starting: 'Starting...',
               downloading: 'Downloading YouTube...',
               downloaded: 'Audio Ready',
-              transcribing: 'Transcribing Notes...',
+              transcribing: arrangementMode === 'full-song' ? 'Building Arrangement...' : 'Transcribing Notes...',
               writing_midi: 'Writing .mid Scroll...'
             };
             setQuestStageUI('running', labelMap[payload.stage] || 'Working...', pct, msg);
