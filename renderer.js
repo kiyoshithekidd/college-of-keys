@@ -94,6 +94,16 @@ const {
   computeAudioOffsetForBeat1,
   detectFirstAudioOnsetSec
 } = require('./song-bundle');
+const {
+  GM_DRUM_HIGHWAY_LANES,
+  INPUT_SOURCE_MODES,
+  GAMEPAD_DRUM_BUTTON_MAP,
+  GAMEPAD_FRET_SCALE_OFFSETS,
+  translateGmDrumMidiToHighwayLane,
+  foldInstrumentMidiForHighway,
+  detectPitchFromFloat32Buffer,
+  classifyAcousticDrumHitFromBuffer
+} = require('./instrument-input');
 
 const MIN_MIDI = 36; // C2
 const MAX_MIDI = 96; // C7
@@ -5147,6 +5157,7 @@ function handleRehearsalLoopWrap() {
  * 60 FPS Master Animation Loop (The Spell Highway + Phase 4 Wait Mode Gating)
  */
 function animationLoop(timestamp) {
+  pollExternalInstrumentFrame();
   if (playbackState.isPlaying && currentSong) {
     if (playbackState.lastFrameTimestamp === null) {
       playbackState.lastFrameTimestamp = timestamp;
@@ -8293,6 +8304,328 @@ function getMidiKeyAtPoint(clientX, clientY) {
   return null;
 }
 
+// Issue #42 & #43: Plug-In External Instrument Rig DOM references & state
+const inputSourceModeSelect = document.getElementById('input-source-mode-select');
+const livePitchTunerPill = document.getElementById('live-pitch-tuner-pill');
+const livePitchTunerText = document.getElementById('live-pitch-tuner-text');
+const midiInputRoutingRows = document.getElementById('midi-input-routing-rows');
+const midiDeviceSelect = document.getElementById('midi-device-select');
+const midiChannelSelect = document.getElementById('midi-channel-select');
+const audioInputRoutingRows = document.getElementById('audio-input-routing-rows');
+const audioInputDeviceSelect = document.getElementById('audio-input-device-select');
+const audioInputGateSlider = document.getElementById('audio-input-gate-slider');
+const btnToggleAudioInput = document.getElementById('btn-toggle-audio-input');
+const audioInputMeterFill = document.getElementById('audio-input-meter-fill');
+
+const externalInstrumentRig = {
+  sourceMode: 'midi-piano', // 'midi-piano' | 'midi-edrums' | 'audio-pitch' | 'audio-drums' | 'gamepad'
+  selectedMidiDeviceId: 'all',
+  selectedMidiChannel: 'all-melodic', // 'all-melodic' | 'all-including-drums' | '0'..'15'
+  selectedAudioDeviceId: 'default',
+  audioGateThreshold: 0.018,
+  audioListening: false,
+  audioStream: null,
+  audioCtx: null,
+  analyserNode: null,
+  floatBuffer: null,
+  activeAudioMidiNote: null,
+  lastAudioDrumHitMs: 0,
+  gamepadHeldMidis: new Map()
+};
+
+function updateLiveTunerReadout(label, cents = null) {
+  if (!livePitchTunerText) return;
+  if (!label) {
+    livePitchTunerText.textContent = '—';
+    return;
+  }
+  if (Number.isFinite(cents)) {
+    const sign = cents > 0 ? '+' : '';
+    livePitchTunerText.textContent = `${label} (${sign}${cents}c)`;
+  } else {
+    livePitchTunerText.textContent = label;
+  }
+}
+
+function setExternalInstrumentSourceMode(mode) {
+  const validIds = new Set(INPUT_SOURCE_MODES.map((m) => m.id));
+  const nextMode = validIds.has(mode) ? mode : 'midi-piano';
+  externalInstrumentRig.sourceMode = nextMode;
+  if (inputSourceModeSelect && inputSourceModeSelect.value !== nextMode) {
+    inputSourceModeSelect.value = nextMode;
+  }
+
+  // Automatically enable Channel 10 when E-Drums mode is selected
+  if (nextMode === 'midi-edrums' && externalInstrumentRig.selectedMidiChannel === 'all-melodic') {
+    externalInstrumentRig.selectedMidiChannel = 'all-including-drums';
+    if (midiChannelSelect) midiChannelSelect.value = 'all-including-drums';
+  }
+
+  const isMidiMode = nextMode === 'midi-piano' || nextMode === 'midi-edrums';
+  const isAudioMode = nextMode === 'audio-pitch' || nextMode === 'audio-drums';
+
+  if (midiInputRoutingRows) {
+    midiInputRoutingRows.classList.toggle('hidden', !isMidiMode);
+  }
+  if (audioInputRoutingRows) {
+    audioInputRoutingRows.classList.toggle('hidden', !isAudioMode);
+  }
+
+  if (isAudioMode) {
+    refreshAudioInputDeviceList();
+  } else if (externalInstrumentRig.audioListening) {
+    stopLiveAudioInstrumentInput();
+  }
+}
+
+async function refreshAudioInputDeviceList() {
+  if (!navigator.mediaDevices || typeof navigator.mediaDevices.enumerateDevices !== 'function' || !audioInputDeviceSelect) {
+    return;
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const audioInputs = devices.filter((d) => d.kind === 'audioinput');
+    const prevVal = audioInputDeviceSelect.value || externalInstrumentRig.selectedAudioDeviceId || 'default';
+    audioInputDeviceSelect.innerHTML = '';
+
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = 'default';
+    defaultOpt.textContent = 'Default Audio Interface / Mic';
+    audioInputDeviceSelect.appendChild(defaultOpt);
+
+    audioInputs.forEach((dev, idx) => {
+      if (!dev.deviceId || dev.deviceId === 'default') return;
+      const opt = document.createElement('option');
+      opt.value = dev.deviceId;
+      opt.textContent = dev.label || `Audio Input / Line-In #${idx + 1}`;
+      audioInputDeviceSelect.appendChild(opt);
+    });
+
+    if (Array.from(audioInputDeviceSelect.options).some((o) => o.value === prevVal)) {
+      audioInputDeviceSelect.value = prevVal;
+    }
+  } catch {
+    // Ignore device enumeration errors in restricted environments
+  }
+}
+
+async function startLiveAudioInstrumentInput() {
+  if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+    showGrimoireToast('Web Audio Line-In / Microphone API is not available in this environment.', 'warning');
+    return false;
+  }
+  try {
+    stopLiveAudioInstrumentInput();
+    const constraints = {
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        ...(externalInstrumentRig.selectedAudioDeviceId && externalInstrumentRig.selectedAudioDeviceId !== 'default'
+          ? { deviceId: { exact: externalInstrumentRig.selectedAudioDeviceId } }
+          : {})
+      }
+    };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = new AudioCtx();
+    const source = audioCtx.createMediaStreamSource(stream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+
+    externalInstrumentRig.audioStream = stream;
+    externalInstrumentRig.audioCtx = audioCtx;
+    externalInstrumentRig.analyserNode = analyser;
+    externalInstrumentRig.floatBuffer = new Float32Array(analyser.fftSize);
+    externalInstrumentRig.audioListening = true;
+
+    if (btnToggleAudioInput) {
+      btnToggleAudioInput.textContent = '⏹ Stop Line-In / Mic';
+      btnToggleAudioInput.classList.add('active');
+    }
+    setMidiStatus('connected', 'Line-In / Mic Active', 'Real-time Guitar / Bass / Vocal / Drum Audio Input Active');
+    await refreshAudioInputDeviceList();
+    return true;
+  } catch (err) {
+    showGrimoireToast(`Could not open Audio Interface / Mic: ${err.message || err}`, 'warning');
+    return false;
+  }
+}
+
+function stopLiveAudioInstrumentInput() {
+  if (externalInstrumentRig.activeAudioMidiNote !== null) {
+    handleNoteOff(externalInstrumentRig.activeAudioMidiNote);
+    externalInstrumentRig.activeAudioMidiNote = null;
+  }
+  if (externalInstrumentRig.audioStream) {
+    for (const track of externalInstrumentRig.audioStream.getTracks()) {
+      track.stop();
+    }
+    externalInstrumentRig.audioStream = null;
+  }
+  if (externalInstrumentRig.audioCtx) {
+    try {
+      externalInstrumentRig.audioCtx.close();
+    } catch {
+      // ignore
+    }
+    externalInstrumentRig.audioCtx = null;
+  }
+  externalInstrumentRig.analyserNode = null;
+  externalInstrumentRig.floatBuffer = null;
+  externalInstrumentRig.audioListening = false;
+  if (btnToggleAudioInput) {
+    btnToggleAudioInput.textContent = '🎤 Enable Line-In / Mic';
+    btnToggleAudioInput.classList.remove('active');
+  }
+  if (audioInputMeterFill) {
+    audioInputMeterFill.style.width = '0%';
+  }
+  updateLiveTunerReadout(null);
+}
+
+/**
+ * Poll real-time Audio Line-In / Microphone or USB Gamepad controller on each animation frame.
+ * Also supports injecting a synthetic Float32Array buffer via `processAudioInstrumentFrame(buf, sr)` for testing.
+ */
+function processAudioInstrumentFrame(floatBuffer, sampleRate = 44100) {
+  if (!floatBuffer || floatBuffer.length === 0) return null;
+
+  // Update visual signal level meter
+  let sumSq = 0;
+  for (let i = 0; i < floatBuffer.length; i++) {
+    sumSq += floatBuffer[i] * floatBuffer[i];
+  }
+  const rms = Math.sqrt(sumSq / floatBuffer.length);
+  if (audioInputMeterFill) {
+    const pct = Math.max(0, Math.min(100, Math.round(rms * 350)));
+    audioInputMeterFill.style.width = `${pct}%`;
+  }
+
+  const activeInst = currentSong?.activeHighwayInstrument || 'piano';
+  if (externalInstrumentRig.sourceMode === 'audio-drums' || activeInst === 'drums') {
+    const hit = classifyAcousticDrumHitFromBuffer(
+      floatBuffer,
+      sampleRate,
+      Math.max(0.025, externalInstrumentRig.audioGateThreshold * 1.4)
+    );
+    const nowMs = performance.now();
+    if (hit && nowMs - externalInstrumentRig.lastAudioDrumHitMs > 85) {
+      externalInstrumentRig.lastAudioDrumHitMs = nowMs;
+      updateLiveTunerReadout(hit.label);
+      handleNoteOn(hit.laneMidi, 105, 'audio-drums');
+      setTimeout(() => handleNoteOff(hit.laneMidi), 90);
+      return { type: 'drum', ...hit };
+    }
+    return null;
+  }
+
+  // Monophonic Pitch Detection for Guitar, Bass, Vocals, or Synth Line-In
+  const detected = detectPitchFromFloat32Buffer(floatBuffer, sampleRate, {
+    rmsGate: externalInstrumentRig.audioGateThreshold
+  });
+  if (!detected) {
+    if (externalInstrumentRig.activeAudioMidiNote !== null) {
+      handleNoteOff(externalInstrumentRig.activeAudioMidiNote);
+      externalInstrumentRig.activeAudioMidiNote = null;
+    }
+    return null;
+  }
+
+  const foldedMidi = foldInstrumentMidiForHighway(detected.midi, activeInst);
+  updateLiveTunerReadout(detected.noteName, detected.cents);
+
+  if (externalInstrumentRig.activeAudioMidiNote !== foldedMidi) {
+    if (externalInstrumentRig.activeAudioMidiNote !== null) {
+      handleNoteOff(externalInstrumentRig.activeAudioMidiNote);
+    }
+    externalInstrumentRig.activeAudioMidiNote = foldedMidi;
+    const vel = Math.max(68, Math.min(124, Math.round(detected.rms * 360)));
+    handleNoteOn(foldedMidi, vel, 'audio-pitch');
+  }
+  return { type: 'pitch', foldedMidi, ...detected };
+}
+
+function pollExternalInstrumentFrame() {
+  if (externalInstrumentRig.audioListening && externalInstrumentRig.analyserNode && externalInstrumentRig.floatBuffer) {
+    externalInstrumentRig.analyserNode.getFloatTimeDomainData(externalInstrumentRig.floatBuffer);
+    processAudioInstrumentFrame(
+      externalInstrumentRig.floatBuffer,
+      externalInstrumentRig.audioCtx?.sampleRate || 44100
+    );
+  }
+
+  if (externalInstrumentRig.sourceMode === 'gamepad' && typeof navigator.getGamepads === 'function') {
+    const pads = navigator.getGamepads() || [];
+    const activeInst = currentSong?.activeHighwayInstrument || 'piano';
+    for (const pad of pads) {
+      if (!pad || !pad.connected) continue;
+      pad.buttons.forEach((btn, idx) => {
+        const keyId = `${pad.index}:${idx}`;
+        const pressed = Boolean(btn && (btn.pressed || btn.value > 0.5));
+        const prevMidi = externalInstrumentRig.gamepadHeldMidis.get(keyId);
+        if (pressed && prevMidi === undefined) {
+          let targetMidi = GM_DRUM_HIGHWAY_LANES.SNARE;
+          if (activeInst === 'drums') {
+            targetMidi = GAMEPAD_DRUM_BUTTON_MAP[idx] ?? GM_DRUM_HIGHWAY_LANES.HAT_CLOSED;
+          } else {
+            const baseMidi = activeInst === 'bass' ? 36 : 60;
+            const offset = GAMEPAD_FRET_SCALE_OFFSETS[idx % GAMEPAD_FRET_SCALE_OFFSETS.length];
+            targetMidi = baseMidi + offset;
+          }
+          externalInstrumentRig.gamepadHeldMidis.set(keyId, targetMidi);
+          updateLiveTunerReadout(`Pad #${idx + 1} (${midiToNoteName(targetMidi)})`);
+          handleNoteOn(targetMidi, 108, 'gamepad');
+        } else if (!pressed && prevMidi !== undefined) {
+          externalInstrumentRig.gamepadHeldMidis.delete(keyId);
+          handleNoteOff(prevMidi);
+        }
+      });
+    }
+  }
+}
+
+if (inputSourceModeSelect) {
+  inputSourceModeSelect.addEventListener('change', () => {
+    setExternalInstrumentSourceMode(inputSourceModeSelect.value);
+  });
+}
+if (midiDeviceSelect) {
+  midiDeviceSelect.addEventListener('change', () => {
+    externalInstrumentRig.selectedMidiDeviceId = midiDeviceSelect.value || 'all';
+    clearAllHeldInputNotes();
+  });
+}
+if (midiChannelSelect) {
+  midiChannelSelect.addEventListener('change', () => {
+    externalInstrumentRig.selectedMidiChannel = midiChannelSelect.value || 'all-melodic';
+    clearAllHeldInputNotes();
+  });
+}
+if (audioInputDeviceSelect) {
+  audioInputDeviceSelect.addEventListener('change', () => {
+    externalInstrumentRig.selectedAudioDeviceId = audioInputDeviceSelect.value || 'default';
+    if (externalInstrumentRig.audioListening) {
+      startLiveAudioInstrumentInput();
+    }
+  });
+}
+if (audioInputGateSlider) {
+  audioInputGateSlider.addEventListener('input', () => {
+    externalInstrumentRig.audioGateThreshold = Math.max(0.005, Number(audioInputGateSlider.value || 18) / 1000);
+  });
+}
+if (btnToggleAudioInput) {
+  btnToggleAudioInput.addEventListener('click', () => {
+    if (externalInstrumentRig.audioListening) {
+      stopLiveAudioInstrumentInput();
+    } else {
+      startLiveAudioInstrumentInput();
+    }
+  });
+}
+
 /**
  * Set up Native Web MIDI API (navigator.requestMIDIAccess)
  */
@@ -8317,10 +8650,31 @@ function bindMidiInputs(midiAccess) {
   const inputs = Array.from(midiAccess.inputs.values());
   const connectedNames = [];
 
+  if (midiDeviceSelect) {
+    const prevDevice = midiDeviceSelect.value || externalInstrumentRig.selectedMidiDeviceId || 'all';
+    midiDeviceSelect.innerHTML = '';
+    const allOpt = document.createElement('option');
+    allOpt.value = 'all';
+    allOpt.textContent = 'All Connected MIDI Inputs';
+    midiDeviceSelect.appendChild(allOpt);
+
+    for (const input of inputs) {
+      if (input.state === 'connected') {
+        const opt = document.createElement('option');
+        opt.value = input.id || input.name || 'midi-dev';
+        opt.textContent = input.name || 'MIDI Instrument';
+        midiDeviceSelect.appendChild(opt);
+      }
+    }
+    if (Array.from(midiDeviceSelect.options).some((o) => o.value === prevDevice)) {
+      midiDeviceSelect.value = prevDevice;
+    }
+  }
+
   for (const input of inputs) {
     if (input.state === 'connected') {
       connectedNames.push(input.name || 'MIDI Keyboard');
-      input.onmidimessage = onMidiMessage;
+      input.onmidimessage = (evt) => onMidiMessage(evt, input);
     }
   }
 
@@ -8331,7 +8685,7 @@ function bindMidiInputs(midiAccess) {
       showQwertyKeyLabels = false;
       if (toggleQwertyLabelsCheckbox) toggleQwertyLabelsCheckbox.checked = false;
     }
-  } else {
+  } else if (!externalInstrumentRig.audioListening) {
     clearAllHeldInputNotes();
     setMidiStatus('waiting', 'QWERTY / Mouse', 'No Physical MIDI Keyboard Detected — Mouse & QWERTY Piano Active');
     if (!userManuallyToggledQwertyLabels) {
@@ -8348,12 +8702,22 @@ function setMidiStatus(state, message, tooltipText = '') {
   midiStatusPill.title = tooltipText || message;
 }
 
-function onMidiMessage(event) {
+function onMidiMessage(event, sourceInput = null) {
   const data = event.data;
   if (!data || data.length < 2) return;
 
-  // Ignore MIDI input while modal dialogs are open or if event originates on Channel 10 (drums/percussion) (Issue #58)
-  // Strike any piano key on the Title Splash to enter the Tavern (Issue #71)
+  // Filter by selected MIDI device if user chose a specific controller
+  if (
+    externalInstrumentRig.selectedMidiDeviceId &&
+    externalInstrumentRig.selectedMidiDeviceId !== 'all' &&
+    sourceInput &&
+    sourceInput.id !== externalInstrumentRig.selectedMidiDeviceId &&
+    sourceInput.name !== externalInstrumentRig.selectedMidiDeviceId
+  ) {
+    return;
+  }
+
+  // Strike any piano key or pad on the Title Splash to enter the Tavern (Issue #71)
   if (isTavernMenuVisible || isAnyModalOpen()) {
     if (isTavernMenuVisible && !hasEnteredTavernSession) {
       const status = data[0] & 0xf0;
@@ -8364,24 +8728,42 @@ function onMidiMessage(event) {
     }
     return;
   }
+
   const channel = data[0] & 0x0f;
-  if (channel === 9) return;
+  const activeInst = currentSong?.activeHighwayInstrument || 'piano';
+  const isDrumMode = externalInstrumentRig.sourceMode === 'midi-edrums' || activeInst === 'drums';
+  const chFilter = externalInstrumentRig.selectedMidiChannel || 'all-melodic';
+
+  if (chFilter === 'all-melodic') {
+    // Allow Channel 10 automatically when playing the Drum Kit Highway or E-Drums input mode
+    if (channel === 9 && !isDrumMode) return;
+  } else if (chFilter !== 'all-including-drums') {
+    const wantedCh = Number(chFilter);
+    if (Number.isInteger(wantedCh) && channel !== wantedCh) return;
+  }
 
   const status = data[0] & 0xf0;
   const data1 = data[1];
   const data2 = data.length > 2 ? data[2] : 0;
 
+  const mapIncomingNote = (rawMidi) => {
+    if (isDrumMode || channel === 9) {
+      return translateGmDrumMidiToHighwayLane(rawMidi);
+    }
+    return foldInstrumentMidiForHighway(rawMidi, activeInst);
+  };
+
   if (status === 0x90) {
+    const mappedMidi = mapIncomingNote(data1);
     if (data2 > 0) {
-      const foldedMidi = foldMidiTo61Keys(data1);
-      handleNoteOn(foldedMidi, data2, 'midi');
+      updateLiveTunerReadout(midiToNoteName(mappedMidi));
+      handleNoteOn(mappedMidi, data2, 'midi');
     } else {
-      const foldedMidi = foldMidiTo61Keys(data1);
-      handleNoteOff(foldedMidi);
+      handleNoteOff(mappedMidi);
     }
   } else if (status === 0x80) {
-    const foldedMidi = foldMidiTo61Keys(data1);
-    handleNoteOff(foldedMidi);
+    const mappedMidi = mapIncomingNote(data1);
+    handleNoteOff(mappedMidi);
   } else if (status === 0xb0 && data1 === 64) {
     handleSustainPedal(data2 >= 64);
   }

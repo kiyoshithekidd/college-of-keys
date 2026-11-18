@@ -317,6 +317,67 @@
                 </select>
               </div>
 
+              <!-- Issue #42 & #43: Plug-In External Instrument Input & Rig Selector -->
+              <div class="popover-divider"></div>
+              <div class="popover-row popover-row-stack instrument-rig-section" id="instrument-rig-section">
+                <div class="popover-row-inline">
+                  <label for="input-source-mode-select" title="Choose which physical instrument or controller you are plugging in to play the active Highway">&#128268; Plug-In Instrument Input</label>
+                  <span id="live-pitch-tuner-pill" class="status-pill live-pitch-tuner-pill" title="Live detected incoming note / pitch / drum hit">
+                    <strong id="live-pitch-tuner-text">&mdash;</strong>
+                  </span>
+                </div>
+                <select id="input-source-mode-select" class="tavern-select">
+                  <option value="midi-piano" selected>&#127929; MIDI Keyboard / Synth (Ch 1&ndash;16)</option>
+                  <option value="midi-edrums">&#129345; Electronic Drum Kit / MIDI Pads (GM Drums)</option>
+                  <option value="audio-pitch">&#127928; Audio Interface / Mic Pitch (Guitar, Bass, Vocals)</option>
+                  <option value="audio-drums">&#127897; Acoustic Drum / Tap Mic (Kick / Snare / Hat)</option>
+                  <option value="gamepad">&#127918; Rock Band / USB Gamepad Controller</option>
+                </select>
+
+                <!-- MIDI Device & Channel Routing (Shown for midi-piano and midi-edrums) -->
+                <div id="midi-input-routing-rows" class="instrument-sub-rows">
+                  <div class="popover-row-inline">
+                    <label for="midi-device-select">MIDI Device</label>
+                    <select id="midi-device-select" class="tavern-select">
+                      <option value="all" selected>All Connected MIDI Inputs</option>
+                    </select>
+                  </div>
+                  <div class="popover-row-inline">
+                    <label for="midi-channel-select" title="Filter incoming MIDI messages to a specific channel, or include Channel 10 for E-Drums">MIDI Channel</label>
+                    <select id="midi-channel-select" class="tavern-select">
+                      <option value="all-melodic" selected>Ch 1&ndash;9, 11&ndash;16 (Ignore Ch 10 Drums)</option>
+                      <option value="all-including-drums">All Channels 1&ndash;16 (Include Ch 10 Drums)</option>
+                      <option value="9">Channel 10 Only (GM Drum Kit)</option>
+                      <option value="0">Channel 1</option>
+                      <option value="1">Channel 2</option>
+                      <option value="2">Channel 3</option>
+                      <option value="3">Channel 4</option>
+                    </select>
+                  </div>
+                </div>
+
+                <!-- Audio Interface / Line-In / Microphone Pitch & Onset Rig (Shown for audio-pitch and audio-drums) -->
+                <div id="audio-input-routing-rows" class="instrument-sub-rows hidden">
+                  <div class="popover-row-inline">
+                    <label for="audio-input-device-select">Audio Input / Line-In</label>
+                    <select id="audio-input-device-select" class="tavern-select">
+                      <option value="default" selected>Default Audio Interface / Mic</option>
+                    </select>
+                  </div>
+                  <div class="popover-row-inline">
+                    <label for="audio-input-gate-slider" title="Noise gate threshold for Guitar/Bass line-in or Microphone pitch detection">Input Gate</label>
+                    <input id="audio-input-gate-slider" type="range" min="5" max="100" value="18" step="1" class="tavern-slider" />
+                    <button id="btn-toggle-audio-input" type="button" class="btn-mini-sim" title="Start or stop real-time audio pitch / drum onset listening">
+                      &#127908; Enable Line-In / Mic
+                    </button>
+                  </div>
+                  <div class="audio-input-meter-track" title="Live Line-In / Microphone Signal Level">
+                    <div id="audio-input-meter-fill" class="audio-input-meter-fill" style="width: 0%;"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="popover-divider"></div>
+
               <div class="popover-row">
                 <label for="toggle-midi-cleanup" title="Snap micro-jittered chord onsets (&le;26ms), drop ghost glitches, and cap runaway sustains on both hands">Clean Playable Notes</label>
                 <input id="toggle-midi-cleanup" type="checkbox" class="tavern-checkbox" checked />

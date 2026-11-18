@@ -7015,3 +7015,47 @@ body.view-mode-notation .grimoire-toast {
   box-shadow: 0 0 8px #38bdf8;
 }
 
+/* Issue #42 & #43: Plug-In External Instrument Input Rig */
+.instrument-rig-section {
+  gap: 8px;
+}
+
+.instrument-sub-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(212, 175, 55, 0.22);
+}
+
+.instrument-sub-rows.hidden {
+  display: none;
+}
+
+.live-pitch-tuner-pill {
+  min-width: 72px;
+  justify-content: center;
+  padding: 2px 8px;
+  font-size: 0.74rem;
+  border-color: rgba(56, 189, 248, 0.45);
+  color: #7dd3fc;
+}
+
+.audio-input-meter-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  overflow: hidden;
+}
+
+.audio-input-meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #22c55e, #eab308, #ef4444);
+  transition: width 60ms linear;
+}
+
+
