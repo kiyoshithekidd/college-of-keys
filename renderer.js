@@ -63,7 +63,10 @@ const {
   isPianoCandidateTrackSmart,
   selectAutoPianoTracks,
   cleanPlayableHandNotes,
-  buildFullSongArrangement
+  buildFullSongArrangement,
+  HIGHWAY_INSTRUMENTS,
+  detectAvailableInstrumentHighways,
+  mapInstrumentHighwayNotes
 } = require('./midi-hygiene');
 const VexFlow = require('vexflow/bravura');
 const {
@@ -73,6 +76,10 @@ const {
 } = require('./notation-engine');
 const {
   BUNDLE_STORE_FILENAME,
+  STEM_NAMES,
+  createDefaultStemMix,
+  normalizeStemMix,
+  isStemAudibleInMix,
   clampAudioOffsetSec,
   clampAudioTempoRatio,
   clampTransposeSemitones,
@@ -458,6 +465,17 @@ const questProgressMessage = document.getElementById('quest-progress-message');
 const questProgressPct = document.getElementById('quest-progress-pct');
 const questProgressFill = document.getElementById('quest-progress-fill');
 const questLogOutput = document.getElementById('quest-log-output');
+const questSplitStemsCheckbox = document.getElementById('quest-split-stems-checkbox');
+const btnQuestPickLocalAudio = document.getElementById('btn-quest-pick-local-audio');
+const questLocalAudioInput = document.getElementById('quest-local-audio-input');
+const btnQuestRunBackground = document.getElementById('btn-quest-run-background');
+const questQueueBadge = document.getElementById('quest-queue-badge');
+const hudQuestBgPill = document.getElementById('hud-quest-bg-pill');
+const hudQuestBgText = document.getElementById('hud-quest-bg-text');
+const stemMixerSection = document.getElementById('stem-mixer-section');
+const stemMixerGrid = document.getElementById('stem-mixer-grid');
+const btnStemMixReset = document.getElementById('btn-stem-mix-reset');
+const highwayInstrumentSelect = document.getElementById('highway-instrument-select');
 
 // DOM Elements — Issue #78: OMR Sheet Music Import & Review Modal
 const omrReviewModal = document.getElementById('omr-review-modal');
@@ -1331,7 +1349,7 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     || midiData.name?.trim()
     || fileName.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
 
-  // If a previous song had a synced backing audio element, stop & dispose it cleanly before loading new song
+  // If a previous song had a synced backing audio element or separated stem elements, stop & dispose them cleanly before loading new song
   if (currentSong?.backingAudioEl) {
     try {
       currentSong.backingAudioEl._disposed = true;
@@ -1340,6 +1358,19 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
       currentSong.backingAudioEl.load();
     } catch {
       // Ignore audio cleanup errors
+    }
+  }
+  if (currentSong?.stemAudioEls) {
+    for (const stEl of Object.values(currentSong.stemAudioEls)) {
+      if (!stEl) continue;
+      try {
+        stEl._disposed = true;
+        stEl.pause();
+        stEl.removeAttribute('src');
+        stEl.load();
+      } catch {
+        // Ignore stem audio cleanup errors
+      }
     }
   }
 
@@ -1376,6 +1407,32 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
       backingAudioEl = el;
     } catch {
       backingAudioEl = null;
+    }
+  }
+
+  // Issue #41: Load 6-stem audio elements if separated stems exist for this song bundle
+  const stems = bundle.stems && typeof bundle.stems === 'object' ? { ...bundle.stems } : null;
+  const stemMix = normalizeStemMix(bundle.stemMix);
+  const stemAudioEls = {};
+  if (stems) {
+    const initialVol = getBackingAudioVolumeFromSlider();
+    for (const stemName of STEM_NAMES) {
+      const stemPath = stems[stemName];
+      if (!stemPath || !fs.existsSync(stemPath)) continue;
+      try {
+        const stEl = new Audio(pathToFileURL(stemPath).href);
+        stEl.preload = 'auto';
+        stEl.preservesPitch = true;
+        stEl.webkitPreservesPitch = true;
+        stEl.volume = initialVol;
+        stEl.muted = !isStemAudibleInMix(stemName, stemMix, playbackState.backingBandEnabled);
+        stEl.addEventListener('error', () => {
+          if (stEl._disposed) return;
+        });
+        stemAudioEls[stemName] = stEl;
+      } catch {
+        // Ignore individual stem audio load failure
+      }
     }
   }
 
@@ -1420,12 +1477,16 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     musicXmlMeta: musicXmlMeta || null,
     rawTracks,
     selectedTrackMode: 'auto-piano',
+    activeHighwayInstrument: 'piano',
     track1Notes: [],
     track2Notes: [],
     backingBandTracks: [],
     backingBandNotes: [],
     backingAudioPath,
     backingAudioEl,
+    stems: Object.keys(stemAudioEls).length > 0 ? stems : null,
+    stemMix,
+    stemAudioEls,
     sheetMusicPath: bundle.sheetMusicPath || null,
     youtubeUrl: bundle.youtubeUrl || null,
     spotifyUrl: bundle.spotifyUrl || null,
@@ -1479,6 +1540,18 @@ function populateTrackSelectorDropdown(song) {
   arrangeOpt.textContent = 'Full-Song Piano Arrangement (RH Melody + LH Chords)';
   playableTrackSelect.appendChild(arrangeOpt);
 
+  // Issue #42: Add Multi-Instrument Highway options to both #playable-track-select and #highway-instrument-select
+  const highwayAvailability = detectAvailableInstrumentHighways(song.rawTracks, song.duration);
+  for (const inst of HIGHWAY_INSTRUMENTS) {
+    if (inst.id === 'piano') continue;
+    const avail = highwayAvailability[inst.id];
+    const opt = document.createElement('option');
+    opt.value = `instrument-${inst.id}`;
+    const noteCount = avail?.noteCount || 0;
+    opt.textContent = `${inst.icon} ${inst.label} (${noteCount} notes${avail?.hasDedicatedTrack ? ' • Dedicated Track' : ' • Adapted'})`;
+    playableTrackSelect.appendChild(opt);
+  }
+
   song.rawTracks.forEach((t, i) => {
     const opt = document.createElement('option');
     opt.value = `track-${i}`;
@@ -1488,6 +1561,32 @@ function populateTrackSelectorDropdown(song) {
     opt.textContent = `${t.name} (${tag} • ${t.notes.length} notes • ${pitchTag})${dupTag}`;
     playableTrackSelect.appendChild(opt);
   });
+
+  if (highwayInstrumentSelect) {
+    highwayInstrumentSelect.innerHTML = '';
+    highwayInstrumentSelect.disabled = false;
+
+    const pianoHwyOpt = document.createElement('option');
+    pianoHwyOpt.value = 'instrument-piano';
+    pianoHwyOpt.textContent = '\uD83C\uDFB9 Piano Highway';
+    highwayInstrumentSelect.appendChild(pianoHwyOpt);
+
+    const fullSongHwyOpt = document.createElement('option');
+    fullSongHwyOpt.value = 'full-song-arrangement';
+    fullSongHwyOpt.textContent = '\uD83C\uDFA4 Full-Song Arrangement';
+    highwayInstrumentSelect.appendChild(fullSongHwyOpt);
+
+    for (const inst of HIGHWAY_INSTRUMENTS) {
+      if (inst.id === 'piano') continue;
+      const avail = highwayAvailability[inst.id];
+      const opt = document.createElement('option');
+      opt.value = `instrument-${inst.id}`;
+      const suffix = avail?.hasDedicatedTrack ? ' \u2605' : '';
+      opt.textContent = `${inst.icon} ${inst.label}${suffix}`;
+      highwayInstrumentSelect.appendChild(opt);
+    }
+    highwayInstrumentSelect.value = 'instrument-piano';
+  }
 }
 
 function foldAndDeduplicateHandNotes(noteArr, handTrack, transposeSemitones = 0) {
@@ -1534,7 +1633,7 @@ function foldAndDeduplicateHandNotes(noteArr, handTrack, transposeSemitones = 0)
   return { notes: deduped, foldedCount };
 }
 
-function assignSongTracksAndDifficulty(mode = 'auto-piano') {
+function assignSongTracksAndDifficulty(mode = 'auto-piano', { autoSyncStemMute = false } = {}) {
   if (!currentSong) return;
   currentSong.selectedTrackMode = mode;
   const transposeSemitones = clampTransposeSemitones(currentSong.transposeSemitones ?? 0);
@@ -1545,13 +1644,15 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
   let track1Raw = [];
   let track2Raw = [];
   let selectionNote = null;
+  let activeInstrumentId = 'piano';
 
-  if (mode === 'auto-piano') {
+  if (mode === 'auto-piano' || mode === 'instrument-piano') {
     const sel = selectAutoPianoTracks(rawTracks, currentSong.duration);
     sel.chosenPlayableIndices.forEach((idx) => chosenPlayableIndices.add(idx));
     track1Raw = sel.track1Raw;
     track2Raw = sel.track2Raw;
     selectionNote = sel.selectionNote || null;
+    activeInstrumentId = 'piano';
   } else if (mode === 'full-song-arrangement') {
     const pitchedNotes = [];
     rawTracks.forEach((t, idx) => {
@@ -1565,6 +1666,15 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
     track1Raw = arranged.rhNotes.map((n, idx) => ({ ...n, id: n.id || `arr_rh_${idx}` }));
     track2Raw = arranged.lhNotes.map((n, idx) => ({ ...n, id: n.id || `arr_lh_${idx}` }));
     selectionNote = 'Full-Song Piano Arrangement (RH Melody + LH Chords & Bass)';
+    activeInstrumentId = 'piano';
+  } else if (mode.startsWith('instrument-')) {
+    const instId = mode.replace('instrument-', '').trim().toLowerCase();
+    activeInstrumentId = STEM_NAMES.includes(instId) ? instId : 'other';
+    const mapped = mapInstrumentHighwayNotes(rawTracks, activeInstrumentId, currentSong.duration);
+    mapped.chosenPlayableIndices.forEach((idx) => chosenPlayableIndices.add(idx));
+    track1Raw = mapped.track1Raw;
+    track2Raw = mapped.track2Raw;
+    selectionNote = mapped.selectionNote || null;
   } else if (mode.startsWith('track-')) {
     const idx = Number(mode.replace('track-', ''));
     const chosen = rawTracks[idx] || rawTracks[0];
@@ -1577,6 +1687,44 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano') {
       } else {
         track2Raw.push(n);
       }
+    }
+  }
+
+  currentSong.activeHighwayInstrument = activeInstrumentId;
+
+  // Keep #playable-track-select and #highway-instrument-select synchronized
+  if (playableTrackSelect) {
+    const targetPlayableVal = mode === 'instrument-piano' ? 'auto-piano' : mode;
+    if (Array.from(playableTrackSelect.options).some((o) => o.value === targetPlayableVal)) {
+      playableTrackSelect.value = targetPlayableVal;
+    }
+  }
+  if (highwayInstrumentSelect) {
+    const targetHwyVal = mode === 'auto-piano' ? 'instrument-piano' : mode;
+    if (Array.from(highwayInstrumentSelect.options).some((o) => o.value === targetHwyVal)) {
+      highwayInstrumentSelect.value = targetHwyVal;
+    }
+  }
+
+  // Issue #42: When switching Instrument Highway on a multi-stem bundle, auto-mute the chosen instrument's stem
+  // so the player performs that instrument live over the remaining real audio stems!
+  if (autoSyncStemMute && currentSong.stems && currentSong.stemMix) {
+    const nextMix = {};
+    for (const stName of STEM_NAMES) {
+      nextMix[stName] = {
+        muted: stName === activeInstrumentId,
+        solo: false
+      };
+    }
+    currentSong.stemMix = normalizeStemMix(nextMix);
+    if (typeof applyCurrentStemMixToAudioElements === 'function') {
+      applyCurrentStemMixToAudioElements();
+    }
+    if (typeof persistCurrentSongCalibration === 'function') {
+      persistCurrentSongCalibration();
+    }
+    if (typeof updateAudioSyncUI === 'function') {
+      updateAudioSyncUI();
     }
   }
 
@@ -3728,6 +3876,13 @@ function pausePlayback() {
   if (currentSong?.backingAudioEl && !currentSong.backingAudioEl.paused) {
     currentSong.backingAudioEl.pause();
   }
+  if (currentSong?.stemAudioEls) {
+    for (const stEl of Object.values(currentSong.stemAudioEls)) {
+      if (stEl && !stEl.paused) {
+        stEl.pause();
+      }
+    }
+  }
 }
 
 function togglePlayback() {
@@ -3787,13 +3942,22 @@ function setPracticeTempo(rawSpeed, { persist = true, toast = false } = {}) {
     btnTempoUp.disabled = speed >= REHEARSAL_SPEED_PRESETS[REHEARSAL_SPEED_PRESETS.length - 1] - 0.001;
   }
 
+  const effRate = getEffectiveBackingPlaybackRate(
+    speed,
+    currentSong?.audioTempoRatio ?? 1.0
+  );
   if (currentSong?.backingAudioEl) {
     currentSong.backingAudioEl.preservesPitch = true;
     currentSong.backingAudioEl.webkitPreservesPitch = true;
-    currentSong.backingAudioEl.playbackRate = getEffectiveBackingPlaybackRate(
-      speed,
-      currentSong.audioTempoRatio
-    );
+    currentSong.backingAudioEl.playbackRate = effRate;
+  }
+  if (currentSong?.stemAudioEls) {
+    for (const stEl of Object.values(currentSong.stemAudioEls)) {
+      if (!stEl) continue;
+      stEl.preservesPitch = true;
+      stEl.webkitPreservesPitch = true;
+      stEl.playbackRate = effRate;
+    }
   }
 
   if (persist && currentSong) {
@@ -3835,24 +3999,35 @@ function stepPracticeTempo(delta) {
 }
 
 /**
- * Issue #76: Seek Backing Audio using calibrated Start Offset & Audio Drift Match
+ * Issue #76 & #41: Seek Backing Audio & 6-Stem Audio Elements using calibrated Start Offset & Audio Drift Match
  */
 function seekBackingAudioToSongTime(songTime = playbackState.currentTime) {
-  if (!currentSong?.backingAudioEl) return;
-  const audioEl = currentSong.backingAudioEl;
+  if (!currentSong) return;
   const mapped = getMappedBackingAudioTime(songTime, {
     audioOffsetSec: currentSong.audioOffsetSec,
     audioTempoRatio: currentSong.audioTempoRatio
   });
-  let targetTime = mapped.clampedAudioTime;
-  const audioDur = audioEl.duration;
-  if (Number.isFinite(audioDur) && audioDur > 0) {
-    targetTime = Math.min(targetTime, Math.max(0, audioDur - 0.02));
+  const seekElement = (audioEl) => {
+    if (!audioEl) return;
+    let targetTime = mapped.clampedAudioTime;
+    const audioDur = audioEl.duration;
+    if (Number.isFinite(audioDur) && audioDur > 0) {
+      targetTime = Math.min(targetTime, Math.max(0, audioDur - 0.02));
+    }
+    try {
+      audioEl.currentTime = targetTime;
+    } catch {
+      // Ignore seek errors before audio metadata is ready
+    }
+  };
+
+  if (currentSong.backingAudioEl) {
+    seekElement(currentSong.backingAudioEl);
   }
-  try {
-    audioEl.currentTime = targetTime;
-  } catch {
-    // Ignore seek errors before audio metadata is ready
+  if (currentSong.stemAudioEls) {
+    for (const stEl of Object.values(currentSong.stemAudioEls)) {
+      seekElement(stEl);
+    }
   }
 }
 
@@ -4117,6 +4292,8 @@ function persistCurrentSongCalibration() {
         notesPath: currentSong.filePath || null,
         sheetMusicPath: currentSong.sheetMusicPath || undefined,
         backingAudioPath: currentSong.backingAudioPath || undefined,
+        stems: currentSong.stems || undefined,
+        stemMix: currentSong.stemMix || undefined,
         youtubeUrl: currentSong.youtubeUrl || undefined,
         spotifyUrl: currentSong.spotifyUrl || undefined,
         audioOffsetSec: currentSong.audioOffsetSec ?? 0,
@@ -4151,9 +4328,12 @@ function persistCurrentSongCalibration() {
       entry.audioOffsetSec = currentSong.audioOffsetSec ?? 0;
       entry.audioTempoRatio = currentSong.audioTempoRatio ?? 1.0;
       entry.midiCleanupEnabled = currentSong.midiCleanupOverride;
+      if (currentSong.stems) entry.stems = currentSong.stems;
+      if (currentSong.stemMix) entry.stemMix = currentSong.stemMix;
       entry.hasCustomBundle = Boolean(
         entry.sheetMusicPath ||
         entry.backingAudioPath ||
+        entry.stems ||
         entry.youtubeUrl ||
         entry.spotifyUrl ||
         Math.abs(entry.audioOffsetSec) > 0.0001 ||
@@ -4167,6 +4347,94 @@ function persistCurrentSongCalibration() {
   }
 }
 
+function applyCurrentStemMixToAudioElements() {
+  if (!currentSong?.stemAudioEls) return;
+  const mix = normalizeStemMix(currentSong.stemMix);
+  currentSong.stemMix = mix;
+  const vol = getBackingAudioVolumeFromSlider();
+  for (const stemName of STEM_NAMES) {
+    const stEl = currentSong.stemAudioEls[stemName];
+    if (!stEl) continue;
+    stEl.volume = vol;
+    stEl.muted = !isStemAudibleInMix(stemName, mix, playbackState.backingBandEnabled);
+  }
+}
+
+function renderStemMixerUI() {
+  if (!stemMixerSection) return;
+  const hasStems = Boolean(
+    currentSong?.stems &&
+    currentSong?.stemAudioEls &&
+    Object.keys(currentSong.stemAudioEls).length > 0
+  );
+  stemMixerSection.classList.toggle('hidden', !hasStems);
+  if (!hasStems || !stemMixerGrid) return;
+
+  const mix = normalizeStemMix(currentSong.stemMix);
+  for (const stemName of STEM_NAMES) {
+    const row = stemMixerGrid.querySelector(`.stem-mixer-row[data-stem="${stemName}"]`);
+    const muteBtn = stemMixerGrid.querySelector(`[data-stem-mute="${stemName}"]`);
+    const soloBtn = stemMixerGrid.querySelector(`[data-stem-solo="${stemName}"]`);
+    const hasFile = Boolean(currentSong.stemAudioEls[stemName]);
+    const stState = mix[stemName] || { muted: false, solo: false };
+    const audible = hasFile && isStemAudibleInMix(stemName, mix, true);
+
+    if (row) {
+      row.classList.toggle('stem-unavailable', !hasFile);
+      row.classList.toggle('stem-inaudible', hasFile && !audible);
+    }
+    if (muteBtn) {
+      muteBtn.disabled = !hasFile;
+      muteBtn.classList.toggle('active', Boolean(stState.muted));
+      muteBtn.setAttribute('aria-pressed', stState.muted ? 'true' : 'false');
+    }
+    if (soloBtn) {
+      soloBtn.disabled = !hasFile;
+      soloBtn.classList.toggle('active', Boolean(stState.solo));
+      soloBtn.setAttribute('aria-pressed', stState.solo ? 'true' : 'false');
+    }
+  }
+}
+
+function toggleStemMute(stemName) {
+  if (!currentSong?.stems || !STEM_NAMES.includes(stemName)) return;
+  const mix = normalizeStemMix(currentSong.stemMix);
+  mix[stemName].muted = !mix[stemName].muted;
+  if (mix[stemName].muted) {
+    mix[stemName].solo = false;
+  }
+  currentSong.stemMix = mix;
+  applyCurrentStemMixToAudioElements();
+  persistCurrentSongCalibration();
+  renderStemMixerUI();
+}
+
+function toggleStemSolo(stemName) {
+  if (!currentSong?.stems || !STEM_NAMES.includes(stemName)) return;
+  const mix = normalizeStemMix(currentSong.stemMix);
+  mix[stemName].solo = !mix[stemName].solo;
+  if (mix[stemName].solo) {
+    mix[stemName].muted = false;
+  }
+  currentSong.stemMix = mix;
+  applyCurrentStemMixToAudioElements();
+  persistCurrentSongCalibration();
+  renderStemMixerUI();
+}
+
+function resetStemMixToDefault() {
+  if (!currentSong?.stems) return;
+  const activeInst = currentSong.activeHighwayInstrument || 'piano';
+  const nextMix = createDefaultStemMix();
+  for (const st of STEM_NAMES) {
+    nextMix[st] = { muted: st === activeInst, solo: false };
+  }
+  currentSong.stemMix = normalizeStemMix(nextMix);
+  applyCurrentStemMixToAudioElements();
+  persistCurrentSongCalibration();
+  renderStemMixerUI();
+}
+
 function applyLiveAudioSyncCalibration({ nextOffsetSec, nextTempoRatio, statusMessage = null } = {}) {
   if (!currentSong) return;
   if (nextOffsetSec !== undefined) {
@@ -4178,6 +4446,7 @@ function applyLiveAudioSyncCalibration({ nextOffsetSec, nextTempoRatio, statusMe
   currentSong.hasCustomBundle = Boolean(
     currentSong.sheetMusicPath ||
     currentSong.backingAudioPath ||
+    currentSong.stems ||
     currentSong.youtubeUrl ||
     currentSong.spotifyUrl ||
     Math.abs(currentSong.audioOffsetSec || 0) > 0.0001 ||
@@ -4185,15 +4454,24 @@ function applyLiveAudioSyncCalibration({ nextOffsetSec, nextTempoRatio, statusMe
     typeof currentSong.midiCleanupOverride === 'boolean'
   );
 
+  const effRate = getEffectiveBackingPlaybackRate(
+    playbackState.playbackSpeed,
+    currentSong.audioTempoRatio
+  );
   if (currentSong.backingAudioEl) {
     currentSong.backingAudioEl.preservesPitch = true;
     currentSong.backingAudioEl.webkitPreservesPitch = true;
-    currentSong.backingAudioEl.playbackRate = getEffectiveBackingPlaybackRate(
-      playbackState.playbackSpeed,
-      currentSong.audioTempoRatio
-    );
-    seekBackingAudioToSongTime(playbackState.currentTime);
+    currentSong.backingAudioEl.playbackRate = effRate;
   }
+  if (currentSong.stemAudioEls) {
+    for (const stEl of Object.values(currentSong.stemAudioEls)) {
+      if (!stEl) continue;
+      stEl.preservesPitch = true;
+      stEl.webkitPreservesPitch = true;
+      stEl.playbackRate = effRate;
+    }
+  }
+  seekBackingAudioToSongTime(playbackState.currentTime);
 
   persistCurrentSongCalibration();
   updateAudioSyncUI(statusMessage);
@@ -4201,7 +4479,12 @@ function applyLiveAudioSyncCalibration({ nextOffsetSec, nextTempoRatio, statusMe
 }
 
 function updateAudioSyncUI(customHint = null) {
-  const hasAudio = Boolean(currentSong?.backingAudioPath && currentSong?.backingAudioEl);
+  const hasStems = Boolean(
+    currentSong?.stems &&
+    currentSong?.stemAudioEls &&
+    Object.keys(currentSong.stemAudioEls).length > 0
+  );
+  const hasAudio = Boolean((currentSong?.backingAudioPath && currentSong?.backingAudioEl) || hasStems);
   if (audioSyncAnchor) {
     audioSyncAnchor.classList.toggle('hidden', !hasAudio);
   }
@@ -4218,16 +4501,20 @@ function updateAudioSyncUI(customHint = null) {
     return;
   }
 
+  renderStemMixerUI();
+
   const off = clampAudioOffsetSec(currentSong.audioOffsetSec || 0);
   const ratio = clampAudioTempoRatio(currentSong.audioTempoRatio ?? 1.0);
   const offsetText = `${off >= 0 ? '+' : ''}${off.toFixed(2)}s`;
   const driftText = `${(ratio * 100).toFixed(1)}%`;
   const isNonZero = Math.abs(off) >= 0.005 || Math.abs(ratio - 1.0) >= 0.0005;
 
-  if (syncBadgePill) syncBadgePill.textContent = offsetText;
+  if (syncBadgePill) {
+    syncBadgePill.textContent = hasStems ? `6-Stem • ${offsetText}` : offsetText;
+  }
   if (syncOffsetReadout) syncOffsetReadout.textContent = offsetText;
   if (syncDriftReadout) syncDriftReadout.textContent = driftText;
-  if (btnAudioSync) btnAudioSync.classList.toggle('sync-non-zero', isNonZero);
+  if (btnAudioSync) btnAudioSync.classList.toggle('sync-non-zero', isNonZero || hasStems);
 
   if (syncStatusHint) {
     if (customHint) {
@@ -4444,64 +4731,88 @@ async function runAutoAlignFirstOnset() {
 }
 
 /**
- * Synchronize paired .wav / .mp3 backing audio element (Issue #31 & Issue #76).
+ * Synchronize paired .wav / .mp3 backing audio element or 6-stem audio elements (Issue #31, #76, #41).
  * Called independently of `audioTriggerEnd >= prevTime` so backing audio immediately
  * pauses when Wait Mode freezes at a chord or when Backing Band is toggled OFF.
  */
 function syncBackingAudioElement(currentTime = playbackState.currentTime) {
-  if (!currentSong?.backingAudioEl) return;
-  const audioEl = currentSong.backingAudioEl;
+  if (!currentSong) return;
+  const stemEntries = currentSong.stemAudioEls ? Object.entries(currentSong.stemAudioEls) : [];
+  const hasActiveStems = stemEntries.length > 0;
+  if (!currentSong.backingAudioEl && !hasActiveStems) return;
+
   const mapped = getMappedBackingAudioTime(currentTime, {
     audioOffsetSec: currentSong.audioOffsetSec,
     audioTempoRatio: currentSong.audioTempoRatio
   });
-  const audioDur = audioEl.duration;
-  const pastAudioEnd = Number.isFinite(audioDur) && audioDur > 0 && mapped.clampedAudioTime >= audioDur - 0.02;
+  const effRate = getEffectiveBackingPlaybackRate(
+    playbackState.playbackSpeed,
+    currentSong.audioTempoRatio
+  );
 
-  const shouldPlay =
-    playbackState.isPlaying &&
-    playbackState.backingBandEnabled &&
-    !playbackState.isWaitingForStrike &&
-    !mapped.isBeforeAudioStart &&
-    !pastAudioEnd &&
-    currentTime < currentSong.duration;
+  const syncSingleAudioEl = (audioEl, forceMuteOrPause = false, mutedFlag = false) => {
+    if (!audioEl) return;
+    audioEl.muted = Boolean(mutedFlag);
+    const audioDur = audioEl.duration;
+    const pastAudioEnd = Number.isFinite(audioDur) && audioDur > 0 && mapped.clampedAudioTime >= audioDur - 0.02;
 
-  if (shouldPlay) {
-    audioEl.preservesPitch = true;
-    audioEl.webkitPreservesPitch = true;
-    audioEl.playbackRate = getEffectiveBackingPlaybackRate(
-      playbackState.playbackSpeed,
-      currentSong.audioTempoRatio
-    );
-    const targetAudioTime = Number.isFinite(audioDur) && audioDur > 0
-      ? Math.min(mapped.clampedAudioTime, Math.max(0, audioDur - 0.02))
-      : mapped.clampedAudioTime;
+    const shouldPlay =
+      !forceMuteOrPause &&
+      playbackState.isPlaying &&
+      playbackState.backingBandEnabled &&
+      !playbackState.isWaitingForStrike &&
+      !mapped.isBeforeAudioStart &&
+      !pastAudioEnd &&
+      currentTime < currentSong.duration;
 
-    if (audioEl.paused) {
-      if (!audioEl._playPending) {
-        if (Math.abs((Number(audioEl.currentTime) || 0) - targetAudioTime) > 0.05) {
-          try {
-            audioEl.currentTime = targetAudioTime;
-          } catch {
-            // Ignore seek errors before audio metadata is ready
+    if (shouldPlay) {
+      audioEl.preservesPitch = true;
+      audioEl.webkitPreservesPitch = true;
+      audioEl.playbackRate = effRate;
+      const targetAudioTime = Number.isFinite(audioDur) && audioDur > 0
+        ? Math.min(mapped.clampedAudioTime, Math.max(0, audioDur - 0.02))
+        : mapped.clampedAudioTime;
+
+      if (audioEl.paused) {
+        if (!audioEl._playPending) {
+          if (Math.abs((Number(audioEl.currentTime) || 0) - targetAudioTime) > 0.05) {
+            try {
+              audioEl.currentTime = targetAudioTime;
+            } catch {
+              // Ignore seek errors before audio metadata is ready
+            }
           }
+          audioEl._playPending = true;
+          Promise.resolve(audioEl.play())
+            .catch(() => {})
+            .finally(() => {
+              audioEl._playPending = false;
+            });
         }
-        audioEl._playPending = true;
-        Promise.resolve(audioEl.play())
-          .catch(() => {})
-          .finally(() => {
-            audioEl._playPending = false;
-          });
+      } else if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.28) {
+        try {
+          audioEl.currentTime = targetAudioTime;
+        } catch {
+          // Ignore seek errors
+        }
       }
-    } else if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.28) {
-      try {
-        audioEl.currentTime = targetAudioTime;
-      } catch {
-        // Ignore seek errors
-      }
+    } else if (!audioEl.paused || audioEl._playPending) {
+      audioEl.pause();
     }
-  } else if (!audioEl.paused || audioEl._playPending) {
-    audioEl.pause();
+  };
+
+  if (hasActiveStems) {
+    // Pause full mix backingAudioEl when 6-stem audio elements are active so it doesn't double-play
+    if (currentSong.backingAudioEl && !currentSong.backingAudioEl.paused) {
+      currentSong.backingAudioEl.pause();
+    }
+    const mix = normalizeStemMix(currentSong.stemMix);
+    for (const [stemName, stEl] of stemEntries) {
+      const audible = isStemAudibleInMix(stemName, mix, playbackState.backingBandEnabled);
+      syncSingleAudioEl(stEl, false, !audible);
+    }
+  } else if (currentSong.backingAudioEl) {
+    syncSingleAudioEl(currentSong.backingAudioEl, false, false);
   }
 }
 
@@ -8430,6 +8741,11 @@ masterVolumeSlider.addEventListener('input', (e) => {
   if (currentSong?.backingAudioEl) {
     currentSong.backingAudioEl.volume = backingVol;
   }
+  if (currentSong?.stemAudioEls) {
+    for (const stEl of Object.values(currentSong.stemAudioEls)) {
+      if (stEl) stEl.volume = backingVol;
+    }
+  }
   if (audioAuditionEl) {
     audioAuditionEl.volume = backingVol;
   }
@@ -8872,9 +9188,23 @@ if (rehearsalTargetSpeedSelect) {
 }
 
 playableTrackSelect.addEventListener('change', (e) => {
-  assignSongTracksAndDifficulty(e.target.value);
+  assignSongTracksAndDifficulty(e.target.value, { autoSyncStemMute: true });
   e.target.blur();
 });
+
+if (highwayInstrumentSelect) {
+  highwayInstrumentSelect.addEventListener('change', (e) => {
+    const val = e.target.value;
+    assignSongTracksAndDifficulty(val, { autoSyncStemMute: true });
+    const instObj = HIGHWAY_INSTRUMENTS.find((inst) => `instrument-${inst.id}` === val);
+    if (instObj) {
+      showGrimoireToast(`${instObj.icon} Switched to ${instObj.label}${currentSong?.stems ? ` (${instObj.shortLabel} stem muted for live play-along)` : ''}`);
+    } else if (val === 'full-song-arrangement') {
+      showGrimoireToast('\uD83C\uDFA4 Switched to Full-Song Arrangement (RH Melody + LH Chords)');
+    }
+    e.target.blur();
+  });
+}
 
 if (practiceModeSelect) {
   practiceModeSelect.addEventListener('change', (e) => {
@@ -8960,6 +9290,7 @@ if (toggleMidiCleanupCheckbox) {
       currentSong.hasCustomBundle = Boolean(
         currentSong.sheetMusicPath ||
         currentSong.backingAudioPath ||
+        currentSong.stems ||
         currentSong.youtubeUrl ||
         currentSong.spotifyUrl ||
         Math.abs(currentSong.audioOffsetSec || 0) > 0.0001 ||
@@ -9040,6 +9371,7 @@ if (btnNotationEnableCleanup) {
       currentSong.hasCustomBundle = Boolean(
         currentSong.sheetMusicPath ||
         currentSong.backingAudioPath ||
+        currentSong.stems ||
         currentSong.youtubeUrl ||
         currentSong.spotifyUrl ||
         Math.abs(currentSong.audioOffsetSec || 0) > 0.0001 ||
@@ -9087,7 +9419,8 @@ if (btnSettingsOpenSync) {
   btnSettingsOpenSync.addEventListener('click', (e) => {
     e.stopPropagation();
     closeAllConservatoryPopovers();
-    if (audioSyncPopover && currentSong?.backingAudioEl) {
+    const hasStems = Boolean(currentSong?.stemAudioEls && Object.keys(currentSong.stemAudioEls).length > 0);
+    if (audioSyncPopover && (currentSong?.backingAudioEl || hasStems)) {
       updateAudioSyncUI();
       audioSyncPopover.classList.remove('hidden');
       if (btnAudioSync) {
@@ -9095,6 +9428,33 @@ if (btnSettingsOpenSync) {
         btnAudioSync.setAttribute('aria-expanded', 'true');
       }
     }
+  });
+}
+
+if (stemMixerGrid) {
+  stemMixerGrid.addEventListener('click', (e) => {
+    const muteBtn = e.target.closest('[data-stem-mute]');
+    if (muteBtn) {
+      e.stopPropagation();
+      toggleStemMute(muteBtn.getAttribute('data-stem-mute'));
+      muteBtn.blur();
+      return;
+    }
+    const soloBtn = e.target.closest('[data-stem-solo]');
+    if (soloBtn) {
+      e.stopPropagation();
+      toggleStemSolo(soloBtn.getAttribute('data-stem-solo'));
+      soloBtn.blur();
+    }
+  });
+}
+
+if (btnStemMixReset) {
+  btnStemMixReset.addEventListener('click', (e) => {
+    e.stopPropagation();
+    resetStemMixToDefault();
+    showGrimoireToast('\uD83C\uDF9A\uFE0F 6-Stem Mix reset to Play-Along default');
+    btnStemMixReset.blur();
   });
 }
 
@@ -10476,6 +10836,28 @@ function resolvePythonExecutable() {
   return isWin ? 'python' : 'python3';
 }
 
+const questJobQueue = [];
+
+function updateQuestQueueUI(progressPct = null, badgeText = null) {
+  const isRunning = Boolean(activeQuestChildProcess);
+  const queuedCount = questJobQueue.length;
+  if (questQueueBadge) {
+    questQueueBadge.classList.toggle('hidden', queuedCount === 0);
+    questQueueBadge.textContent = `Queue: ${queuedCount}`;
+  }
+  if (btnQuestRunBackground) {
+    btnQuestRunBackground.classList.toggle('hidden', !isRunning && queuedCount === 0);
+  }
+  if (hudQuestBgPill) {
+    hudQuestBgPill.classList.toggle('hidden', !isRunning && queuedCount === 0);
+    if ((isRunning || queuedCount > 0) && hudQuestBgText) {
+      const pctStr = typeof progressPct === 'number' ? `${Math.max(0, Math.min(100, Math.round(progressPct)))}%` : '...';
+      const qStr = queuedCount > 0 ? ` (+${queuedCount} queued)` : '';
+      hudQuestBgText.textContent = `Quest: ${badgeText || 'Processing'} • ${pctStr}${qStr}`;
+    }
+  }
+}
+
 function setQuestStageUI(stageType, badgeText, progressPct, messageText) {
   if (questStatusBadge) {
     questStatusBadge.className = `quest-stage-pill stage-${stageType}`;
@@ -10489,6 +10871,7 @@ function setQuestStageUI(stageType, badgeText, progressPct, messageText) {
   if (messageText && questProgressMessage) {
     questProgressMessage.textContent = messageText;
   }
+  updateQuestQueueUI(progressPct, badgeText);
 }
 
 function appendQuestLogLine(line) {
@@ -10531,23 +10914,87 @@ if (btnQuestSwitchToBundle) {
   });
 }
 
+if (btnQuestPickLocalAudio && questLocalAudioInput) {
+  btnQuestPickLocalAudio.addEventListener('click', () => {
+    questLocalAudioInput.click();
+  });
+  questLocalAudioInput.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    let resolvedAudioPath = resolveLocalFilePath(file);
+    if (!resolvedAudioPath || !fs.existsSync(resolvedAudioPath)) {
+      try {
+        if (!fs.existsSync(IMPORTS_DIR)) fs.mkdirSync(IMPORTS_DIR, { recursive: true });
+        const safeName = sanitizeBundleStem(file.name, 'Local_Audio');
+        const ext = path.extname(file.name) || '.wav';
+        const stagedPath = path.join(IMPORTS_DIR, `${safeName}${ext}`);
+        const buf = Buffer.from(await file.arrayBuffer());
+        fs.writeFileSync(stagedPath, buf);
+        resolvedAudioPath = stagedPath;
+      } catch (err) {
+        showGrimoireToast(`Could not stage local audio file: ${err.message}`, 'error');
+        questLocalAudioInput.value = '';
+        return;
+      }
+    }
+    if (questYoutubeUrlInput) {
+      questYoutubeUrlInput.value = resolvedAudioPath;
+    }
+    if (questCustomTitleInput && !questCustomTitleInput.value.trim()) {
+      questCustomTitleInput.value = file.name.replace(/\.(wav|mp3|ogg|m4a|flac)$/i, '');
+    }
+    showGrimoireToast(`\uD83D\uDCC2 Selected local audio: "${file.name}"`);
+    questLocalAudioInput.value = '';
+  });
+}
+
+if (btnQuestRunBackground) {
+  btnQuestRunBackground.addEventListener('click', () => {
+    previousQuestBoardOrigin = 'highway';
+    closeQuestBoardModal();
+    hideTavernMenu();
+    showGrimoireToast('\uD83C\uDFC3 Quest Board is processing in the background — keep practicing!');
+  });
+}
+
+if (hudQuestBgPill) {
+  hudQuestBgPill.addEventListener('click', () => {
+    openQuestBoardModal({ origin: isTavernMenuVisible ? 'tavern' : 'highway', tab: 'transcribe' });
+  });
+}
+
 /**
- * Spawn `python_ml/transcribe_quest.py` in the background and stream `[QUEST_STATUS]` JSON progress!
+ * Spawn `python_ml/transcribe_quest.py` in the background (with FIFO job queue support)
+ * and stream `[QUEST_STATUS]` JSON progress!
  */
-function runQuestBoardTranscriber({ selfTest = false } = {}) {
-  if (activeQuestChildProcess) {
-    showGrimoireToast('A Quest Board job is already running in the background!', 'warning');
+function runQuestBoardTranscriber({ selfTest = false, queuedJob = null } = {}) {
+  const rawUrlOrPath = queuedJob ? queuedJob.rawUrlOrPath : (questYoutubeUrlInput?.value || '').trim();
+  const customTitle = queuedJob ? queuedJob.customTitle : (questCustomTitleInput?.value || '').trim();
+  const arrangementMode = queuedJob ? queuedJob.arrangementMode : getSelectedQuestArrangementMode();
+  const splitStems = queuedJob
+    ? Boolean(queuedJob.splitStems)
+    : (questSplitStemsCheckbox ? Boolean(questSplitStemsCheckbox.checked) : true);
+  const isSelfTest = queuedJob ? Boolean(queuedJob.selfTest) : Boolean(selfTest);
+  const modeLabel = arrangementMode === 'full-song' ? 'Full-Song Arrangement' : 'Piano Cover';
+
+  if (!isSelfTest && !rawUrlOrPath) {
+    showGrimoireToast('Please paste a YouTube URL (or local audio path), or click "Run ML Self-Test"!', 'error');
+    questYoutubeUrlInput?.focus();
     return;
   }
 
-  const rawUrlOrPath = (questYoutubeUrlInput?.value || '').trim();
-  const customTitle = (questCustomTitleInput?.value || '').trim();
-  const arrangementMode = getSelectedQuestArrangementMode();
-  const modeLabel = arrangementMode === 'full-song' ? 'Full-Song Arrangement' : 'Piano Cover';
-
-  if (!selfTest && !rawUrlOrPath) {
-    showGrimoireToast('Please paste a YouTube URL (or local audio path), or click "Run ML Self-Test"!', 'error');
-    questYoutubeUrlInput?.focus();
+  // Issue #41: FIFO Queue — if a job is currently running, enqueue this job instead of rejecting
+  if (activeQuestChildProcess) {
+    questJobQueue.push({
+      selfTest: isSelfTest,
+      rawUrlOrPath,
+      customTitle,
+      arrangementMode,
+      splitStems
+    });
+    updateQuestQueueUI();
+    appendQuestLogLine(`[Queue +1] Added "${customTitle || (isSelfTest ? 'ML Self-Test' : rawUrlOrPath)}" to FIFO queue (${questJobQueue.length} waiting).`);
+    showGrimoireToast(`\uD83D\uDCE5 Added to Quest Queue (#${questJobQueue.length} in line)`);
     return;
   }
 
@@ -10559,8 +11006,11 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
 
   const pythonExe = resolvePythonExecutable();
   const args = [scriptPath, '--output-dir', IMPORTS_DIR, '--mode', arrangementMode];
+  if (splitStems) {
+    args.push('--split-stems');
+  }
 
-  if (selfTest) {
+  if (isSelfTest) {
     args.push('--self-test');
     if (customTitle) {
       args.push('--title', customTitle);
@@ -10572,23 +11022,12 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
     }
   }
 
-  if (btnRunQuestUrl) btnRunQuestUrl.disabled = true;
-  if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = true;
   if (btnSaveSongBundle) btnSaveSongBundle.disabled = true;
   if (btnQuestLoadResult) btnQuestLoadResult.classList.add('hidden');
 
   if (questLogOutput) {
-    questLogOutput.textContent = `[Quest Started • ${modeLabel}] Spawning: ${path.basename(pythonExe)} python_ml/transcribe_quest.py --mode ${arrangementMode} ${selfTest ? '--self-test' : rawUrlOrPath}`;
+    questLogOutput.textContent = `[Quest Started • ${modeLabel}${splitStems ? ' + 6-Stem Demucs' : ''}] Spawning: ${path.basename(pythonExe)} python_ml/transcribe_quest.py --mode ${arrangementMode}${splitStems ? ' --split-stems' : ''} ${isSelfTest ? '--self-test' : rawUrlOrPath}`;
   }
-
-  setQuestStageUI(
-    'running',
-    arrangementMode === 'full-song' ? 'Arranging...' : 'Transcribing...',
-    8,
-    selfTest
-      ? `Synthesizing polyphonic acoustic test audio (.wav) & running ${modeLabel} pipeline...`
-      : `Connecting to yt-dlp & ${modeLabel} pipeline for: ${rawUrlOrPath}`
-  );
 
   try {
     const child = spawn(pythonExe, args, {
@@ -10596,6 +11035,15 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
       windowsHide: true
     });
     activeQuestChildProcess = child;
+
+    setQuestStageUI(
+      'running',
+      arrangementMode === 'full-song' ? 'Arranging...' : 'Transcribing...',
+      8,
+      isSelfTest
+        ? `Synthesizing polyphonic test audio (.wav) & running ${modeLabel}${splitStems ? ' + 6-Stem' : ''} pipeline...`
+        : `Processing audio & ${modeLabel}${splitStems ? ' + 6-Stem' : ''} pipeline for: ${rawUrlOrPath}`
+    );
 
     let stdoutBuffer = '';
 
@@ -10621,6 +11069,9 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
                 btnQuestLoadResult.classList.remove('hidden');
               }
             }
+            if (questBoardModal && questBoardModal.classList.contains('hidden')) {
+              showGrimoireToast(`\u2728 Background Quest Complete: "${payload.title || 'New Spell'}" is ready in The Grimoire!`);
+            }
             // Trigger immediate folder watcher scan so The Grimoire updates live
             setTimeout(() => scanWatchedDirectories(true), 120);
           } else if (payload.stage === 'error') {
@@ -10628,10 +11079,11 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
           } else {
             const labelMap = {
               starting: 'Starting...',
-              downloading: 'Downloading YouTube...',
+              downloading: 'Downloading Audio...',
               downloaded: 'Audio Ready',
+              splitting_stems: 'Splitting 6 Stems...',
               transcribing: arrangementMode === 'full-song' ? 'Building Arrangement...' : 'Transcribing Notes...',
-              writing_midi: 'Writing .mid Scroll...'
+              writing_midi: 'Writing .mid & Bundle...'
             };
             setQuestStageUI('running', labelMap[payload.stage] || 'Working...', pct, msg);
           }
@@ -10657,13 +11109,23 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
       }
     });
 
+    const launchNextQueuedJobIfAny = () => {
+      updateQuestQueueUI();
+      if (questJobQueue.length > 0) {
+        const nextJob = questJobQueue.shift();
+        updateQuestQueueUI();
+        setTimeout(() => {
+          runQuestBoardTranscriber({ queuedJob: nextJob });
+        }, 120);
+      }
+    };
+
     child.on('error', (err) => {
       activeQuestChildProcess = null;
-      if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
-      if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
       if (btnSaveSongBundle) btnSaveSongBundle.disabled = false;
       setQuestStageUI('error', 'Spawn Failed', 0, `Could not launch Python: ${err.message}`);
       appendQuestLogLine(`[Error] ${err.message}`);
+      launchNextQueuedJobIfAny();
     });
 
     child.on('close', (code) => {
@@ -10671,8 +11133,6 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
         processOutputLine(stdoutBuffer);
       }
       activeQuestChildProcess = null;
-      if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
-      if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
       if (btnSaveSongBundle) btnSaveSongBundle.disabled = false;
 
       if (code === 0) {
@@ -10680,13 +11140,13 @@ function runQuestBoardTranscriber({ selfTest = false } = {}) {
       } else if (questStatusBadge && !questStatusBadge.classList.contains('stage-error')) {
         setQuestStageUI('error', `Exited (${code})`, 0, `Transcriber exited with code ${code}. Check console log below.`);
       }
+      launchNextQueuedJobIfAny();
     });
   } catch (err) {
     activeQuestChildProcess = null;
-    if (btnRunQuestUrl) btnRunQuestUrl.disabled = false;
-    if (btnRunQuestSelfTest) btnRunQuestSelfTest.disabled = false;
     if (btnSaveSongBundle) btnSaveSongBundle.disabled = false;
     setQuestStageUI('error', 'Failed', 0, `Failed to start Python transcriber: ${err.message}`);
+    updateQuestQueueUI();
   }
 }
 

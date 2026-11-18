@@ -13,6 +13,7 @@ const path = require('path');
 const BUNDLE_STORE_FILENAME = 'grimoire_bundles.json';
 const BACKING_AUDIO_EXTS = ['.wav', '.mp3', '.ogg', '.m4a', '.flac'];
 const SHEET_REF_EXTS = ['.musicxml', '.mxl', '.xml', '.pdf'];
+const STEM_NAMES = ['piano', 'drums', 'bass', 'vocals', 'guitar', 'other'];
 
 const MIN_OFFSET_SEC = -30.0;
 const MAX_OFFSET_SEC = 30.0;
@@ -20,6 +21,47 @@ const MIN_TEMPO_RATIO = 0.85;
 const MAX_TEMPO_RATIO = 1.15;
 const MIN_TRANSPOSE_SEMITONES = -12;
 const MAX_TRANSPOSE_SEMITONES = 12;
+
+function createDefaultStemMix() {
+  return {
+    piano: { muted: true, solo: false },
+    drums: { muted: false, solo: false },
+    bass: { muted: false, solo: false },
+    vocals: { muted: false, solo: false },
+    guitar: { muted: false, solo: false },
+    other: { muted: false, solo: false }
+  };
+}
+
+function normalizeStemMix(rawMix) {
+  const defaults = createDefaultStemMix();
+  if (!rawMix || typeof rawMix !== 'object') return defaults;
+  const out = {};
+  for (const stem of STEM_NAMES) {
+    const item = rawMix[stem];
+    if (item && typeof item === 'object') {
+      out[stem] = {
+        muted: typeof item.muted === 'boolean' ? item.muted : defaults[stem].muted,
+        solo: Boolean(item.solo)
+      };
+    } else {
+      out[stem] = { ...defaults[stem] };
+    }
+  }
+  return out;
+}
+
+function isStemAudibleInMix(stemName, stemMix = null, backingBandEnabled = true) {
+  if (!backingBandEnabled) return false;
+  const mix = normalizeStemMix(stemMix);
+  const target = mix[stemName];
+  if (!target) return false;
+  const anySolo = STEM_NAMES.some((s) => Boolean(mix[s]?.solo));
+  if (anySolo) {
+    return Boolean(target.solo);
+  }
+  return !target.muted;
+}
 
 function clampTransposeSemitones(value) {
   const num = Number(value);
@@ -158,6 +200,37 @@ function findSiblingAsset(notesFilePath, exts, excludeSelf = false) {
   return null;
 }
 
+function findSiblingStemsMap(notesFilePath) {
+  if (!notesFilePath || notesFilePath === 'BUILTIN_DEMO') return null;
+  try {
+    const dir = path.dirname(notesFilePath);
+    const base = path.basename(notesFilePath).replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
+    const stemsDirCandidates = [
+      path.join(dir, `${base}_stems`),
+      path.join(dir, 'stems', base)
+    ];
+    for (const stemsDir of stemsDirCandidates) {
+      if (!fs.existsSync(stemsDir) || !fs.statSync(stemsDir).isDirectory()) continue;
+      const found = {};
+      for (const stem of STEM_NAMES) {
+        for (const ext of BACKING_AUDIO_EXTS) {
+          const candidate = path.join(stemsDir, `${stem}${ext}`);
+          if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+            found[stem] = candidate;
+            break;
+          }
+        }
+      }
+      if (Object.keys(found).length > 0) {
+        return found;
+      }
+    }
+  } catch {
+    // Ignore sibling stems check error
+  }
+  return null;
+}
+
 /**
  * Resolve bundle metadata and asset paths for any Grimoire song.
  * Priority: grimoire_bundles.json (by notesPath or songId) > <Base>.bundle.json sidecar > sibling file matching.
@@ -266,6 +339,32 @@ function resolveBundleForSong({
     }
   }
 
+  let stems = null;
+  if (!audioUnlinked) {
+    const resolvedStems = {};
+    for (const stemName of STEM_NAMES) {
+      for (const src of orderedSources) {
+        const rawStemPath = src.rec?.stems?.[stemName];
+        const existingStemPath = pickExistingPath(rawStemPath, src.dir);
+        if (existingStemPath) {
+          resolvedStems[stemName] = existingStemPath;
+          break;
+        }
+      }
+    }
+    if (Object.keys(resolvedStems).length === 0 && filePath && !isDemoFile) {
+      const siblingStems = findSiblingStemsMap(filePath);
+      if (siblingStems) {
+        Object.assign(resolvedStems, siblingStems);
+      }
+    }
+    if (Object.keys(resolvedStems).length > 0) {
+      stems = resolvedStems;
+    }
+  }
+
+  const stemMix = normalizeStemMix(record?.stemMix ?? fallbackRecord?.stemMix ?? null);
+
   let sheetMusicPath = null;
   if (!sheetUnlinked) {
     for (const src of orderedSources) {
@@ -306,6 +405,8 @@ function resolveBundleForSong({
     notesPath: resolvedNotesPath,
     sheetMusicPath: sheetMusicPath || null,
     backingAudioPath: backingAudioPath || null,
+    stems: stems || null,
+    stemMix,
     audioUnlinked,
     sheetUnlinked,
     youtubeUrl: youtubeUrl || null,
@@ -318,6 +419,7 @@ function resolveBundleForSong({
     hasCustomBundle: Boolean(
       sheetMusicPath ||
       backingAudioPath ||
+      stems ||
       audioUnlinked ||
       sheetUnlinked ||
       youtubeUrl ||
@@ -361,7 +463,26 @@ function saveBundleRecord({
     ? toPortablePath(record.backingAudioPath, baseDir)
     : (existing.backingAudioPath || null);
 
-  const nextAudioUnlinked = nextAudioPath
+  let nextStems = existing.stems || null;
+  if (record.stems !== undefined) {
+    if (record.stems && typeof record.stems === 'object') {
+      const portableMap = {};
+      for (const stemName of STEM_NAMES) {
+        if (record.stems[stemName]) {
+          portableMap[stemName] = toPortablePath(record.stems[stemName], baseDir);
+        }
+      }
+      nextStems = Object.keys(portableMap).length > 0 ? portableMap : null;
+    } else {
+      nextStems = null;
+    }
+  }
+
+  const nextStemMix = record.stemMix !== undefined
+    ? normalizeStemMix(record.stemMix)
+    : (existing.stemMix ? normalizeStemMix(existing.stemMix) : undefined);
+
+  const nextAudioUnlinked = (nextAudioPath || nextStems)
     ? false
     : (record.audioUnlinked !== undefined ? Boolean(record.audioUnlinked) : Boolean(existing.audioUnlinked));
   const nextSheetUnlinked = nextSheetPath
@@ -376,6 +497,8 @@ function saveBundleRecord({
     notesPath: portableNotes || existing.notesPath || null,
     sheetMusicPath: nextSheetPath,
     backingAudioPath: nextAudioPath,
+    stems: nextStems,
+    stemMix: nextStemMix,
     audioUnlinked: nextAudioUnlinked,
     sheetUnlinked: nextSheetUnlinked,
     youtubeUrl: record.youtubeUrl !== undefined
@@ -410,6 +533,15 @@ function saveBundleRecord({
 
     if (sidecarPath && (writeSidecar || inImportsDir || hasSidecarAlready)) {
       const sidecarDir = path.dirname(sidecarPath);
+      let sidecarStems = null;
+      if (nextEntry.stems && typeof nextEntry.stems === 'object') {
+        sidecarStems = {};
+        for (const stemName of STEM_NAMES) {
+          if (nextEntry.stems[stemName]) {
+            sidecarStems[stemName] = toPortablePath(fromPortablePath(nextEntry.stems[stemName], baseDir), sidecarDir);
+          }
+        }
+      }
       const sidecarPayload = {
         version: 1,
         title: nextEntry.title,
@@ -420,6 +552,8 @@ function saveBundleRecord({
         backingAudioPath: nextEntry.backingAudioPath
           ? toPortablePath(fromPortablePath(nextEntry.backingAudioPath, baseDir), sidecarDir)
           : null,
+        stems: sidecarStems,
+        stemMix: nextEntry.stemMix,
         audioUnlinked: nextEntry.audioUnlinked,
         sheetUnlinked: nextEntry.sheetUnlinked,
         youtubeUrl: nextEntry.youtubeUrl,
@@ -568,6 +702,11 @@ module.exports = {
   BUNDLE_STORE_FILENAME,
   BACKING_AUDIO_EXTS,
   SHEET_REF_EXTS,
+  STEM_NAMES,
+  createDefaultStemMix,
+  normalizeStemMix,
+  isStemAudibleInMix,
+  findSiblingStemsMap,
   clampAudioOffsetSec,
   clampAudioTempoRatio,
   clampTransposeSemitones,

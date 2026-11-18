@@ -261,6 +261,12 @@
 
       <!-- Right: Compact MIDI Status Pill & Audio/Keys Settings Popover -->
       <div class="hud-controls">
+        <!-- Issue #41: Background Quest Board Job Status Pill -->
+        <button id="hud-quest-bg-pill" type="button" class="status-pill hud-quest-bg-pill hidden" title="Quest Board background transcription / stem separation progress (Click to open Quest Board)">
+          <span class="status-dot quest-bg-dot"></span>
+          <span id="hud-quest-bg-text">Quest: 0%</span>
+        </button>
+
         <div id="midi-status-pill" class="status-pill status-waiting" title="Physical Web MIDI Controller Status">
           <span class="status-dot"></span>
           <span id="midi-status-text">MIDI: Scanning...</span>
@@ -508,6 +514,61 @@
               </div>
             </div>
 
+            <!-- Issue #41: 6-Stem Play-Along Mixer (Shown when song bundle has separated stems) -->
+            <div id="stem-mixer-section" class="sync-control-section stem-mixer-section hidden">
+              <div class="popover-divider"></div>
+              <div class="sync-label-row stem-mixer-header-row">
+                <span class="sync-field-label">&#127898; 6-Stem Play-Along Mixer</span>
+                <button id="btn-stem-mix-reset" type="button" class="btn-mini-sim" title="Reset stem mix to Play-Along default (Mute Piano, unmute Backing Stems)">
+                  Mute Piano Default
+                </button>
+              </div>
+              <div id="stem-mixer-grid" class="stem-mixer-grid" role="group" aria-label="6-Stem Mute and Solo Mixer">
+                <div class="stem-mixer-row" data-stem="piano">
+                  <span class="stem-mixer-name">&#127929; Piano</span>
+                  <div class="stem-mixer-btns">
+                    <button type="button" class="tavern-btn btn-stem-mute" data-stem-mute="piano" title="Mute / Unmute Piano Stem">M</button>
+                    <button type="button" class="tavern-btn btn-stem-solo" data-stem-solo="piano" title="Solo Piano Stem">S</button>
+                  </div>
+                </div>
+                <div class="stem-mixer-row" data-stem="drums">
+                  <span class="stem-mixer-name">&#129345; Drums</span>
+                  <div class="stem-mixer-btns">
+                    <button type="button" class="tavern-btn btn-stem-mute" data-stem-mute="drums" title="Mute / Unmute Drums Stem">M</button>
+                    <button type="button" class="tavern-btn btn-stem-solo" data-stem-solo="drums" title="Solo Drums Stem">S</button>
+                  </div>
+                </div>
+                <div class="stem-mixer-row" data-stem="bass">
+                  <span class="stem-mixer-name">&#127928; Bass</span>
+                  <div class="stem-mixer-btns">
+                    <button type="button" class="tavern-btn btn-stem-mute" data-stem-mute="bass" title="Mute / Unmute Bass Stem">M</button>
+                    <button type="button" class="tavern-btn btn-stem-solo" data-stem-solo="bass" title="Solo Bass Stem">S</button>
+                  </div>
+                </div>
+                <div class="stem-mixer-row" data-stem="vocals">
+                  <span class="stem-mixer-name">&#127908; Vocals</span>
+                  <div class="stem-mixer-btns">
+                    <button type="button" class="tavern-btn btn-stem-mute" data-stem-mute="vocals" title="Mute / Unmute Vocals Stem">M</button>
+                    <button type="button" class="tavern-btn btn-stem-solo" data-stem-solo="vocals" title="Solo Vocals Stem">S</button>
+                  </div>
+                </div>
+                <div class="stem-mixer-row" data-stem="guitar">
+                  <span class="stem-mixer-name">&#127928; Guitar</span>
+                  <div class="stem-mixer-btns">
+                    <button type="button" class="tavern-btn btn-stem-mute" data-stem-mute="guitar" title="Mute / Unmute Guitar Stem">M</button>
+                    <button type="button" class="tavern-btn btn-stem-solo" data-stem-solo="guitar" title="Solo Guitar Stem">S</button>
+                  </div>
+                </div>
+                <div class="stem-mixer-row" data-stem="other">
+                  <span class="stem-mixer-name">&#127931; Other</span>
+                  <div class="stem-mixer-btns">
+                    <button type="button" class="tavern-btn btn-stem-mute" data-stem-mute="other" title="Mute / Unmute Other Stem">M</button>
+                    <button type="button" class="tavern-btn btn-stem-solo" data-stem-solo="other" title="Solo Other Stem">S</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div id="sync-status-hint" class="sync-status-hint">
               Listen &amp; tap Mark Beat 1, or click Auto-Align. Calibration saves per song bundle.
             </div>
@@ -600,6 +661,20 @@
         <button id="btn-rhythm-mode" type="button" class="tavern-btn btn-rhythm-mode" aria-pressed="false" title="Rhythm Practice Mode: notes fall continuously in time with Perfect / Great / Good timing judgment">
           &#129345; Rhythm: <span id="rhythm-mode-state">OFF</span>
         </button>
+
+        <!-- Issue #42: Multi-Instrument Highway Selector -->
+        <div class="control-group" title="Switch which instrument's notes fall on the 61-key Spell Highway and auto-mute its stem for live play-along">
+          <label for="highway-instrument-select">Highway</label>
+          <select id="highway-instrument-select" class="tavern-select instrument-highway-select" disabled>
+            <option value="instrument-piano" selected>&#127929; Piano Highway</option>
+            <option value="full-song-arrangement">&#127908; Full-Song Arrangement</option>
+            <option value="instrument-bass">&#127928; Bass Highway</option>
+            <option value="instrument-drums">&#129345; Drum Kit Highway</option>
+            <option value="instrument-guitar">&#127928; Guitar Highway</option>
+            <option value="instrument-vocals">&#127908; Vocal Lead Highway</option>
+            <option value="instrument-other">&#127931; Synth / Other Highway</option>
+          </select>
+        </div>
 
         <!-- Issue #20: Unified 1-Click Practice Hand Selector -->
         <div class="control-group" title="Choose which hand(s) you play and whether the other hand auto-plays or mutes">
@@ -1136,12 +1211,18 @@
 
           <div class="quest-input-grid">
             <div class="quest-field-wrap quest-field-url">
-              <label for="quest-youtube-url">Paste YouTube Video URL (or local <code>.wav</code> / <code>.mp3</code> path)</label>
+              <div class="quest-label-row">
+                <label for="quest-youtube-url">Paste YouTube Video URL (or local <code>.wav</code> / <code>.mp3</code> path)</label>
+                <button id="btn-quest-pick-local-audio" type="button" class="btn-mini-sim" title="Browse for a local .wav, .mp3, .m4a, .ogg, or .flac audio file">
+                  &#128194; Pick Local Audio
+                </button>
+                <input id="quest-local-audio-input" type="file" accept=".wav,.mp3,.ogg,.m4a,.flac" class="hidden" />
+              </div>
               <input
                 id="quest-youtube-url"
                 type="text"
                 class="quest-text-input"
-                placeholder="https://www.youtube.com/watch?v=... (or click ⚡ Run ML Self-Test below)"
+                placeholder="https://www.youtube.com/watch?v=... or local audio file path"
               />
             </div>
             <div class="quest-field-wrap quest-field-title">
@@ -1155,12 +1236,23 @@
             </div>
           </div>
 
+          <!-- Issue #41 & #42: 6-Stem Demucs Separation & Multi-Instrument Highway Toggle -->
+          <div class="quest-stems-option-row">
+            <label for="quest-split-stems-checkbox" class="quest-stem-toggle-label" title="Separate audio into 6 stems (Piano, Drums, Bass, Vocals, Guitar, Other) with Piano muted by default for live play-along, plus Multi-Instrument Highway charts">
+              <input id="quest-split-stems-checkbox" type="checkbox" checked />
+              <span>&#127898; <strong>Split 6 Audio Stems (Demucs Play-Along &amp; Multi-Instrument Highways)</strong> &mdash; Mutes original piano stem so you play live over real Drums, Bass, Vocals &amp; Guitar</span>
+            </label>
+          </div>
+
           <div class="quest-action-row">
-            <button id="btn-run-quest-url" class="tavern-btn tavern-btn-cast quest-btn-main" title="Download YouTube audio and transcribe into ./Imports using the selected mode">
+            <button id="btn-run-quest-url" class="tavern-btn tavern-btn-cast quest-btn-main" title="Download YouTube or local audio, split stems, and transcribe into ./Imports">
               &#128302; Transcribe (Piano Cover)
             </button>
-            <button id="btn-run-quest-selftest" class="tavern-btn btn-gold-outline" title="Synthesize a polyphonic test audio track and run the Python ML pipeline right now">
+            <button id="btn-run-quest-selftest" class="tavern-btn btn-gold-outline" title="Synthesize a polyphonic test audio track and run the Python ML + 6-stem pipeline right now">
               &#9889; Run ML Self-Test (2s)
+            </button>
+            <button id="btn-quest-run-background" type="button" class="tavern-btn hidden" title="Close the Quest Board and continue processing queued jobs in the background while you practice">
+              &#127939; Practice While Processing
             </button>
             <button id="btn-quest-switch-to-bundle" type="button" class="tavern-btn" title="Already have a clean .mid or .musicxml file? Pair it with backing audio in Bundle Mode">
               &#128279; Have a MIDI? Use Bundle Mode
@@ -1176,6 +1268,7 @@
           <div class="quest-progress-labels">
             <span id="quest-progress-message">Ready to create a Clean Song Bundle or transcribe audio into ./Imports.</span>
             <div class="quest-progress-right">
+              <span id="quest-queue-badge" class="quest-stage-pill hidden" title="Queued Quest Board transcription jobs">Queue: 0</span>
               <span id="quest-status-badge" class="quest-stage-pill stage-idle">Idle &bull; Ready</span>
               <strong id="quest-progress-pct">0%</strong>
             </div>

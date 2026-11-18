@@ -73,11 +73,18 @@ def _encode_vlq(value: int) -> bytes:
     return bytes(buffer)
 
 
-def _build_midi_track_chunk(events: list, track_name: str = "Piano", program: int = 0, bpm: int = None) -> bytes:
+def _build_midi_track_chunk(
+    events: list,
+    track_name: str = "Piano",
+    program: int = 0,
+    bpm: int = None,
+    channel: int = 0,
+) -> bytes:
     """
     Build a complete MTrk chunk from a list of (tick, status_byte, data1, data2) events.
     """
     body = bytearray()
+    ch = max(0, min(15, int(channel)))
 
     # Meta Event: Track Name (FF 03)
     name_bytes = track_name.encode("utf-8", errors="ignore")[:64]
@@ -93,9 +100,9 @@ def _build_midi_track_chunk(events: list, track_name: str = "Piano", program: in
         body.extend(b"\xFF\x51\x03")
         body.extend(struct.pack(">I", mpqn)[1:])
 
-    # Program Change (C0 program) -> Acoustic Grand Piano (0)
+    # Program Change (Cn program)
     body.extend(_encode_vlq(0))
-    body.extend(bytes([0xC0, program & 0x7F]))
+    body.extend(bytes([0xC0 | ch, program & 0x7F]))
 
     # Sort events by (tick, priority: NoteOff before NoteOn at same tick)
     events_sorted = sorted(events, key=lambda e: (e[0], 0 if (e[1] & 0xF0) == 0x80 else 1, e[2]))
@@ -105,7 +112,8 @@ def _build_midi_track_chunk(events: list, track_name: str = "Piano", program: in
         delta = max(0, int(tick) - last_tick)
         last_tick = max(last_tick, int(tick))
         body.extend(_encode_vlq(delta))
-        body.extend(bytes([status & 0xFF, max(0, min(127, int(d1))), max(0, min(127, int(d2)))]))
+        status_with_ch = (int(status) & 0xF0) | ch
+        body.extend(bytes([status_with_ch & 0xFF, max(0, min(127, int(d1))), max(0, min(127, int(d2)))]))
 
     # Meta Event: End of Track (FF 2F 00)
     body.extend(_encode_vlq(48))
@@ -119,12 +127,15 @@ def write_standard_midi_file(
     notes: list,
     song_title: str = "Transcribed Spell",
     bpm: int = 120,
-    ppq: int = 480
+    ppq: int = 480,
+    stem_tracks: dict = None,
 ):
     """
     Write a multi-track Standard MIDI File (Format 1) splitting notes into:
     - Track 1: Piano Right Hand (Lead — MIDI >= 60)
     - Track 2: Piano Left Hand (Accompaniment — MIDI < 60)
+    - Optional Tracks 3+: Named per-stem tracks (`Stem: Bass`, `Stem: Drums`, `Stem: Guitar`, `Stem: Vocals`, `Stem: Other`)
+      for Issue #42 Multi-Instrument Highways.
     Each note in `notes` is a dict: {"midi": int, "start": float, "duration": float, "velocity": int}
     """
     ticks_per_sec = (bpm / 60.0) * ppq
@@ -155,11 +166,43 @@ def write_standard_midi_file(
 
     tracks = []
     if rh_events:
-        tracks.append(_build_midi_track_chunk(rh_events, f"{song_title}", program=0, bpm=bpm))
+        tracks.append(_build_midi_track_chunk(rh_events, f"{song_title}", program=0, bpm=bpm, channel=0))
         if lh_events:
-            tracks.append(_build_midi_track_chunk(lh_events, f"{song_title} - Piano LH", program=0, bpm=None))
+            tracks.append(_build_midi_track_chunk(lh_events, f"{song_title} - Piano LH", program=0, bpm=None, channel=0))
     else:
-        tracks.append(_build_midi_track_chunk(lh_events, f"{song_title} - Piano LH", program=0, bpm=bpm))
+        tracks.append(_build_midi_track_chunk(lh_events, f"{song_title} - Piano LH", program=0, bpm=bpm, channel=0))
+
+    # Issue #42: Append dedicated instrument stem tracks when 6-stem separation is active
+    if stem_tracks and isinstance(stem_tracks, dict):
+        stem_meta = [
+            ("bass", "Stem: Bass", 33, 1),
+            ("drums", "Stem: Drums", 0, 9),
+            ("guitar", "Stem: Guitar", 27, 2),
+            ("vocals", "Stem: Vocals", 52, 3),
+            ("other", "Stem: Other", 81, 4),
+        ]
+        for stem_key, track_label, prog, ch in stem_meta:
+            stem_note_list = stem_tracks.get(stem_key) or []
+            if not stem_note_list:
+                continue
+            stem_events = []
+            for sn in stem_note_list:
+                sp = max(24, min(108, int(sn["midi"])))
+                st = max(0, int(round(float(sn["start"]) * ticks_per_sec)))
+                dt = max(36, int(round(max(0.06, float(sn["duration"])) * ticks_per_sec)))
+                sv = max(40, min(122, int(sn.get("velocity", 90))))
+                stem_events.append((st, 0x90, sp, sv))
+                stem_events.append((st + dt, 0x80, sp, 0))
+            if stem_events:
+                tracks.append(
+                    _build_midi_track_chunk(
+                        stem_events,
+                        track_name=track_label,
+                        program=prog,
+                        bpm=None,
+                        channel=ch,
+                    )
+                )
 
     header = b"MThd" + struct.pack(">IHHH", 6, 1, len(tracks), ppq)
     with open(output_midi_path, "wb") as f:
@@ -425,11 +468,12 @@ def try_basic_pitch_transcription(
     output_midi_path: Path,
     song_title: str = "Transcribed Spell",
     arrangement_mode: str = "piano-cover",
+    stem_tracks: dict = None,
 ) -> bool:
     """
     Run Spotify's `basic-pitch` neural network (`nmp.onnx` via ONNXRuntime) on a decoded .wav file,
     clean or arrange the extracted polyphonic note events for 61-key piano playability, and write a 2-track
-    Standard MIDI File (Track 1 = RH Gold, Track 2 = LH Blue).
+    Standard MIDI File (Track 1 = RH Gold, Track 2 = LH Blue) plus optional stem tracks.
     """
     try:
         from basic_pitch.inference import predict, Model
@@ -491,6 +535,7 @@ def try_basic_pitch_transcription(
             final_notes,
             song_title=song_title,
             bpm=detected_bpm,
+            stem_tracks=stem_tracks,
         )
         return output_midi_path.exists()
     except Exception as exc:
@@ -563,18 +608,16 @@ def read_wav_mono_float(wav_path: Path, max_seconds: float = 180.0):
     return samples, framerate
 
 
-def transcribe_wav_polyphonic_dsp(
+def extract_notes_from_wav_dsp(
     wav_path: Path,
-    output_midi_path: Path,
-    song_title: str,
-    arrangement_mode: str = "piano-cover",
+    pitch_min: int = 36,
+    pitch_max: int = 96,
+    max_polyphony: int = 4,
 ):
     """
-    Polyphonic spectral peak-tracking audio-to-MIDI transcriber across the 61-key range (MIDI 36..96).
-    Uses `numpy` real FFT when available, or pure-Python Goertzel spectral energy detection if numpy is absent.
+    Extract note events `[{"midi", "start", "duration", "velocity"}]` and estimated BPM
+    from a mono PCM WAV file across `[pitch_min..pitch_max]`.
     """
-    mode_label = "Full-Song Piano Arrangement" if arrangement_mode == "full-song" else "Piano Cover"
-    log_status("transcribing", f"Analyzing polyphonic harmonic spectrum ({mode_label} mode, C2–C7)...", 65)
     samples, sr = read_wav_mono_float(wav_path)
     total_duration = len(samples) / float(max(1, sr))
 
@@ -585,18 +628,16 @@ def transcribe_wav_polyphonic_dsp(
 
     num_frames = max(1, len(samples) // win_size)
 
-    # Precompute frequencies for MIDI 36 (C2) to 96 (C7)
-    midi_pitches = list(range(36, 97))
+    midi_pitches = list(range(pitch_min, pitch_max + 1))
     midi_freqs = {m: 440.0 * (2.0 ** ((m - 69) / 12.0)) for m in midi_pitches}
 
-    # Check if numpy is installed for ultra-fast FFT
     try:
         import numpy as np
         has_numpy = True
     except ImportError:
         has_numpy = False
 
-    active_tracks = {}  # midi -> {"start": float, "last_seen": float, "peak_amp": float}
+    active_tracks = {}
     extracted_notes = []
 
     for frame_idx in range(num_frames):
@@ -611,7 +652,7 @@ def transcribe_wav_polyphonic_dsp(
         if has_numpy:
             arr = np.asarray(chunk, dtype=np.float32)
             rms = float(np.sqrt(np.mean(arr * arr)))
-            if rms > 0.015:
+            if rms > 0.012:
                 windowed = arr * np.hanning(len(arr))
                 spec = np.abs(np.fft.rfft(windowed))
                 freqs = np.fft.rfftfreq(len(arr), d=1.0 / sr)
@@ -621,21 +662,17 @@ def transcribe_wav_polyphonic_dsp(
                     f0 = midi_freqs[m]
                     idx = int(np.argmin(np.abs(freqs - f0)))
                     mag = float(spec[idx])
-                    # Subtract harmonic bleed from 1 octave below if strong
                     pitch_scores.append((mag, m))
 
                 pitch_scores.sort(reverse=True)
                 top_mag = pitch_scores[0][0] if pitch_scores else 0.0
-                if top_mag > 0.5:
-                    # Keep up to 3 strongest simultaneous pitches (treble + bass)
-                    for mag, m in pitch_scores[:4]:
+                if top_mag > 0.35:
+                    for mag, m in pitch_scores[:max_polyphony]:
                         if mag >= top_mag * 0.42:
                             frame_pitches.append((m, min(115, max(50, int(60 + rms * 180)))))
         else:
-            # Pure-Python Goertzel energy detector across full 61-key range (MIDI 36..96)
             rms = math.sqrt(sum(x * x for x in chunk) / len(chunk))
-            if rms > 0.018:
-                # Boxcar-average by 2x when sample rate > 16kHz (Nyquist >= 11kHz > C7=2093Hz)
+            if rms > 0.015:
                 if sr > 16000 and len(chunk) >= 4:
                     sub = [(chunk[i] + chunk[i + 1]) * 0.5 for i in range(0, len(chunk) - 1, 2)]
                     sub_sr = sr / 2.0
@@ -651,7 +688,7 @@ def transcribe_wav_polyphonic_dsp(
                 else:
                     windowed_sub = sub
                 pitch_scores = []
-                for m in range(36, 97):
+                for m in midi_pitches:
                     f0 = midi_freqs[m]
                     if f0 >= sub_sr * 0.45:
                         continue
@@ -669,14 +706,13 @@ def transcribe_wav_polyphonic_dsp(
 
                 pitch_scores.sort(reverse=True)
                 top_pow = pitch_scores[0][0] if pitch_scores else 0.0
-                if top_pow > 0.05:
-                    for pwr, m in pitch_scores[:3]:
+                if top_pow > 0.03:
+                    for pwr, m in pitch_scores[: max(1, min(3, max_polyphony))]:
                         if pwr >= top_pow * 0.45:
                             frame_pitches.append((m, min(115, max(55, int(65 + rms * 160)))))
 
         current_midi_set = {m for m, _ in frame_pitches}
 
-        # Close notes that ended
         for m in list(active_tracks.keys()):
             if m not in current_midi_set:
                 info = active_tracks.pop(m)
@@ -689,7 +725,6 @@ def transcribe_wav_polyphonic_dsp(
                         "velocity": info["velocity"],
                     })
 
-        # Start or extend active notes
         for m, vel in frame_pitches:
             if m not in active_tracks:
                 active_tracks[m] = {
@@ -700,7 +735,6 @@ def transcribe_wav_polyphonic_dsp(
             else:
                 active_tracks[m]["last_seen"] = t_sec
 
-    # Flush remaining active notes
     for m, info in active_tracks.items():
         dur = max(hop_sec, total_duration - info["start"])
         extracted_notes.append({
@@ -725,18 +759,267 @@ def transcribe_wav_polyphonic_dsp(
                 raw_bpm /= 2.0
             estimated_bpm = max(55, min(200, int(round(raw_bpm))))
 
+    return extracted_notes, estimated_bpm
+
+
+def transcribe_wav_polyphonic_dsp(
+    wav_path: Path,
+    output_midi_path: Path,
+    song_title: str,
+    arrangement_mode: str = "piano-cover",
+    stem_tracks: dict = None,
+):
+    """
+    Polyphonic spectral peak-tracking audio-to-MIDI transcriber across the 61-key range (MIDI 36..96).
+    Uses `numpy` real FFT when available, or pure-Python Goertzel spectral energy detection if numpy is absent.
+    """
+    mode_label = "Full-Song Piano Arrangement" if arrangement_mode == "full-song" else "Piano Cover"
+    log_status("transcribing", f"Analyzing polyphonic harmonic spectrum ({mode_label} mode, C2–C7)...", 65)
+    extracted_notes, estimated_bpm = extract_notes_from_wav_dsp(wav_path, 36, 96, 4)
+
     if arrangement_mode == "full-song":
         final_notes = build_full_song_arrangement(extracted_notes, bpm=estimated_bpm)
     else:
         final_notes = extracted_notes
 
-    mode_label = "Full-Song Piano Arrangement" if arrangement_mode == "full-song" else "Piano Cover"
     log_status(
         "writing_midi",
         f"Extracted {len(final_notes)} playable notes in {mode_label} mode ({estimated_bpm} BPM). Writing Standard MIDI File...",
         85,
     )
-    write_standard_midi_file(output_midi_path, final_notes, song_title=song_title, bpm=estimated_bpm)
+    write_standard_midi_file(
+        output_midi_path,
+        final_notes,
+        song_title=song_title,
+        bpm=estimated_bpm,
+        stem_tracks=stem_tracks,
+    )
+
+
+# ============================================================================
+# ISSUE #41 & #42: 6-STEM SEPARATION (HTDEMUCS_6S + SPECTRAL DSP FALLBACK)
+# ============================================================================
+
+CANONICAL_STEMS = ("piano", "drums", "bass", "vocals", "guitar", "other")
+
+
+def _write_mono_float_wav(wav_path: Path, samples, sr: int):
+    with wave.open(str(wav_path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(int(sr))
+        frames = bytearray()
+        for x in samples:
+            clamped = max(-0.98, min(0.98, float(x)))
+            frames.extend(struct.pack("<h", int(clamped * 32767)))
+        wf.writeframes(bytes(frames))
+
+
+def separate_audio_into_6_stems(source_wav: Path, stems_dir: Path, tmp_dir: Path) -> dict:
+    """
+    Issue #41: Separate input audio into 6 synced stems (`piano`, `drums`, `bass`, `vocals`, `guitar`, `other`)
+    inside `stems_dir`.
+    1. Tries `demucs -n htdemucs_6s` when Demucs is installed in the Python environment, streaming real-time
+       progress (`stage="splitting_stems"`).
+    2. Falls back to a deterministic spectral/transient 6-band separator (`numpy` FFT or pure-Python band filters)
+       so CPU-only setups and `--self-test` always produce a complete 6-stem directory.
+    Returns dict mapping stem_name -> Path.
+    """
+    stems_dir.mkdir(parents=True, exist_ok=True)
+    log_status("splitting_stems", "Starting 6-stem separation (drums, bass, vocals, guitar, piano, other)...", 28)
+
+    # 1. Try Demucs (`htdemucs_6s`) subprocess if installed
+    demucs_out = tmp_dir / "demucs_out"
+    try:
+        import importlib.util
+        has_demucs = importlib.util.find_spec("demucs") is not None
+    except Exception:
+        has_demucs = False
+
+    if has_demucs:
+        log_status("splitting_stems", "Running Demucs htdemucs_6s neural stem separation...", 32)
+        cmd = [
+            sys.executable,
+            "-m",
+            "demucs.separate",
+            "-n",
+            "htdemucs_6s",
+            "-o",
+            str(demucs_out),
+            str(source_wav),
+        ]
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            for line in proc.stdout:
+                m = re.search(r"(\d{1,3})%\|", line)
+                if m:
+                    pct = max(0, min(100, int(m.group(1))))
+                    scaled = 32 + int(pct * 0.22)
+                    log_status("splitting_stems", f"Demucs htdemucs_6s separating stems ({pct}%)...", scaled)
+            proc.wait()
+            if proc.returncode == 0:
+                model_dir = demucs_out / "htdemucs_6s" / source_wav.stem
+                if model_dir.exists():
+                    resolved = {}
+                    for stem_name in CANONICAL_STEMS:
+                        cand = model_dir / f"{stem_name}.wav"
+                        if cand.exists():
+                            dest = stems_dir / f"{stem_name}.wav"
+                            shutil.copy2(cand, dest)
+                            resolved[stem_name] = dest
+                    if len(resolved) == len(CANONICAL_STEMS):
+                        log_status("splitting_stems", "Demucs 6-stem separation complete!", 54)
+                        return resolved
+        except Exception as exc:
+            log_status("warning", f"Demucs htdemucs_6s fallback triggered: {exc}", 35)
+
+    # 2. Built-in Spectral / Transient 6-Stem Separator Fallback
+    samples, sr = read_wav_mono_float(source_wav, max_seconds=240.0)
+    n_samples = len(samples)
+    if n_samples == 0:
+        raise RuntimeError("Source WAV is empty; cannot separate stems.")
+
+    try:
+        import numpy as np
+        arr = np.asarray(samples, dtype=np.float32)
+        spec = np.fft.rfft(arr)
+        freqs = np.fft.rfftfreq(n_samples, d=1.0 / sr)
+
+        # Band definitions + percussive envelope for drums
+        bass_mask = (freqs >= 28.0) & (freqs < 210.0)
+        guitar_mask = (freqs >= 190.0) & (freqs < 950.0)
+        piano_mask = (freqs >= 130.0) & (freqs <= 2200.0)
+        vocals_mask = (freqs >= 260.0) & (freqs <= 3400.0)
+        other_mask = (freqs >= 900.0) | (freqs < 60.0)
+
+        stem_specs = {
+            "bass": spec * bass_mask,
+            "piano": spec * piano_mask * 0.85,
+            "guitar": spec * guitar_mask * 0.75,
+            "vocals": spec * vocals_mask * 0.80,
+            "other": spec * other_mask * 0.65,
+        }
+        resolved = {}
+        for idx, (stem_name, s_spec) in enumerate(stem_specs.items()):
+            pct = 35 + int(((idx + 1) / 6.0) * 18)
+            log_status("splitting_stems", f"Separating {stem_name} stem ({idx + 1}/6)...", pct)
+            y = np.fft.irfft(s_spec, n=n_samples)
+            dest = stems_dir / f"{stem_name}.wav"
+            _write_mono_float_wav(dest, y.tolist(), sr)
+            resolved[stem_name] = dest
+
+        # Drums stem: high-frequency transient derivative emphasis
+        log_status("splitting_stems", "Separating drums percussive stem (6/6)...", 53)
+        diff = np.diff(arr, prepend=arr[0]) * 2.2
+        drums_y = np.clip(diff, -0.95, 0.95)
+        drums_dest = stems_dir / "drums.wav"
+        _write_mono_float_wav(drums_dest, drums_y.tolist(), sr)
+        resolved["drums"] = drums_dest
+        return resolved
+    except ImportError:
+        # Pure-Python moving-average band splitter when numpy is not installed
+        resolved = {}
+        # Low-pass via short window for bass, mid for piano/vocals/guitar, diff for drums
+        bass_buf = [0.0] * n_samples
+        drums_buf = [0.0] * n_samples
+        piano_buf = [0.0] * n_samples
+        guitar_buf = [0.0] * n_samples
+        vocals_buf = [0.0] * n_samples
+        other_buf = [0.0] * n_samples
+
+        lp_prev = 0.0
+        mid_prev = 0.0
+        alpha_bass = min(0.25, max(0.01, (2.0 * math.pi * 180.0) / max(1.0, float(sr))))
+        alpha_mid = min(0.65, max(0.05, (2.0 * math.pi * 1200.0) / max(1.0, float(sr))))
+
+        for i, x in enumerate(samples):
+            lp_prev = lp_prev + alpha_bass * (x - lp_prev)
+            mid_prev = mid_prev + alpha_mid * (x - mid_prev)
+            hp = x - mid_prev
+            mid_band = mid_prev - lp_prev
+            prev_x = samples[i - 1] if i > 0 else x
+            transient = max(-0.95, min(0.95, (x - prev_x) * 2.2))
+
+            bass_buf[i] = lp_prev * 1.15
+            drums_buf[i] = transient * 0.85 + hp * 0.35
+            piano_buf[i] = mid_band * 0.95 + lp_prev * 0.35
+            vocals_buf[i] = mid_band * 0.85
+            guitar_buf[i] = mid_band * 0.75 + hp * 0.25
+            other_buf[i] = hp * 0.75 + mid_band * 0.25
+
+        stem_arrays = {
+            "piano": piano_buf,
+            "drums": drums_buf,
+            "bass": bass_buf,
+            "vocals": vocals_buf,
+            "guitar": guitar_buf,
+            "other": other_buf,
+        }
+        for idx, (stem_name, buf) in enumerate(stem_arrays.items()):
+            pct = 35 + int(((idx + 1) / 6.0) * 18)
+            log_status("splitting_stems", f"Separating {stem_name} stem ({idx + 1}/6)...", pct)
+            dest = stems_dir / f"{stem_name}.wav"
+            _write_mono_float_wav(dest, buf, sr)
+            resolved[stem_name] = dest
+
+        return resolved
+
+
+def transcribe_separated_stems_for_highways(stems_map: dict) -> dict:
+    """
+    Issue #42: Extract per-instrument note tracks (`bass`, `drums`, `guitar`, `vocals`, `other`)
+    from separated stem WAV files so Multi-Instrument Highways can chart any stem!
+    """
+    stem_tracks = {}
+    if not stems_map:
+        return stem_tracks
+
+    # Register ranges tailored to each instrument
+    stem_ranges = {
+        "bass": (36, 59, 1),
+        "drums": (36, 67, 2),
+        "guitar": (48, 84, 3),
+        "vocals": (55, 84, 1),
+        "other": (48, 88, 3),
+    }
+    for stem_name, (p_min, p_max, poly) in stem_ranges.items():
+        wav_p = stems_map.get(stem_name)
+        if not wav_p or not Path(wav_p).exists():
+            continue
+        try:
+            notes, _ = extract_notes_from_wav_dsp(Path(wav_p), pitch_min=p_min, pitch_max=p_max, max_polyphony=poly)
+            if stem_name == "drums" and notes:
+                # Quantize drum stem transients onto GM-friendly drum kit pitches (36 Kick, 38 Snare, 42 Hat, 45 Tom)
+                mapped_drums = []
+                for idx, n in enumerate(notes):
+                    p = int(n["midi"])
+                    if p < 44:
+                        dp = 36  # Kick
+                    elif p < 52:
+                        dp = 38  # Snare
+                    elif p < 60:
+                        dp = 42  # Closed Hi-Hat
+                    else:
+                        dp = 45  # Tom / Cymbal
+                    mapped_drums.append({
+                        "midi": dp,
+                        "start": n["start"],
+                        "duration": min(0.22, max(0.10, float(n["duration"]))),
+                        "velocity": max(75, min(120, int(n.get("velocity", 96)))),
+                    })
+                stem_tracks[stem_name] = mapped_drums
+            elif notes:
+                stem_tracks[stem_name] = notes
+        except Exception:
+            pass
+
+    return stem_tracks
 
 
 # ============================================================================
@@ -983,6 +1266,11 @@ def main():
         help="Transcription mode (Issue #123): 'piano-cover' (exact piano transcription) or 'full-song' (RH vocal/lead melody + LH chord/bass arrangement)",
     )
     parser.add_argument(
+        "--split-stems",
+        action="store_true",
+        help="Issue #41 & #42: Separate audio into 6 stems (piano, drums, bass, vocals, guitar, other) for real-audio play-along and multi-instrument highways",
+    )
+    parser.add_argument(
         "--audio-only",
         action="store_true",
         help="Download/convert clean backing audio only without running AI MIDI transcription (Song Bundle mode)",
@@ -1034,6 +1322,13 @@ def main():
 
             if args.audio_only:
                 dest_backing_path = save_playable_backing_audio(source_audio_path, output_dir, safe_base, tmp_dir)
+                stems_payload = None
+                if args.split_stems:
+                    pcm_wav = tmp_dir / "decoded_mono.wav"
+                    if convert_audio_to_pcm_wav(source_audio_path, pcm_wav):
+                        stems_dir = output_dir / f"{safe_base}_stems"
+                        stems_map = separate_audio_into_6_stems(pcm_wav, stems_dir, tmp_dir)
+                        stems_payload = {k: str(v) for k, v in stems_map.items()}
                 log_status(
                     "complete",
                     f"Clean Backing Audio ready in Imports/: {dest_backing_path.name}",
@@ -1042,6 +1337,7 @@ def main():
                         "title": title,
                         "midi_path": None,
                         "backing_path": str(dest_backing_path) if dest_backing_path.exists() else None,
+                        "stems": stems_payload,
                         "audio_only": True,
                         "engine": "yt-dlp-audio-only",
                     },
@@ -1071,27 +1367,66 @@ def main():
                 except Exception:
                     pass
 
+            # 2b. Issue #41 & #42: Optional 6-stem separation before MIDI writing
+            stems_map = None
+            stem_tracks = None
+            if args.split_stems and has_pcm_wav:
+                stems_dir = output_dir / f"{safe_base}_stems"
+                stems_map = separate_audio_into_6_stems(pcm_wav, stems_dir, tmp_dir)
+                if arrangement_mode == "piano-cover" and stems_map.get("piano") and Path(stems_map["piano"]).exists():
+                    inference_audio_path = Path(stems_map["piano"])
+                stem_tracks = transcribe_separated_stems_for_highways(stems_map)
+
             # 3. Run Spotify basic-pitch neural network (ONNXRuntime) first
             used_basic_pitch = try_basic_pitch_transcription(
                 inference_audio_path,
                 dest_midi_path,
                 song_title=title,
                 arrangement_mode=arrangement_mode,
+                stem_tracks=stem_tracks,
             )
 
             # 4. Fallback to built-in Polyphonic DSP Transcriber only if basic-pitch is unavailable
             if not used_basic_pitch:
                 if has_pcm_wav:
                     transcribe_wav_polyphonic_dsp(
-                        pcm_wav,
+                        inference_audio_path if Path(inference_audio_path).exists() else pcm_wav,
                         dest_midi_path,
                         song_title=title,
                         arrangement_mode=arrangement_mode,
+                        stem_tracks=stem_tracks,
                     )
                 else:
                     raise RuntimeError(
                         "Could not decode audio stream to PCM WAV (ffmpeg/audioread unavailable or unsupported format)."
                     )
+
+            # 5. Write sidecar <safe_base>.bundle.json when stems were separated so the app auto-links all 6 stems
+            if stems_map:
+                sidecar_path = output_dir / f"{safe_base}.bundle.json"
+                rel_stems = {k: f"{safe_base}_stems/{Path(v).name}" for k, v in stems_map.items()}
+                sidecar_payload = {
+                    "version": 1,
+                    "title": title,
+                    "notesFile": dest_midi_path.name,
+                    "backingAudioPath": dest_backing_path.name if dest_backing_path.exists() else None,
+                    "stems": rel_stems,
+                    "stemMix": {
+                        "piano": {"muted": True, "solo": False},
+                        "drums": {"muted": False, "solo": False},
+                        "bass": {"muted": False, "solo": False},
+                        "vocals": {"muted": False, "solo": False},
+                        "guitar": {"muted": False, "solo": False},
+                        "other": {"muted": False, "solo": False},
+                    },
+                    "audioOffsetSec": 0,
+                    "audioTempoRatio": 1.0,
+                    "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                }
+                try:
+                    sidecar_path.write_text(json.dumps(sidecar_payload, indent=2), encoding="utf-8")
+                except Exception:
+                    pass
 
             log_status(
                 "complete",
@@ -1101,6 +1436,8 @@ def main():
                     "title": title,
                     "midi_path": str(dest_midi_path),
                     "backing_path": str(dest_backing_path) if dest_backing_path.exists() else None,
+                    "stems": {k: str(v) for k, v in stems_map.items()} if stems_map else None,
+                    "split_stems": bool(stems_map),
                     "audio_only": False,
                     "arrangement_mode": arrangement_mode,
                     "engine": "spotify-basic-pitch" if used_basic_pitch else "polyphonic-harmonic-dsp",

@@ -536,11 +536,291 @@ function buildFullSongArrangement(rawNotes = [], bpm = 120) {
   return { rhNotes, lhNotes, allNotes };
 }
 
+/**
+ * Issue #42: Multi-Instrument Highways (v2)
+ * Maps separated stems (`Stem: Bass`, `Stem: Drums`, `Stem: Guitar`, `Stem: Vocals`, `Stem: Other`)
+ * and General MIDI multi-track instruments onto the 61-key Spell Highway (`36..96`).
+ */
+const HIGHWAY_INSTRUMENTS = [
+  { id: 'piano', label: 'Piano', icon: '🎹' },
+  { id: 'bass', label: 'Bass', icon: '🎸' },
+  { id: 'drums', label: 'Drums', icon: '🥁' },
+  { id: 'guitar', label: 'Guitar', icon: '⚡' },
+  { id: 'vocals', label: 'Vocals', icon: '🎤' },
+  { id: 'other', label: 'Synth / Other', icon: '✨' }
+];
+
+function classifyTrackForInstrumentHighway(track) {
+  if (!track || !track.notes || track.notes.length === 0 || isUtilityTrack(track)) return null;
+  const rawName = (track.name || '').trim();
+  const stemMatch = rawName.match(/^stem:\s*(piano|drums|bass|vocals|guitar|other)\b/i);
+  if (stemMatch) {
+    return { instrumentId: stemMatch[1].toLowerCase(), isStemTrack: true };
+  }
+
+  if (track.isPercussion || track.instrument?.percussion || track.channel === 9) {
+    return { instrumentId: 'drums', isStemTrack: false };
+  }
+
+  const comb = `${rawName} ${track.instrumentName || track.instrument?.name || ''} ${track.instrumentFamily || track.instrument?.family || ''}`.toLowerCase();
+  const prog = track.programNumber ?? track.instrument?.number ?? -1;
+
+  if (/drum|percussion|kit|timpani/.test(comb)) {
+    return { instrumentId: 'drums', isStemTrack: false };
+  }
+  if (/bass/.test(comb) || (prog >= 32 && prog <= 39)) {
+    return { instrumentId: 'bass', isStemTrack: false };
+  }
+  if (isPianoCandidateTrackSmart(track)) {
+    return { instrumentId: 'piano', isStemTrack: false };
+  }
+  if (/guitar|banjo|mandolin|lute|ukulele|sitar/.test(comb) || (prog >= 24 && prog <= 31)) {
+    return { instrumentId: 'guitar', isStemTrack: false };
+  }
+  if (isLeadMelodyTrack(track)) {
+    return { instrumentId: 'vocals', isStemTrack: false };
+  }
+  return { instrumentId: 'other', isStemTrack: false };
+}
+
+function detectAvailableInstrumentHighways(rawTracks = [], songDurationSec = 1) {
+  const result = {};
+  for (const inst of HIGHWAY_INSTRUMENTS) {
+    result[inst.id] = {
+      ...inst,
+      available: inst.id === 'piano',
+      trackIndices: [],
+      noteCount: 0,
+      isStemTrack: false
+    };
+  }
+
+  if (!Array.isArray(rawTracks) || rawTracks.length === 0) {
+    return result;
+  }
+
+  rawTracks.forEach((t, idx) => {
+    if (!t || !t.notes || t.notes.length === 0 || t.isDuplicate) return;
+    const cls = classifyTrackForInstrumentHighway(t);
+    if (!cls) return;
+    const bucket = result[cls.instrumentId];
+    if (!bucket) return;
+    bucket.trackIndices.push(idx);
+    bucket.noteCount += t.notes.length;
+    if (cls.isStemTrack) {
+      bucket.isStemTrack = true;
+    }
+    bucket.available = bucket.noteCount > 0;
+  });
+
+  // Piano is always available as long as the song has any notes
+  if (rawTracks.some((t) => t?.notes?.length > 0)) {
+    result.piano.available = true;
+  }
+
+  return result;
+}
+
+/**
+ * Map a chosen instrument's tracks onto `track1Raw` (RH Gold) and `track2Raw` (LH Blue)
+ * with ergonomic register and lane rules for the 61-key keyboard (`36..96`).
+ */
+function mapInstrumentHighwayNotes(rawTracks = [], instrumentId = 'piano', songDurationSec = 1) {
+  const instId = String(instrumentId || 'piano').toLowerCase();
+  if (instId === 'piano') {
+    const sel = selectAutoPianoTracks(rawTracks, songDurationSec);
+    return {
+      chosenPlayableIndices: sel.chosenPlayableIndices,
+      track1Raw: sel.track1Raw,
+      track2Raw: sel.track2Raw,
+      selectionNote: sel.selectionNote || 'Piano Highway (RH Gold + LH Blue)'
+    };
+  }
+
+  const detected = detectAvailableInstrumentHighways(rawTracks, songDurationSec);
+  const info = detected[instId];
+  const chosenPlayableIndices = new Set(info?.trackIndices || []);
+
+  // Prefer explicit `Stem: <Instrument>` tracks when both stem and GM tracks exist
+  let candidateIndices = info?.trackIndices || [];
+  const stemOnly = candidateIndices.filter((idx) => /^stem:\s*/i.test(rawTracks[idx]?.name || ''));
+  if (stemOnly.length > 0) {
+    candidateIndices = stemOnly;
+  }
+
+  // Fallback if user selected an instrument that didn't have a dedicated track:
+  // synthesize an ergonomic chart from the best matching register of all non-utility tracks
+  const rawNotes = [];
+  if (candidateIndices.length > 0) {
+    for (const idx of candidateIndices) {
+      chosenPlayableIndices.add(idx);
+      for (const n of rawTracks[idx]?.notes || []) {
+        rawNotes.push({ ...n });
+      }
+    }
+  } else {
+    rawTracks.forEach((t, idx) => {
+      if (!t?.notes?.length || t.isDuplicate || isUtilityTrack(t)) return;
+      for (const n of t.notes) {
+        rawNotes.push({ ...n });
+      }
+    });
+  }
+
+  rawNotes.sort((a, b) => a.time - b.time || (a.originalMidi ?? a.midi) - (b.originalMidi ?? b.midi));
+  const track1Raw = [];
+  const track2Raw = [];
+
+  if (instId === 'drums') {
+    // Map drum/percussion hits to 6 ergonomic white-key drum kit lanes:
+    // LH Blue (Kick & Snare): C3 (48) = Kick, D3 (50) = Snare, E3 (52) = Rim/Clap
+    // RH Gold (Cymbals & Toms): C4 (60) = Closed Hi-Hat, D4 (62) = Open Hat / Ride, E4 (64) = Tom, G4 (67) = Crash
+    let lastTimeByLane = {};
+    for (let i = 0; i < rawNotes.length; i++) {
+      const n = rawNotes[i];
+      const p = Number(n.originalMidi ?? n.midi ?? 36);
+      let mappedPitch = 60;
+      let isLh = false;
+
+      if (p === 35 || p === 36 || p < 37) {
+        mappedPitch = 48; // Kick -> C3 (LH Blue)
+        isLh = true;
+      } else if (p === 38 || p === 40 || p === 37 || p === 39) {
+        mappedPitch = 50; // Snare -> D3 (LH Blue)
+        isLh = true;
+      } else if (p === 42 || p === 44 || (p >= 53 && p <= 56)) {
+        mappedPitch = 60; // Closed Hat / Cowbell -> C4 (RH Gold)
+      } else if (p === 46 || p === 51 || p === 59) {
+        mappedPitch = 62; // Open Hat / Ride -> D4 (RH Gold)
+      } else if (p >= 41 && p <= 48) {
+        mappedPitch = 64; // Toms -> E4 (RH Gold)
+      } else if (p === 49 || p === 57 || p === 52 || p === 55) {
+        mappedPitch = 67; // Crash -> G4 (RH Gold)
+      } else {
+        // Pitch-based fallback for audio-transcribed drum stems
+        const bucket = p % 4;
+        if (p < 52 || bucket === 0) {
+          mappedPitch = 48;
+          isLh = true;
+        } else if (p < 62 || bucket === 1) {
+          mappedPitch = 50;
+          isLh = true;
+        } else if (bucket === 2) {
+          mappedPitch = 60;
+        } else {
+          mappedPitch = 64;
+        }
+      }
+
+      const prevT = lastTimeByLane[mappedPitch] ?? -999;
+      if (n.time - prevT < 0.055) continue;
+      lastTimeByLane[mappedPitch] = n.time;
+
+      const drumNote = {
+        ...n,
+        id: `drum_${i}_${mappedPitch}`,
+        originalMidi: mappedPitch,
+        midi: mappedPitch,
+        duration: Math.max(0.11, Math.min(0.28, Number(n.duration) || 0.14)),
+        velocity: Math.max(72, Math.min(122, Number(n.velocity) || 96))
+      };
+      if (isLh) {
+        track2Raw.push(drumNote);
+      } else {
+        track1Raw.push(drumNote);
+      }
+    }
+    return {
+      chosenPlayableIndices,
+      track1Raw,
+      track2Raw,
+      selectionNote: 'Drums Highway (LH C3 Kick / D3 Snare • RH C4 Hat / E4 Tom / G4 Crash)'
+    };
+  }
+
+  if (instId === 'bass') {
+    // Map bassline into comfortable LH bass register (36..55) + RH upper bass fills (55..67)
+    // and keep bass mostly monophonic/dyadic so it grooves cleanly
+    let lastOnset = -999;
+    for (let i = 0; i < rawNotes.length; i++) {
+      const n = rawNotes[i];
+      let p = Number(n.originalMidi ?? n.midi ?? 40);
+      while (p < 36) p += 12;
+      while (p > 64) p -= 12;
+
+      if (Math.abs(n.time - lastOnset) < 0.045 && track2Raw.length > 0) {
+        // Keep lowest root note in simultaneous bass clusters
+        continue;
+      }
+      lastOnset = n.time;
+
+      const bassNote = {
+        ...n,
+        id: `bass_${i}_${p}`,
+        originalMidi: p,
+        midi: p,
+        duration: Math.max(0.12, Math.min(1.8, Number(n.duration) || 0.25))
+      };
+      if (p >= 55) {
+        track1Raw.push(bassNote);
+      } else {
+        track2Raw.push(bassNote);
+      }
+    }
+    return {
+      chosenPlayableIndices,
+      track1Raw,
+      track2Raw,
+      selectionNote: 'Bass Highway (LH Groove C2–F#3 + RH High Bass Fills)'
+    };
+  }
+
+  // Guitar, Vocals, or Synth/Other: fold into 36..96 and split at Middle C (60)
+  for (let i = 0; i < rawNotes.length; i++) {
+    const n = rawNotes[i];
+    let p = Number(n.originalMidi ?? n.midi ?? 60);
+    while (p < 36) p += 12;
+    while (p > 96) p -= 12;
+    // For vocals, keep lead line in comfortable singable RH range (55..84)
+    if (instId === 'vocals') {
+      while (p < 57) p += 12;
+      while (p > 84) p -= 12;
+    }
+    const mapped = {
+      ...n,
+      id: `${instId}_${i}_${p}`,
+      originalMidi: p,
+      midi: p
+    };
+    if (p >= 60) {
+      track1Raw.push(mapped);
+    } else {
+      track2Raw.push(mapped);
+    }
+  }
+
+  const labelMap = {
+    guitar: 'Guitar Highway (RH Lead / Treble Voicings + LH Rhythm Chords)',
+    vocals: 'Vocal Melody Highway (Singable Lead Contour)',
+    other: 'Synth / Other Highway (Full 61-Key Range)'
+  };
+  return {
+    chosenPlayableIndices,
+    track1Raw,
+    track2Raw,
+    selectionNote: labelMap[instId] || 'Instrument Highway'
+  };
+}
+
 module.exports = {
+  HIGHWAY_INSTRUMENTS,
   isUtilityTrack,
   isLeadMelodyTrack,
   isPianoCandidateTrackSmart,
   selectAutoPianoTracks,
   cleanPlayableHandNotes,
-  buildFullSongArrangement
+  buildFullSongArrangement,
+  classifyTrackForInstrumentHighway,
+  detectAvailableInstrumentHighways,
+  mapInstrumentHighwayNotes
 };
