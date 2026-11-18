@@ -9820,8 +9820,9 @@ if (questBundleNotesInput) {
     const file = e.target.files?.[0];
     if (!file) return;
     questBundleState.notesFileName = file.name;
-    if (file.path && fs.existsSync(file.path)) {
-      questBundleState.notesSourcePath = file.path;
+    const resolvedNotesPath = resolveLocalFilePath(file);
+    if (resolvedNotesPath && fs.existsSync(resolvedNotesPath)) {
+      questBundleState.notesSourcePath = resolvedNotesPath;
       questBundleState.notesBuffer = null;
     } else {
       questBundleState.notesSourcePath = null;
@@ -9851,8 +9852,9 @@ if (questBundleSheetInput) {
     if (!file) return;
     questBundleState.sheetFileName = file.name;
     questBundleState.sheetCleared = false;
-    if (file.path && fs.existsSync(file.path)) {
-      questBundleState.sheetSourcePath = file.path;
+    const resolvedSheetPath = resolveLocalFilePath(file);
+    if (resolvedSheetPath && fs.existsSync(resolvedSheetPath)) {
+      questBundleState.sheetSourcePath = resolvedSheetPath;
       questBundleState.sheetBuffer = null;
     } else {
       questBundleState.sheetSourcePath = null;
@@ -9891,8 +9893,9 @@ if (questBundleAudioInput) {
     if (!file) return;
     questBundleState.audioFileName = file.name;
     questBundleState.audioCleared = false;
-    if (file.path && fs.existsSync(file.path)) {
-      questBundleState.audioSourcePath = file.path;
+    const resolvedAudioPath = resolveLocalFilePath(file);
+    if (resolvedAudioPath && fs.existsSync(resolvedAudioPath)) {
+      questBundleState.audioSourcePath = resolvedAudioPath;
       questBundleState.audioBuffer = null;
     } else {
       questBundleState.audioSourcePath = null;
@@ -10857,7 +10860,7 @@ async function startOmrImportFromFile(file) {
   closeOmrReviewModal();
   activeOmrState.sourceName = file.name;
 
-  let inputPath = file.path || null;
+  let inputPath = resolveLocalFilePath(file);
   if (!inputPath) {
     const tmpIn = path.join(os.tmpdir(), `cok_omr_in_${Date.now()}${path.extname(file.name) || '.pdf'}`);
     const buf = Buffer.from(await file.arrayBuffer());

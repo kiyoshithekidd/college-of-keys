@@ -51,7 +51,11 @@ function createWindow() {
     }
   });
 
-  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+  mainWindow.webContents.on('console-message', (event) => {
+    const level = event.level ?? '';
+    const message = event.message ?? '';
+    const line = event.lineNumber ?? event.line ?? '';
+    const sourceId = event.sourceId ?? '';
     console.log(`[Renderer Console ${level}] ${message} (${sourceId}:${line})`);
   });
 
