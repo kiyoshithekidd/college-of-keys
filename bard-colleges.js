@@ -77,7 +77,7 @@ const BARD_COLLEGES = [
       {
         id: 'revelry-crowd',
         title: 'Bring Down the House',
-        description: 'Push the Tavern Crowd Meter to Lively or Enchanted.'
+        description: 'Push the Tavern Crowd Meter to Rowdy or Enchanted.'
       },
       {
         id: 'revelry-setlist',
@@ -149,7 +149,7 @@ function isDrillConditionMet(drillId, context = {}, nextProgress) {
     case 'revelry-chain':
       return Number(context.maxSpellChain) >= 25;
     case 'revelry-crowd':
-      return context.crowdMoodId === 'lively' || context.crowdMoodId === 'enchanted';
+      return context.crowdMoodId === 'rowdy' || context.crowdMoodId === 'lively' || context.crowdMoodId === 'enchanted';
     case 'revelry-setlist':
       return Boolean(context.setlistCompleted || Number(context.d20Total) >= 15);
     default:

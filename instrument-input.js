@@ -69,19 +69,9 @@ function midiToFrequency(midi, a4Hz = 440) {
  */
 function translateGmDrumMidiToHighwayLane(rawMidi) {
   const p = Math.round(Number(rawMidi) || 36);
-  // Already playing the exact highway lane keys on a keyboard/pad
-  if (
-    p === GM_DRUM_HIGHWAY_LANES.KICK ||
-    p === GM_DRUM_HIGHWAY_LANES.SNARE ||
-    p === GM_DRUM_HIGHWAY_LANES.HAT_CLOSED ||
-    p === GM_DRUM_HIGHWAY_LANES.HAT_OPEN ||
-    p === GM_DRUM_HIGHWAY_LANES.TOM ||
-    p === GM_DRUM_HIGHWAY_LANES.CRASH
-  ) {
-    return p;
-  }
 
-  // Standard GM Drum Kit mapping (MIDI notes 35..81)
+  // Standard GM Drum Kit mapping (MIDI notes 35..59) checked FIRST so GM Hi-Mid Tom (48)
+  // and High Tom (50) do not collide with Highway Kick (48) / Snare (50) (Issue #136).
   if (p === 35 || p === 36 || p < 37) {
     return GM_DRUM_HIGHWAY_LANES.KICK; // Acoustic Bass Drum / Bass Drum 1 -> C3 (48)
   }
@@ -94,11 +84,21 @@ function translateGmDrumMidiToHighwayLane(rawMidi) {
   if (p === 46 || p === 51 || p === 59) {
     return GM_DRUM_HIGHWAY_LANES.HAT_OPEN; // Open Hi-Hat / Ride Cymbal 1 & 2 -> D4 (62)
   }
-  if (p >= 41 && p <= 47) {
-    return GM_DRUM_HIGHWAY_LANES.TOM; // Low Floor Tom .. Low-Mid Tom -> E4 (64)
+  if ((p >= 41 && p <= 48) || p === 50) {
+    return GM_DRUM_HIGHWAY_LANES.TOM; // Low Floor Tom .. High Tom (41..48, 50) -> E4 (64)
   }
   if (p === 49 || p === 52 || p === 55 || p === 57) {
     return GM_DRUM_HIGHWAY_LANES.CRASH; // Crash 1 / Chinese / Splash / Crash 2 -> G4 (67)
+  }
+
+  // Preserve upper highway lane keys (60, 62, 64, 67) if sent directly by a pad controller
+  if (
+    p === GM_DRUM_HIGHWAY_LANES.HAT_CLOSED ||
+    p === GM_DRUM_HIGHWAY_LANES.HAT_OPEN ||
+    p === GM_DRUM_HIGHWAY_LANES.TOM ||
+    p === GM_DRUM_HIGHWAY_LANES.CRASH
+  ) {
+    return p;
   }
 
   // Fallback for custom 8-pad or 16-pad controllers outside GM range

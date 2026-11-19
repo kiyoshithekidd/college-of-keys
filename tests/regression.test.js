@@ -257,6 +257,56 @@ async function runUnitTests() {
     // Issue #128: Scrubbing backward to 0.30s trims future trail points > 0.30s
     scorer.recordFrame(0.30, { midiFloat: 57.0, rms: 0.15 }, { scoringActive: false });
     assert.ok(scorer.state.pitchTrail.every((p) => p.time <= 0.30), 'Backward scrub must prune future pitchTrail points');
+
+    // Issue #135: Backward scrub resets lastInTuneTime so silent frames do NOT earn completion credit
+    const scrubChart = spellSing.buildVocalChart({
+      vocalNotes: [
+        { midi: 69, time: 0.0, duration: 1.0 },
+        { midi: 69, time: 10.0, duration: 1.0 }
+      ]
+    });
+    const scrubScorer = spellSing.createVocalSessionScorer(scrubChart, { octaveAgnostic: true });
+    scrubScorer.recordFrame(10.2, { midiFloat: 69.0, rms: 0.15 }, { scoringActive: true });
+    // Scrub back to 0.2s and stay silent
+    scrubScorer.recordFrame(0.2, null, { scoringActive: true });
+    assert.strictEqual(scrubChart.notes[0].hitFrames, 0, 'Silent frame after backward scrub must not award hitFrames');
+
+    // Issue #135: Strict tolerance must not return 'perfect'/'great' when inTune is false
+    const strictOff = spellSing.calcVocalPitchDistance(60.7, 60, { toleranceSemitones: 0.5 });
+    assert.strictEqual(strictOff.inTune, false);
+    assert.strictEqual(strictOff.tier, 'off');
+
+    // Issue #135: Adjacent LRC lines must not double-assign notes in 100ms overlap
+    const overlapChart = spellSing.buildVocalChart({
+      vocalNotes: [
+        { midi: 60, time: 0.0, duration: 0.4 },
+        { midi: 62, time: 0.9, duration: 0.4 }, // 100ms before line 2 at 1.0s
+        { midi: 64, time: 1.1, duration: 0.4 }
+      ],
+      lrcLines: [
+        { time: 0.0, text: 'First line' },
+        { time: 1.0, text: 'Second line' }
+      ]
+    });
+    assert.ok(!overlapChart.notes[1].lyric.includes('Second'), 'Note in 100ms overlap must not receive words from both LRC lines');
+  });
+
+  record('Issue #136 GM Tom 48/50 mapping & Issue #142 Revelry rowdy mood', () => {
+    const instInput = require(path.join(REPO_ROOT, 'instrument-input.js'));
+    const hygiene = require(path.join(REPO_ROOT, 'midi-hygiene.js'));
+    const colleges = require(path.join(REPO_ROOT, 'bard-colleges.js'));
+
+    // GM Hi-Mid Tom (48) & High Tom (50) -> Tom lane (64)
+    assert.strictEqual(instInput.translateGmDrumMidiToHighwayLane(48), 64);
+    assert.strictEqual(instInput.translateGmDrumMidiToHighwayLane(50), 64);
+    const drumMap = hygiene.mapInstrumentHighwayNotes([
+      { index: 0, name: 'Drums', channel: 9, isPercussion: true, notes: [{ midi: 50, time: 0.0, duration: 0.2, velocity: 100 }] }
+    ], 'drums', 120);
+    assert.ok(drumMap.track1Raw.some((n) => n.midi === 64), 'GM High Tom 50 must map to Tom lane 64 on Drums Highway');
+
+    // College of Revelry 'revelry-crowd' accepts 'rowdy' mood ID
+    const rev = colleges.evaluateCollegeProgress({ crowdMoodId: 'rowdy' }, { enrolledCollegeId: 'revelry', completedDrills: {}, collegeSongsCompleted: { revelry: 0 } });
+    assert.ok(rev.newlyCompletedDrills.some((d) => d.id === 'revelry-crowd'), 'Rowdy crowd mood must complete revelry-crowd drill');
   });
 
   return results;

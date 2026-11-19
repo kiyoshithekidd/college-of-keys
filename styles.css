@@ -1467,7 +1467,10 @@ html, body {
 
 #bard-colleges-modal,
 #campaign-modal,
-#setlist-modal {
+#setlist-modal,
+#omr-review-modal,
+#performance-check-modal,
+#lyric-paste-modal {
   z-index: 1450;
 }
 

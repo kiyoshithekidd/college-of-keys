@@ -482,7 +482,16 @@ function createD20TrayRoller(containerEl, { onBounce, onSettled, reducedMotion =
     for (const wm of wallMeshes) {
       wm.geometry.dispose();
     }
+    if (keyLight && keyLight.shadow && keyLight.shadow.map) {
+      keyLight.shadow.map.dispose();
+    }
+    if (keyLight && typeof keyLight.dispose === 'function') {
+      keyLight.dispose();
+    }
     renderer.dispose();
+    if (typeof renderer.forceContextLoss === 'function') {
+      renderer.forceContextLoss();
+    }
     if (renderer.domElement && renderer.domElement.parentNode === containerEl) {
       containerEl.removeChild(renderer.domElement);
     }

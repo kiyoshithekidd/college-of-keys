@@ -263,13 +263,17 @@ function applyLrcOrLinesToNotes(monoNotes, lines) {
   const hasTimestamps = lines.some((l) => Number.isFinite(l.time));
 
   if (hasTimestamps) {
+    const assignedNoteIndices = new Set();
     for (let li = 0; li < lines.length; li++) {
       const line = lines[li];
       const nextLine = lines[li + 1];
       const startSec = line.time;
       const endSec = nextLine ? nextLine.time : Infinity;
       const words = line.text.split(/\s+/).filter(Boolean);
-      const matchingNotes = monoNotes.filter((n) => n.time >= startSec - 0.15 && n.time < endSec - 0.05);
+      const startMargin = li === 0 ? 0.15 : 0.05;
+      const matchingNotes = monoNotes.filter((n, idx) =>
+        !assignedNoteIndices.has(idx) && n.time >= startSec - startMargin && n.time < endSec - 0.05
+      );
       if (matchingNotes.length === 0 || words.length === 0) continue;
 
       for (let wi = 0; wi < words.length; wi++) {
@@ -280,6 +284,9 @@ function applyLrcOrLinesToNotes(monoNotes, lines) {
         const target = matchingNotes[noteIdx];
         target.lyric = target.lyric ? `${target.lyric} ${words[wi]}` : words[wi];
         target.syllabic = 'single';
+      }
+      for (const mn of matchingNotes) {
+        assignedNoteIndices.add(monoNotes.indexOf(mn));
       }
     }
   } else {
@@ -321,12 +328,16 @@ function calcVocalPitchDistance(sungMidiFloat, targetMidi, { octaveAgnostic = tr
   const inTune = absSemitones <= tol;
 
   let tier = 'off';
-  if (absSemitones <= 0.45) {
-    tier = 'perfect';
-  } else if (absSemitones <= Math.max(0.85, tol * 0.85)) {
-    tier = 'great';
-  } else if (absSemitones <= tol) {
-    tier = 'good';
+  if (inTune) {
+    const perfectCut = Math.min(0.45, tol * 0.5);
+    const greatCut = Math.min(tol, Math.max(perfectCut, tol * 0.85));
+    if (absSemitones <= perfectCut) {
+      tier = 'perfect';
+    } else if (absSemitones <= greatCut) {
+      tier = 'great';
+    } else {
+      tier = 'good';
+    }
   }
 
   const preciseNorm = Math.max(-1.5, Math.min(1.5, diffSemitones / Math.max(1, tol)));
@@ -437,9 +448,18 @@ function createVocalSessionScorer(vocalChart, options = {}) {
   }
 
   function recordFrame(songTime, detectedPitch, { scoringActive = true } = {}) {
-    // Issue #128: Trim future pitchTrail points when user scrubs backward
+    // Issue #128 & #135: Trim future pitchTrail / recentInTuneSamples and reset lastInTuneTime on backward scrub
     while (state.pitchTrail.length > 0 && state.pitchTrail[state.pitchTrail.length - 1].time > songTime) {
       state.pitchTrail.pop();
+    }
+    if (state.lastInTuneTime > songTime) {
+      state.lastInTuneTime = -999;
+    }
+    while (
+      state.recentInTuneSamples.length > 0 &&
+      state.recentInTuneSamples[state.recentInTuneSamples.length - 1].time > songTime
+    ) {
+      state.recentInTuneSamples.pop();
     }
 
     const targetNote = findTargetNoteAtTime(songTime);
@@ -450,8 +470,9 @@ function createVocalSessionScorer(vocalChart, options = {}) {
 
     if (!detectedPitch || !Number.isFinite(detectedPitch.midiFloat)) {
       state.activePitch = null;
-      // Forgive tiny breathing gaps <= 100ms while actively playing
-      if (scoringActive && targetNote && songTime - state.lastInTuneTime <= SINGING_BREAK_TOLERANCE_SEC) {
+      // Forgive tiny breathing gaps <= 100ms while actively playing (only forward in time)
+      const sinceInTune = songTime - state.lastInTuneTime;
+      if (scoringActive && targetNote && sinceInTune >= 0 && sinceInTune <= SINGING_BREAK_TOLERANCE_SEC) {
         targetNote.hitFrames += 0.5;
         targetNote.fillRatio = Math.min(1, targetNote.hitFrames / Math.max(1, targetNote.totalFrames));
       }

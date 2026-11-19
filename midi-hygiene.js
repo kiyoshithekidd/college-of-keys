@@ -692,8 +692,8 @@ function mapInstrumentHighwayNotes(rawTracks = [], instrumentId = 'piano', songD
         mappedPitch = 60; // Closed Hat / Cowbell -> C4 (RH Gold)
       } else if (p === 46 || p === 51 || p === 59) {
         mappedPitch = 62; // Open Hat / Ride -> D4 (RH Gold)
-      } else if (p >= 41 && p <= 48) {
-        mappedPitch = 64; // Toms -> E4 (RH Gold)
+      } else if ((p >= 41 && p <= 48) || p === 50) {
+        mappedPitch = 64; // Toms (incl. GM High Tom 50) -> E4 (RH Gold)
       } else if (p === 49 || p === 57 || p === 52 || p === 55) {
         mappedPitch = 67; // Crash -> G4 (RH Gold)
       } else {

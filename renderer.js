@@ -2559,7 +2559,7 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll, rh
   }
   if (
     typeof updateCollegeProgress === 'function' &&
-    (crowdMood.id === 'lively' || crowdMood.id === 'enchanted' || songSessionStats.maxSpellChain >= 25)
+    (crowdMood.id === 'rowdy' || crowdMood.id === 'lively' || crowdMood.id === 'enchanted' || songSessionStats.maxSpellChain >= 25)
   ) {
     updateCollegeProgress({
       crowdMoodId: crowdMood.id,
@@ -3404,7 +3404,7 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
     modalCampaignResult.classList.remove('passed', 'failed');
   }
   renderPostSongBreakdown(totalAttempts, priorWeakBarHistory);
-  updatePerformanceModalSetlistUI();
+  updatePerformanceModalSetlistUI({ recordPlay, totalAttempts });
   performanceCheckModal.classList.remove('hidden');
 
   if (totalAttempts === 0) {
@@ -3459,7 +3459,13 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
         if (typeof updateCollegeProgress === 'function') {
           updateCollegeProgress({ d20Total: outcome.total });
         }
-        if (typeof resolveCampaignVenueCheck === 'function' && activeCampaignVenueId && !activeSetlistState.active) {
+        if (
+          recordPlay &&
+          totalAttempts > 0 &&
+          typeof resolveCampaignVenueCheck === 'function' &&
+          activeCampaignVenueId &&
+          !activeSetlistState.active
+        ) {
           resolveCampaignVenueCheck(outcome.total);
         }
         if (outcome.tier === 'nat-20') {
@@ -3926,6 +3932,13 @@ async function startPlayback() {
     playbackState.currentTime = -playbackState.leadInSeconds;
     resetSongProgressFlags(-playbackState.leadInSeconds);
     resetSongSessionStats();
+    if (spellSingingState && spellSingingState.scorer) {
+      spellSingingState.scorer.reset();
+    }
+    if (spellSingingState) {
+      spellSingingState.lastTeleprompterKey = '';
+      updateKaraokeHudStats();
+    }
     seekBackingAudioToSongTime(playbackState.currentTime);
   }
 
@@ -3953,12 +3966,14 @@ function pausePlayback() {
   if (backingBandSynth) {
     backingBandSynth.releaseAll();
   }
-  if (currentSong?.backingAudioEl && !currentSong.backingAudioEl.paused) {
+  if (currentSong?.backingAudioEl && (!currentSong.backingAudioEl.paused || currentSong.backingAudioEl._playPending)) {
+    currentSong.backingAudioEl._playPending = false;
     currentSong.backingAudioEl.pause();
   }
   if (currentSong?.stemAudioEls) {
     for (const stEl of Object.values(currentSong.stemAudioEls)) {
-      if (stEl && !stEl.paused) {
+      if (stEl && (!stEl.paused || stEl._playPending)) {
+        stEl._playPending = false;
         stEl.pause();
       }
     }
@@ -7094,8 +7109,24 @@ function unloadCurrentSongToEmptyState() {
       // Ignore audio cleanup errors
     }
   }
+  if (currentSong?.stemAudioEls) {
+    for (const stEl of Object.values(currentSong.stemAudioEls)) {
+      if (!stEl) continue;
+      try {
+        stEl._disposed = true;
+        stEl.pause();
+        stEl.removeAttribute('src');
+        stEl.load();
+      } catch {
+        // Ignore stem audio cleanup errors
+      }
+    }
+  }
 
   currentSong = null;
+  if (typeof renderStemMixerUI === 'function') {
+    renderStemMixerUI();
+  }
   playbackState.isPlaying = false;
   playbackState.currentTime = 0;
   playbackState.lastFrameTimestamp = null;
@@ -8652,6 +8683,9 @@ function awardVocalSessionXp() {
     bardProfile.vocalXp = (bardProfile.vocalXp || 0) + summary.vocalXpEarned;
     bardProfile.vocalSongsCompleted = (bardProfile.vocalSongsCompleted || 0) + 1;
     recomputeBardLevelFromTotalXp();
+    if (typeof recordPracticeDayActivity === 'function') {
+      recordPracticeDayActivity({ type: 'song', xpEarned: summary.vocalXpEarned });
+    }
     saveBardProfile();
     updateKaraokeHudStats();
     showGrimoireToast(
@@ -9091,6 +9125,10 @@ function bindMidiInputs(midiAccess) {
     }
     if (Array.from(midiDeviceSelect.options).some((o) => o.value === prevDevice)) {
       midiDeviceSelect.value = prevDevice;
+      externalInstrumentRig.selectedMidiDeviceId = prevDevice;
+    } else {
+      midiDeviceSelect.value = 'all';
+      externalInstrumentRig.selectedMidiDeviceId = 'all';
     }
   }
 
@@ -9098,6 +9136,8 @@ function bindMidiInputs(midiAccess) {
     if (input.state === 'connected') {
       connectedNames.push(input.name || 'MIDI Keyboard');
       input.onmidimessage = (evt) => onMidiMessage(evt, input);
+    } else {
+      input.onmidimessage = null;
     }
   }
 
@@ -9456,6 +9496,11 @@ window.addEventListener('keydown', (e) => {
       setStageViewMode('karaoke', { announceToast: true });
       return;
     }
+  }
+
+  // Issue #143: Never swallow OS / Electron modifier shortcuts (Ctrl+A, Ctrl+S, Ctrl+Z, Ctrl+-, Alt+F4, etc.)
+  if (e.ctrlKey || e.metaKey || e.altKey) {
+    return;
   }
 
   const key = (e.key || '').toLowerCase();
@@ -11937,7 +11982,10 @@ function runQuestBoardTranscriber({ selfTest = false, queuedJob = null } = {}) {
       }
     });
 
+    let jobSettled = false;
     const launchNextQueuedJobIfAny = () => {
+      if (jobSettled) return;
+      jobSettled = true;
       updateQuestQueueUI();
       if (questJobQueue.length > 0) {
         const nextJob = questJobQueue.shift();
@@ -12475,9 +12523,16 @@ function renderSetlistModal() {
 
 function openSetlistModal() {
   if (!setlistModal) return;
+  pausePlayback();
   closeAllConservatoryPopovers();
   renderSetlistModal();
   setlistModal.classList.remove('hidden');
+}
+
+if (setlistNameInput) {
+  setlistNameInput.addEventListener('input', () => {
+    setlistDraftState.name = setlistNameInput.value;
+  });
 }
 
 function closeSetlistModal() {
@@ -12526,7 +12581,7 @@ function advanceToNextSetlistSong() {
   }
 }
 
-function updatePerformanceModalSetlistUI() {
+function updatePerformanceModalSetlistUI({ recordPlay = false, totalAttempts = 0 } = {}) {
   if (!modalSetlistBanner || !modalSetlistStatus || !modalSetlistNext || !btnModalNextSetlist) return;
   if (!activeSetlistState.active) {
     modalSetlistBanner.classList.add('hidden');
@@ -12534,7 +12589,8 @@ function updatePerformanceModalSetlistUI() {
     return;
   }
 
-  if (activeSetlistState.countedSongIndex !== activeSetlistState.currentIndex) {
+  const canCompleteCurrentSong = Boolean(recordPlay && totalAttempts > 0);
+  if (canCompleteCurrentSong && activeSetlistState.countedSongIndex !== activeSetlistState.currentIndex) {
     activeSetlistState.totalXpEarned += Number(songSessionStats.songXpEarned) || 0;
     activeSetlistState.countedSongIndex = activeSetlistState.currentIndex;
   }
@@ -12543,6 +12599,13 @@ function updatePerformanceModalSetlistUI() {
   const total = activeSetlistState.items.length;
   const hasNext = idx + 1 < total;
   modalSetlistBanner.classList.remove('hidden');
+
+  if (!canCompleteCurrentSong) {
+    modalSetlistStatus.textContent = `\uD83C\uDFB6 Setlist In Progress: ${activeSetlistState.name} (${idx + 1}/${total})`;
+    modalSetlistNext.textContent = 'Finish playing this song to advance or complete the setlist.';
+    btnModalNextSetlist.classList.add('hidden');
+    return;
+  }
 
   if (hasNext) {
     const nextItem = activeSetlistState.items[idx + 1];
@@ -13738,6 +13801,11 @@ function updateTavernCampaignPill() {
 
 function exitCampaignGig() {
   activeCampaignVenueId = null;
+  if (activeSetlistState && activeSetlistState.active) {
+    activeSetlistState.active = false;
+    activeSetlistState.items = [];
+    activeSetlistState.currentIndex = 0;
+  }
   applyStageVenueBackdrop(null);
 }
 
