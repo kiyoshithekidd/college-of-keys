@@ -519,13 +519,13 @@ function decomposeQuarterSpan(spanQ, { isRest = false } = {}) {
   const tokens = isRest
     ? [
         { q: 4.0, dur: 'wr', dots: 0 },
-        { q: 3.0, dur: 'hrd', dots: 1 },
+        { q: 3.0, dur: 'hdr', dots: 1 },
         { q: 2.0, dur: 'hr', dots: 0 },
-        { q: 1.5, dur: 'qrd', dots: 1 },
+        { q: 1.5, dur: 'qdr', dots: 1 },
         { q: 1.0, dur: 'qr', dots: 0 },
-        { q: 0.75, dur: '8rd', dots: 1 },
+        { q: 0.75, dur: '8dr', dots: 1 },
         { q: 0.5, dur: '8r', dots: 0 },
-        { q: 0.375, dur: '16rd', dots: 1 },
+        { q: 0.375, dur: '16dr', dots: 1 },
         { q: 0.25, dur: '16r', dots: 0 }
       ]
     : [
@@ -1126,7 +1126,10 @@ function buildScoreData(song, options = {}) {
       const num = Math.max(1, Number(m.numerator) || 4);
       const den = Math.max(1, Number(m.denominator) || 4);
       const tsLabel = `${num}/${den}`;
-      const vfKeySpec = normalizeVfKeySpec(m.vfKeySpec || keySigMap.getAtTick(mStart).vfKeySpec, m.fifths, m.mode);
+      let vfKeySpec = normalizeVfKeySpec(m.vfKeySpec || keySigMap.getAtTick(mStart).vfKeySpec, m.fifths, m.mode);
+      if (m.vfKeySpec && ((transposeSemitones % 12) + 12) % 12 !== 0) {
+        vfKeySpec = transposeVfKeySpec(vfKeySpec, transposeSemitones);
+      }
 
       measures.push({
         index: i,
@@ -1259,7 +1262,7 @@ function buildScoreData(song, options = {}) {
     : 0;
 
   return {
-    scoreId: `${song.songId || 'song'}:${song.selectedTrackMode || 'auto'}:${song.midiCleanStats?.enabled ? 'clean' : 'raw'}:${song.track1Notes?.length || 0}:${song.track2Notes?.length || 0}`,
+    scoreId: `${song.songId || 'song'}:${song.selectedTrackMode || 'auto'}:${song.midiCleanStats?.enabled ? 'clean' : 'raw'}:t${transposeSemitones}:${song.track1Notes?.length || 0}:${song.track2Notes?.length || 0}`,
     ppq,
     tempoMap,
     timeSigMap,
@@ -1532,8 +1535,10 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
   };
 
   const invalidateMeasure = (measureIndex) => {
+    const target = String(measureIndex);
     for (const key of Array.from(tileCache.keys())) {
-      if (key.endsWith(`:${measureIndex}`)) {
+      const parts = key.split(':');
+      if (parts.length >= 3 && parts[parts.length - 3] === target) {
         tileCache.delete(key);
       }
     }
@@ -2124,13 +2129,15 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
     return ans;
   };
 
-  const scheduleLookaheadPrewarm = (scoreData, startIdx, endIdx, dpr) => {
+  const scheduleLookaheadPrewarm = (scoreData, startIdx, endIdx, dpr, { rhAlpha = 1, lhAlpha = 1 } = {}) => {
     if (!scoreData || !scoreData.measures || startIdx > endIdx || prewarmHandle !== null) return;
     if (scoreData.scoreId !== activeScoreId) return;
+    const normRhAlpha = Math.round(rhAlpha * 100) / 100;
+    const normLhAlpha = Math.round(lhAlpha * 100) / 100;
     // Find first uncached measure in lookahead range
     let targetIdx = -1;
     for (let i = startIdx; i <= endIdx; i++) {
-      const key = `${scoreData.scoreId}:${dpr}:${i}`;
+      const key = `${scoreData.scoreId}:${dpr}:${i}:${normRhAlpha}:${normLhAlpha}`;
       if (!tileCache.has(key)) {
         targetIdx = i;
         break;
@@ -2141,9 +2148,9 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
     const runStep = () => {
       prewarmHandle = null;
       if (scoreData.scoreId !== activeScoreId || !scoreData.measures[targetIdx]) return;
-      renderMeasureTile(scoreData, targetIdx, dpr);
+      renderMeasureTile(scoreData, targetIdx, dpr, { rhAlpha, lhAlpha });
       if (targetIdx + 1 <= endIdx) {
-        scheduleLookaheadPrewarm(scoreData, targetIdx + 1, endIdx, dpr);
+        scheduleLookaheadPrewarm(scoreData, targetIdx + 1, endIdx, dpr, { rhAlpha, lhAlpha });
       }
     };
 
@@ -2257,7 +2264,8 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
       scoreData,
       lastIdx + 1,
       Math.min(scoreData.measures.length - 1, lastIdx + 6),
-      dpr
+      dpr,
+      { rhAlpha, lhAlpha }
     );
 
     // Recompute exact score X now that visible measures have populated `renderedTickAnchors`

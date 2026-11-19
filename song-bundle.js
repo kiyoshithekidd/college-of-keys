@@ -106,7 +106,7 @@ function toPortablePath(targetPath, baseDir) {
     if (baseDir) {
       const resolvedBase = path.resolve(baseDir);
       const rel = path.relative(resolvedBase, resolvedTarget);
-      if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+      if (rel && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)) {
         return rel.split(path.sep).join('/');
       }
     }
@@ -384,16 +384,19 @@ function resolveBundleForSong({
   const audioTempoRatio = clampAudioTempoRatio(
     record?.audioTempoRatio ?? fallbackRecord?.audioTempoRatio ?? 1.0
   );
-  const midiCleanupEnabled =
-    typeof record?.midiCleanupEnabled === 'boolean'
-      ? record.midiCleanupEnabled
-      : (typeof fallbackRecord?.midiCleanupEnabled === 'boolean' ? fallbackRecord.midiCleanupEnabled : null);
+  const hasOwn = (obj, prop) => Boolean(obj && Object.prototype.hasOwnProperty.call(obj, prop));
+  const midiCleanupRaw = hasOwn(record, 'midiCleanupEnabled')
+    ? record.midiCleanupEnabled
+    : fallbackRecord?.midiCleanupEnabled;
+  const midiCleanupEnabled = typeof midiCleanupRaw === 'boolean' ? midiCleanupRaw : null;
   const transposeSemitones = clampTransposeSemitones(
     record?.transposeSemitones ?? fallbackRecord?.transposeSemitones ?? 0
   );
 
-  const youtubeUrl = sanitizeExternalHttpUrl(record?.youtubeUrl ?? fallbackRecord?.youtubeUrl);
-  const spotifyUrl = sanitizeExternalHttpUrl(record?.spotifyUrl ?? fallbackRecord?.spotifyUrl);
+  const youtubeUrlRaw = hasOwn(record, 'youtubeUrl') ? record.youtubeUrl : fallbackRecord?.youtubeUrl;
+  const spotifyUrlRaw = hasOwn(record, 'spotifyUrl') ? record.spotifyUrl : fallbackRecord?.spotifyUrl;
+  const youtubeUrl = sanitizeExternalHttpUrl(youtubeUrlRaw);
+  const spotifyUrl = sanitizeExternalHttpUrl(spotifyUrlRaw);
 
   const resolvedNotesPath = filePath ||
     pickExistingPath(record?.notesPath, sidecarIsNewer ? sidecarDir : baseDir) ||
@@ -455,7 +458,33 @@ function saveBundleRecord({
     throw new Error('Cannot save bundle without a notesPath, songId, or fileName.');
   }
 
-  const existing = store.bundles[key] || {};
+  let existingKey = Object.prototype.hasOwnProperty.call(store.bundles, key) ? key : null;
+  if (!existingKey) {
+    const targetNorm = notesAbs ? normalizeComparablePath(notesAbs) : null;
+    const keyLower = key.toLowerCase();
+    for (const [k, entry] of Object.entries(store.bundles)) {
+      if (!entry || typeof entry !== 'object') continue;
+      if (process.platform === 'win32' && k.toLowerCase() === keyLower) {
+        existingKey = k;
+        break;
+      }
+      if (targetNorm && entry.notesPath) {
+        const entryAbs = fromPortablePath(entry.notesPath, baseDir);
+        if (entryAbs && normalizeComparablePath(entryAbs) === targetNorm) {
+          existingKey = k;
+          break;
+        }
+      }
+      if (record.songId && entry.songId && entry.songId === record.songId) {
+        existingKey = k;
+        break;
+      }
+    }
+  }
+  const existing = (existingKey ? store.bundles[existingKey] : null) || {};
+  if (existingKey && existingKey !== key) {
+    delete store.bundles[existingKey];
+  }
   const nextSheetPath = record.sheetMusicPath !== undefined
     ? toPortablePath(record.sheetMusicPath, baseDir)
     : (existing.sheetMusicPath || null);

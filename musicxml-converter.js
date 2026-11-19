@@ -582,6 +582,8 @@ function unrollMeasuresWithRepeats(measures, warnings) {
       } else {
         currentPass = 1;
       }
+    } else if (endingEnds && !wasSkippingEnding) {
+      currentPass = 1;
     }
 
     idx += 1;
@@ -702,6 +704,7 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
     )
   ) || parts[0];
   const sharedMeasureOrder = unrollMeasuresWithRepeats(getChildren(partWithRepeats, 'measure'), warnings);
+  const sharedMeasureDurations = [];
 
   parts.forEach((partNode, pIdx) => {
     const pid = partNode.attrs.id || `P${pIdx + 1}`;
@@ -804,8 +807,11 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
               globalTempoChanges.push({ ticks: cursorTicks, bpm: Math.round(tVal) });
             }
           } else {
-            const dirType = getChild(child, 'direction-type');
-            const metro = dirType ? getChild(dirType, 'metronome') : null;
+            let metro = null;
+            for (const dirType of getChildren(child, 'direction-type')) {
+              metro = getChild(dirType, 'metronome');
+              if (metro) break;
+            }
             if (metro) {
               const beatUnit = getText(metro, 'beat-unit') || 'quarter';
               const hasDot = Boolean(getChild(metro, 'beat-unit-dot'));
@@ -847,10 +853,14 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
           }
 
           const isChord = Boolean(getChild(child, 'chord'));
-          const isRest = Boolean(getChild(child, 'rest'));
+          const restNode = getChild(child, 'rest');
+          const isRest = Boolean(restNode);
           const isCue = Boolean(getChild(child, 'cue'));
           const durDivs = parseFloat(getText(child, 'duration') || '0') || 0;
-          const noteTicks = Math.max(1, Math.round((durDivs / divisions) * ppq));
+          const fullBarTicksNow = Math.max(1, Math.round(ppq * currentNum * (4 / Math.max(1, currentDen))));
+          const noteTicks = (isRest && durDivs <= 0 && restNode.attrs?.measure === 'yes')
+            ? fullBarTicksNow
+            : Math.max(1, Math.round((durDivs / divisions) * ppq));
           const noteStartTicks = isChord ? lastNoteStartTicks : cursorTicks;
 
           if (!isChord) {
@@ -944,9 +954,21 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
       }
 
       const fullBarTicks = Math.max(1, Math.round(ppq * currentNum * (4 / Math.max(1, currentDen))));
-      const nextMeasureStart = maxMeasureEndTicks > measureStartTicks
-        ? maxMeasureEndTicks
-        : (measureStartTicks + fullBarTicks);
+      const uIdx = partMeasures.length;
+      const isExplicitPickup = m.attrs.implicit === 'yes' || uIdx === 0;
+      let nextMeasureStart;
+      if (pIdx > 0 && sharedMeasureDurations[uIdx] > 0) {
+        nextMeasureStart = Math.max(maxMeasureEndTicks, measureStartTicks + sharedMeasureDurations[uIdx]);
+      } else if (isExplicitPickup) {
+        nextMeasureStart = maxMeasureEndTicks > measureStartTicks
+          ? maxMeasureEndTicks
+          : (measureStartTicks + fullBarTicks);
+      } else {
+        nextMeasureStart = Math.max(maxMeasureEndTicks, measureStartTicks + fullBarTicks);
+      }
+      if (pIdx === 0) {
+        sharedMeasureDurations[uIdx] = Math.max(1, nextMeasureStart - measureStartTicks);
+      }
 
       partMeasures.push({
         index: partMeasures.length,
@@ -1000,15 +1022,15 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
     timeSignatures.push({ ticks: 0, timeSignature: [4, 4] });
   }
 
-  // Deduplicate key signatures
+  // Deduplicate key signatures (preserve the first/primary part's concert key at each tick
+  // so later transposing parts like Bb Trumpet do not overwrite it)
   globalKeySignatures.sort((a, b) => a.ticks - b.ticks);
   const keySignatures = [];
   for (const ks of globalKeySignatures) {
     if (keySignatures.length > 0 && keySignatures[keySignatures.length - 1].ticks === ks.ticks) {
-      keySignatures[keySignatures.length - 1] = ks;
-    } else {
-      keySignatures.push(ks);
+      continue;
     }
+    keySignatures.push(ks);
   }
 
   // Build @tonejs/midi object
@@ -1067,6 +1089,20 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
     lhTrack.channel = 1;
     lhTrack.instrument.number = 0;
     addNotesToMidiTrack(lhTrack, staff2Notes);
+
+    // Preserve any additional staves (e.g., organ pedal / 3-staff piano) instead of dropping them
+    const extraStaffNums = Array.from(primaryPart.staffNotes.keys())
+      .filter((s) => s >= 3)
+      .sort((a, b) => a - b);
+    for (const sNum of extraStaffNums) {
+      const extraNotes = primaryPart.staffNotes.get(sNum) || [];
+      if (extraNotes.length === 0) continue;
+      const extraTrack = midi.addTrack();
+      extraTrack.name = `${primaryPart.meta.name || 'Piano'} (Staff ${sNum})`;
+      extraTrack.channel = Math.min(15, sNum - 1);
+      extraTrack.instrument.number = primaryPart.meta.midiProgram;
+      addNotesToMidiTrack(extraTrack, extraNotes);
+    }
   } else {
     const allPrimaryNotes = [];
     for (const list of primaryPart.staffNotes.values()) {

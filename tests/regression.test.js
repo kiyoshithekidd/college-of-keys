@@ -309,6 +309,135 @@ async function runUnitTests() {
     assert.ok(rev.newlyCompletedDrills.some((d) => d.id === 'revelry-crowd'), 'Rowdy crowd mood must complete revelry-crowd drill');
   });
 
+  record('Issue #134 Notation engine dotted rests, transposed key specs & cache invalidation', () => {
+    const notation = require(path.join(REPO_ROOT, 'notation-engine.js'));
+    // buildScoreData transposes MusicXML per-measure vfKeySpec and includes transpose in scoreId
+    const baseScore = notation.buildScoreData({
+      fileName: 'Test.musicxml',
+      duration: 4,
+      bpm: 120,
+      track1Notes: [{ midi: 60, time: 0, duration: 1.5 }],
+      track2Notes: [],
+      transposeSemitones: 2,
+      musicXmlMeta: {
+        keySignature: 'C Major',
+        measures: [{ index: 0, number: '1', startTicks: 0, endTicks: 1920, numerator: 4, denominator: 4, vfKeySpec: 'C' }]
+      }
+    });
+    assert.strictEqual(baseScore.measures[0].vfKeySpec, 'D', 'Per-measure vfKeySpec must transpose from C by +2 to D');
+    assert.ok(baseScore.scoreId.includes(':t2:'), 'scoreId must include transposeSemitones');
+
+    // invalidateMeasure executes cleanly on created renderer
+    const renderer = notation.createNotationRenderer();
+    renderer.invalidateMeasure(0);
+    assert.strictEqual(typeof renderer.invalidateMeasure, 'function');
+  });
+
+  record('Issue #140 MusicXML volta pass reset, metronome lookup, whole rests, key sig & staff >= 3', () => {
+    const mxml = require(path.join(REPO_ROOT, 'musicxml-converter.js'));
+    const { Midi } = require('@tonejs/midi');
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part-list>
+    <score-part id="P1"><part-name>Organ</part-name></score-part>
+    <score-part id="P2"><part-name>Bb Trumpet</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <key><fifths>0</fifths><mode>major</mode></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <staves>3</staves>
+      </attributes>
+      <direction>
+        <direction-type><words>Allegro</words></direction-type>
+        <direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>144</per-minute></metronome></direction-type>
+      </direction>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><staff>1</staff></note>
+      <backup><duration>4</duration></backup>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><staff>2</staff></note>
+      <backup><duration>4</duration></backup>
+      <note><pitch><step>C</step><octave>2</octave></pitch><duration>4</duration><staff>3</staff></note>
+    </measure>
+    <measure number="2">
+      <note><rest measure="yes"/></note>
+    </measure>
+    <measure number="3">
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>4</duration><staff>1</staff></note>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <key><fifths>2</fifths><mode>major</mode></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+      </attributes>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration></note>
+    </measure>
+    <measure number="2">
+      <note><rest measure="yes"/></note>
+    </measure>
+    <measure number="3">
+      <note><pitch><step>F</step><octave>4</octave></pitch><duration>4</duration></note>
+    </measure>
+  </part>
+</score-partwise>`;
+    const parsed = mxml.convertMusicXmlToMidiBuffer(Buffer.from(xml, 'utf8'), 'OrganTest.musicxml');
+    const midiObj = new Midi(parsed.midiArrayBuffer);
+    assert.strictEqual(Math.round(midiObj.header.tempos[0].bpm), 144, 'Metronome in second direction-type must be parsed');
+    assert.strictEqual(parsed.metadata.keySignatures[0].fifths, 0, 'Part 1 concert key (C major) must not be overwritten by Part 2');
+    assert.ok(midiObj.tracks.some((t) => t.name.includes('Staff 3') && t.notes.length === 1), 'Staff 3 notes must not be dropped');
+    const m2 = parsed.metadata.measures[1];
+    assert.ok(Math.abs((m2.endTicks - m2.startTicks) - 1920) <= 2, 'Durationless <rest measure="yes"/> must span a full 4/4 bar');
+  });
+
+  record('Issue #141 Song bundle leading-dot path, cleared fields & MIDI hygiene track selection', () => {
+    const bundle = require(path.join(REPO_ROOT, 'song-bundle.js'));
+    const hygiene = require(path.join(REPO_ROOT, 'midi-hygiene.js'));
+    const fs = require('fs');
+    const os = require('os');
+
+    // Leading '..' filename stays portable
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cok-bundle-'));
+    try {
+      const dotFile = path.join(tmpDir, '...Ready_For_It.mid');
+      fs.writeFileSync(dotFile, '');
+      const storePath = path.join(tmpDir, 'bundles.json');
+      bundle.saveBundleRecord({
+        storePath,
+        projectRoot: tmpDir,
+        importsDir: tmpDir,
+        writeSidecar: true,
+        record: { notesPath: dotFile, youtubeUrl: 'https://youtu.be/abc', midiCleanupEnabled: true }
+      });
+      const store = bundle.loadBundlesStore(storePath);
+      assert.ok(Object.prototype.hasOwnProperty.call(store.bundles, '...Ready_For_It.mid'), 'Leading-dot filename must stay portable');
+
+      // Clearing youtubeUrl in store must not revive stale sidecar URL
+      const sidecarPath = bundle.getSidecarBundlePath(dotFile);
+      const oldSidecar = JSON.parse(fs.readFileSync(sidecarPath, 'utf8'));
+      oldSidecar.updatedAt = new Date(Date.now() - 60000).toISOString();
+      fs.writeFileSync(sidecarPath, JSON.stringify(oldSidecar, null, 2));
+      store.bundles['...Ready_For_It.mid'].youtubeUrl = null;
+      store.bundles['...Ready_For_It.mid'].updatedAt = new Date(Date.now() + 1000).toISOString();
+      bundle.saveBundlesStore(storePath, store);
+      const resolved = bundle.resolveBundleForSong({ filePath: dotFile, store, projectRoot: tmpDir });
+      assert.strictEqual(resolved.youtubeUrl, null, 'Explicitly cleared youtubeUrl must not fall back to older sidecar');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+
+    // mapInstrumentHighwayNotes chosenPlayableIndices excludes non-stem GM tracks when stem exists
+    const hw = hygiene.mapInstrumentHighwayNotes([
+      { index: 0, name: 'Stem: Bass', notes: [{ midi: 40, time: 0, duration: 0.5, velocity: 90 }] },
+      { index: 1, name: 'Electric Bass', programNumber: 33, notes: [{ midi: 40, time: 0, duration: 0.5, velocity: 90 }] }
+    ], 'bass', 10);
+    assert.strictEqual(hw.chosenPlayableIndices.has(0), true);
+    assert.strictEqual(hw.chosenPlayableIndices.has(1), false, 'Unselected GM bass track must not be muted when Stem: Bass is chosen');
+  });
+
   return results;
 }
 

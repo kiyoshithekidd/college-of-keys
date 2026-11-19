@@ -252,7 +252,8 @@ function selectAutoPianoTracks(rawTracks, songDurationSec = 1) {
     });
     for (const n of pianoTracks[0].t.notes) {
       // Split at Middle C (folded when processed)
-      let p = n.originalMidi;
+      let p = Number(n.originalMidi ?? n.midi);
+      if (!Number.isFinite(p)) continue;
       while (p < 36) p += 12;
       while (p > 96) p -= 12;
       if (p >= 60) {
@@ -460,8 +461,14 @@ function buildFullSongArrangement(rawNotes = [], bpm = 120) {
   }
 
   // 2. Left-Hand harmonic root + fifth/third accompaniment per 2-beat window
-  const minT = Math.min(...normalized.map((n) => n.time));
-  const maxT = Math.max(...normalized.map((n) => n.time + n.duration));
+  let minT = Infinity;
+  let maxT = -Infinity;
+  for (let i = 0; i < normalized.length; i++) {
+    const n = normalized[i];
+    if (n.time < minT) minT = n.time;
+    const endT = n.time + n.duration;
+    if (endT > maxT) maxT = endT;
+  }
   const lhNotes = [];
 
   for (let wStart = minT; wStart < maxT - 0.05; wStart = Number((wStart + barWindowSec).toFixed(3))) {
@@ -471,8 +478,12 @@ function buildFullSongArrangement(rawNotes = [], bpm = 120) {
 
     const pcWeights = new Array(12).fill(0);
     const lowPcWeights = new Array(12).fill(0);
-    const onsetsInWin = winNotes.filter((n) => n.time >= wStart - 0.04).map((n) => n.time);
-    const anchorOnset = Number(Math.max(wStart, onsetsInWin.length > 0 ? Math.min(...onsetsInWin) : wStart).toFixed(3));
+    let earliestOnset = Infinity;
+    for (let i = 0; i < winNotes.length; i++) {
+      const t = winNotes[i].time;
+      if (t >= wStart - 0.04 && t < earliestOnset) earliestOnset = t;
+    }
+    const anchorOnset = Number(Math.max(wStart, Number.isFinite(earliestOnset) ? earliestOnset : wStart).toFixed(3));
 
     for (const n of winNotes) {
       const pc = ((n.midi % 12) + 12) % 12;
@@ -639,7 +650,7 @@ function mapInstrumentHighwayNotes(rawTracks = [], instrumentId = 'piano', songD
 
   const detected = detectAvailableInstrumentHighways(rawTracks, songDurationSec);
   const info = detected[instId];
-  const chosenPlayableIndices = new Set(info?.trackIndices || []);
+  const chosenPlayableIndices = new Set();
 
   // Prefer explicit `Stem: <Instrument>` tracks when both stem and GM tracks exist
   let candidateIndices = info?.trackIndices || [];
@@ -654,6 +665,11 @@ function mapInstrumentHighwayNotes(rawTracks = [], instrumentId = 'piano', songD
   if (candidateIndices.length > 0) {
     for (const idx of candidateIndices) {
       chosenPlayableIndices.add(idx);
+      rawTracks.forEach((t, dupIdx) => {
+        if (t?.isDuplicate && t.duplicateOfIndex === idx) {
+          chosenPlayableIndices.add(dupIdx);
+        }
+      });
       for (const n of rawTracks[idx]?.notes || []) {
         rawNotes.push({ ...n });
       }
@@ -661,6 +677,12 @@ function mapInstrumentHighwayNotes(rawTracks = [], instrumentId = 'piano', songD
   } else {
     rawTracks.forEach((t, idx) => {
       if (!t?.notes?.length || t.isDuplicate || isUtilityTrack(t)) return;
+      chosenPlayableIndices.add(idx);
+      rawTracks.forEach((dupTrack, dupIdx) => {
+        if (dupTrack?.isDuplicate && dupTrack.duplicateOfIndex === idx) {
+          chosenPlayableIndices.add(dupIdx);
+        }
+      });
       for (const n of t.notes) {
         rawNotes.push({ ...n });
       }
