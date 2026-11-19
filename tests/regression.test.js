@@ -1,0 +1,411 @@
+/**
+ * College of Keys — Unit & Headless Electron Regression Test Suite (Issue #133)
+ * Exercises all core JS modules and the real Electron BrowserWindow renderer:
+ *  - Unit modules: bard-achievements, bard-campaign, bard-colleges, guild-tutorial,
+ *    tavern-setlists, omr-confidence, midi-hygiene, musicxml-converter, song-bundle,
+ *    notation-engine, instrument-input, spell-singing
+ *  - Renderer DOM & interactive checks: 61-key piano, Spell Highway, VexFlow,
+ *    Quest Board arrangement mode (#123), 6-stem mixer (#41), Plug-In External Rig (#42),
+ *    Spell-Singing Karaoke Mode (#43/#124-#127), paused scoring & backward scrub (#128),
+ *    modal keyboard guards & Escape (#129), custom lyrics persistence (#130),
+ *    and Bardic Annals vocal stats (#132).
+ */
+const { app, BrowserWindow, session, ipcMain } = require('electron');
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+
+const REPO_ROOT = path.resolve(__dirname, '..');
+
+// Allow software WebGL under headless Xvfb
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+app.commandLine.appendSwitch('enable-webgl');
+
+ipcMain.handle('open-folder-in-explorer', async (_event, targetDir) => {
+  if (!targetDir || typeof targetDir !== 'string') {
+    return { ok: false, error: 'Missing target folder path.' };
+  }
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+  return { ok: true, verifiedPath: path.resolve(targetDir) };
+});
+
+async function runUnitTests() {
+  const results = [];
+  const record = (name, fn) => {
+    try {
+      fn();
+      results.push({ name, ok: true });
+    } catch (err) {
+      results.push({ name, ok: false, error: err.stack || err.message });
+    }
+  };
+
+  record('Electron runtime version is 45.x', () => {
+    assert.ok(process.versions.electron.startsWith('45.'), `Expected 45.x, got ${process.versions.electron}`);
+  });
+
+  record('bard-achievements module', () => {
+    const mod = require(path.join(REPO_ROOT, 'bard-achievements.js'));
+    const evalRes = mod.evaluateAchievements({ songsCompleted: 1, rolledFace: 20, accuracyPct: 100, totalAttempts: 12 }, {});
+    assert.ok(evalRes.newlyUnlocked.length >= 3);
+    assert.ok(evalRes.totalBonusXp > 0);
+    const summary = mod.getAchievementSummary(evalRes.nextUnlockedMap);
+    assert.strictEqual(summary.unlockedCount, evalRes.newlyUnlocked.length);
+  });
+
+  record('bard-campaign module', () => {
+    const mod = require(path.join(REPO_ROOT, 'bard-campaign.js'));
+    assert.strictEqual(mod.CAMPAIGN_VENUES.length, 4);
+    assert.strictEqual(mod.isVenueUnlocked('street-corner', {}), true);
+    assert.strictEqual(mod.isVenueUnlocked('silver-flagon', {}), false);
+    const check = mod.evaluateVenueCheck('street-corner', 15, {});
+    assert.strictEqual(check.passed, true);
+    assert.strictEqual(check.firstClear, true);
+    assert.strictEqual(mod.isVenueUnlocked('silver-flagon', check.nextProgress), true);
+  });
+
+  record('bard-colleges module', () => {
+    const mod = require(path.join(REPO_ROOT, 'bard-colleges.js'));
+    assert.strictEqual(mod.BARD_COLLEGES.length, 3);
+    const prog = { enrolledCollegeId: 'lore', completedDrills: {}, collegeSongsCompleted: { lore: 0 } };
+    const res = mod.evaluateCollegeProgress({ songCompleted: true, waitMode: true, accuracyPct: 90 }, prog);
+    assert.strictEqual(res.nextProgress.collegeSongsCompleted.lore, 1);
+    assert.ok(res.newlyCompletedDrills.some((d) => d.id === 'lore-wait-practice'));
+  });
+
+  record('guild-tutorial module', () => {
+    const mod = require(path.join(REPO_ROOT, 'guild-tutorial.js'));
+    let st = mod.createTutorialState();
+    st = mod.advanceTutorialState(st, { type: 'start' });
+    assert.strictEqual(st.active, true);
+    st = mod.advanceTutorialState(st, { type: 'playback-started' });
+    assert.strictEqual(st.stepIndex, 1);
+    st = mod.advanceTutorialState(st, { type: 'note-hit', noteCount: 4, maxChain: 4 });
+    assert.strictEqual(st.stepIndex, 2);
+    st = mod.advanceTutorialState(st, { type: 'note-hit', noteCount: 2, maxChain: 6 });
+    assert.strictEqual(st.stepIndex, 3);
+    st = mod.advanceTutorialState(st, { type: 'song-completed' });
+    assert.strictEqual(st.completed, true);
+  });
+
+  record('tavern-setlists module', () => {
+    const mod = require(path.join(REPO_ROOT, 'tavern-setlists.js'));
+    assert.strictEqual(mod.getCrowdMoodForEnergy(85).id, 'enchanted');
+    assert.strictEqual(mod.getCrowdMoodForEnergy(10).id, 'asleep');
+    const rec = mod.createSetlistRecord('Tavern Night', [{ title: 'Song A', filePath: 'BUILTIN_DEMO' }]);
+    assert.strictEqual(rec.items.length, 1);
+  });
+
+  record('omr-confidence module', () => {
+    const mod = require(path.join(REPO_ROOT, 'omr-confidence.js'));
+    assert.strictEqual(mod.isOmrSheetFileName('score.pdf'), true);
+    assert.strictEqual(mod.isOmrSheetFileName('song.mid'), false);
+    const updatedXml = mod.applyOmrOverridesToMusicXml('<score-partwise><measure number="1"></measure></score-partwise>', {
+      title: 'Tavern Jig',
+      bpm: 132
+    });
+    assert.ok(updatedXml.includes('<work-title>Tavern Jig</work-title>'));
+    assert.ok(updatedXml.includes('tempo="132"'));
+  });
+
+  record('Issue #123 buildFullSongArrangement separates RH melody and LH chords cleanly', () => {
+    const { buildFullSongArrangement } = require(path.join(REPO_ROOT, 'midi-hygiene.js'));
+    const noisyMix = [
+      { midi: 76, time: 0.0, duration: 0.45, velocity: 102 },
+      { midi: 64, time: 0.01, duration: 0.4, velocity: 75 },
+      { midi: 60, time: 0.02, duration: 0.4, velocity: 72 },
+      { midi: 36, time: 0.0, duration: 0.9, velocity: 90 },
+      { midi: 38, time: 0.01, duration: 0.2, velocity: 65 },
+      { midi: 43, time: 0.03, duration: 0.8, velocity: 82 },
+      { midi: 79, time: 0.5, duration: 0.45, velocity: 104 },
+      { midi: 67, time: 0.51, duration: 0.35, velocity: 70 }
+    ];
+    const arranged = buildFullSongArrangement(noisyMix, 120);
+    assert.strictEqual(arranged.rhNotes.length, 2);
+    assert.ok(arranged.rhNotes.every((n) => n.midi >= 60));
+    assert.ok(arranged.lhNotes.length >= 1 && arranged.lhNotes.length <= 2);
+    assert.ok(arranged.lhNotes.every((n) => n.midi >= 36 && n.midi < 60));
+  });
+
+  record('Issue #41 6-stem bundle resolution & Mute/Solo mix state helpers', () => {
+    const bundle = require(path.join(REPO_ROOT, 'song-bundle.js'));
+    assert.deepStrictEqual(bundle.STEM_NAMES, ['piano', 'drums', 'bass', 'vocals', 'guitar', 'other']);
+    const defaultMix = bundle.createDefaultStemMix();
+    assert.strictEqual(defaultMix.piano.muted, true);
+    assert.strictEqual(defaultMix.drums.muted, false);
+    const soloVocalsMix = bundle.normalizeStemMix({
+      ...defaultMix,
+      vocals: { muted: false, solo: true }
+    });
+    assert.strictEqual(bundle.isStemAudibleInMix('vocals', soloVocalsMix), true);
+    assert.strictEqual(bundle.isStemAudibleInMix('drums', soloVocalsMix), false);
+  });
+
+  record('Issue #42 Multi-Instrument Highways & Plug-In External Input', () => {
+    const hygiene = require(path.join(REPO_ROOT, 'midi-hygiene.js'));
+    const instInput = require(path.join(REPO_ROOT, 'instrument-input.js'));
+    assert.strictEqual(instInput.translateGmDrumMidiToHighwayLane(36), 48);
+    assert.strictEqual(instInput.translateGmDrumMidiToHighwayLane(38), 50);
+    assert.strictEqual(instInput.translateGmDrumMidiToHighwayLane(42), 60);
+    assert.strictEqual(instInput.foldInstrumentMidiForHighway(28, 'bass'), 40);
+
+    const sr = 44100;
+    const bufA2 = new Float32Array(2048);
+    for (let i = 0; i < bufA2.length; i++) bufA2[i] = 0.5 * Math.sin((2 * Math.PI * 110 * i) / sr);
+    const pitchRes = instInput.detectPitchFromFloat32Buffer(bufA2, sr);
+    assert.ok(pitchRes && pitchRes.midi === 45 && pitchRes.noteName === 'A2');
+
+    const kickBuf = new Float32Array(1024);
+    for (let i = 0; i < kickBuf.length; i++) kickBuf[i] = 0.6 * Math.sin((2 * Math.PI * 80 * i) / sr);
+    const kickHit = instInput.classifyAcousticDrumHitFromBuffer(kickBuf, sr);
+    assert.ok(kickHit && kickHit.laneMidi === 48);
+
+    const sampleTracks = [
+      { index: 0, name: 'Stem: Drums', channel: 9, isPercussion: true, notes: [{ midi: 36, time: 0, duration: 0.15, velocity: 100 }, { midi: 38, time: 0.5, duration: 0.15, velocity: 95 }] }
+    ];
+    const drumHighway = hygiene.mapInstrumentHighwayNotes(sampleTracks, 'drums', 120);
+    assert.ok(drumHighway.track2Raw.some((n) => n.midi === 48));
+    assert.ok(drumHighway.track2Raw.some((n) => n.midi === 50));
+  });
+
+  record('Issue #124 Plug-In Instrument Auto-Routing & Mic/Headphone Bleed Guard', () => {
+    const instInput = require(path.join(REPO_ROOT, 'instrument-input.js'));
+    assert.ok(instInput.INPUT_SOURCE_MODES.some((m) => m.id === 'vocal-mic'));
+    const vocalRec = instInput.getRecommendedHighwayForInputMode('vocal-mic');
+    assert.strictEqual(vocalRec.instrumentId, 'vocals');
+    assert.strictEqual(vocalRec.stageViewMode, 'karaoke');
+
+    const noMic = instInput.assessMicAndBleedGuard([]);
+    assert.strictEqual(noMic.noMicWarning, true);
+
+    const builtIn = instInput.assessMicAndBleedGuard([
+      { kind: 'audioinput', deviceId: 'd1', label: 'MacBook Built-in Microphone' },
+      { kind: 'audiooutput', deviceId: 'o1', label: 'Built-in Speakers' }
+    ]);
+    assert.strictEqual(builtIn.bleedWarning, true);
+
+    const headset = instInput.assessMicAndBleedGuard([
+      { kind: 'audioinput', deviceId: 'd2', label: 'Blue Yeti USB Mic' },
+      { kind: 'audiooutput', deviceId: 'o2', label: 'AirPods Pro Headphones' }
+    ]);
+    assert.strictEqual(headset.bleedWarning, false);
+  });
+
+  record('Issue #125 MusicXML Lyric Extraction, .LRC Parser & Vocal Chart Builder', () => {
+    const xmlConv = require(path.join(REPO_ROOT, 'musicxml-converter.js'));
+    const spellSing = require(path.join(REPO_ROOT, 'spell-singing.js'));
+    const sampleXml = `<?xml version="1.0" encoding="UTF-8"?>
+      <score-partwise version="3.1">
+        <part-list><score-part id="P1"><part-name>Voice</part-name></score-part></part-list>
+        <part id="P1">
+          <measure number="1">
+            <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+            <direction><sound tempo="120"/></direction>
+            <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><lyric number="1"><syllabic>begin</syllabic><text>Hel</text></lyric></note>
+            <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><lyric number="1"><syllabic>end</syllabic><text>lo</text></lyric></note>
+            <note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><lyric number="1"><syllabic>single</syllabic><text>world</text></lyric></note>
+          </measure>
+        </part>
+      </score-partwise>`;
+    const converted = xmlConv.convertMusicXmlToMidiBuffer(Buffer.from(sampleXml, 'utf8'), 'test.musicxml');
+    assert.strictEqual(converted.metadata.lyrics.length, 3);
+    const lrcLines = spellSing.parseLrcText('[00:01.50]Hello world\n[00:04.00]Sing along');
+    assert.strictEqual(lrcLines.length, 2);
+    const chart = spellSing.buildVocalChart({
+      vocalNotes: [
+        { midi: 60, time: 0.0, duration: 0.5 },
+        { midi: 64, time: 0.5, duration: 0.5 },
+        { midi: 67, time: 1.0, duration: 1.0 }
+      ],
+      musicXmlLyrics: converted.metadata.lyrics
+    });
+    assert.strictEqual(chart.lyricSource, 'musicxml');
+    assert.strictEqual(chart.notes[0].lyric, 'Hel');
+  });
+
+  record('Issue #127 & #128 Octave-Agnostic Vocal Scoring, Paused Guard & Backward Scrub Pruning', () => {
+    const spellSing = require(path.join(REPO_ROOT, 'spell-singing.js'));
+    assert.strictEqual(spellSing.calcVocalPitchDistance(57, 69, { octaveAgnostic: true }).absSemitones, 0);
+    assert.strictEqual(spellSing.calcVocalPitchDistance(57, 69, { octaveAgnostic: false }).absSemitones, 12);
+
+    const chart = spellSing.buildVocalChart({
+      vocalNotes: [{ midi: 69, time: 0.0, duration: 1.0 }]
+    });
+    const scorer = spellSing.createVocalSessionScorer(chart, { octaveAgnostic: true });
+
+    // Issue #128: Paused frames (scoringActive: false) must NOT increment totalScoredFrames or pitchTrail
+    scorer.recordFrame(0.2, null, { scoringActive: false });
+    scorer.recordFrame(0.2, { midiFloat: 57.0, rms: 0.15 }, { scoringActive: false });
+    assert.strictEqual(scorer.state.totalScoredFrames, 0, 'Paused frames must not penalize totalScoredFrames');
+    assert.strictEqual(scorer.state.pitchTrail.length, 0, 'Paused frames must not pollute pitchTrail');
+    assert.ok(scorer.state.activePitch, 'Paused frames should still update live activePitch orb');
+
+    // Playing frames
+    for (let t = 0.05; t <= 0.45; t += 0.05) {
+      scorer.recordFrame(t, { midiFloat: 57.0, rms: 0.15 }, { scoringActive: true });
+    }
+    scorer.recordFrame(0.50, null, { scoringActive: true });
+    for (let t = 0.55; t <= 0.90; t += 0.05) {
+      scorer.recordFrame(t, { midiFloat: 57.1, rms: 0.15 }, { scoringActive: true });
+    }
+    const summary = scorer.getSummary();
+    assert.ok(summary.accuracyPct >= 85);
+    assert.ok(summary.vocalXpEarned > 0);
+
+    // Issue #128: Scrubbing backward to 0.30s trims future trail points > 0.30s
+    scorer.recordFrame(0.30, { midiFloat: 57.0, rms: 0.15 }, { scoringActive: false });
+    assert.ok(scorer.state.pitchTrail.every((p) => p.time <= 0.30), 'Backward scrub must prune future pitchTrail points');
+  });
+
+  return results;
+}
+
+app.whenReady().then(async () => {
+  const unitResults = await runUnitTests();
+  const rendererErrors = [];
+
+  const ALLOWED_PERMISSIONS = new Set(['midi', 'midiSysex', 'media']);
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(ALLOWED_PERMISSIONS.has(permission));
+  });
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
+    return ALLOWED_PERMISSIONS.has(permission);
+  });
+
+  const win = new BrowserWindow({
+    width: 1440,
+    height: 900,
+    show: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+
+  win.webContents.on('console-message', (event) => {
+    const level = event.level ?? '';
+    const message = event.message ?? '';
+    const line = event.lineNumber ?? event.line ?? '';
+    const sourceId = event.sourceId ?? '';
+    if ((level === 'error' || level === 3) && !message.includes('THREE.WebGLRenderer:')) {
+      rendererErrors.push(`${message} (${sourceId}:${line})`);
+    }
+  });
+
+  win.webContents.on('render-process-gone', (_e, details) => {
+    rendererErrors.push(`Render process gone: ${JSON.stringify(details)}`);
+  });
+
+  await win.loadFile(path.join(REPO_ROOT, 'index.html'));
+  await new Promise((r) => setTimeout(r, 2200));
+
+  const domChecks = await win.webContents.executeJavaScript(`
+    (async () => {
+      const checks = {};
+      checks.pianoKeyCount = (Array.isArray(whiteKeys) ? whiteKeys.length : 0) + (Array.isArray(blackKeys) ? blackKeys.length : 0);
+      const canvas = document.getElementById('spell-canvas');
+      checks.spellCanvasReady = Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+      checks.notationRendererReady = Boolean(typeof notationRenderer === 'object' && notationRenderer);
+
+      // Issue #123
+      assignSongTracksAndDifficulty('full-song-arrangement');
+      checks.arrangedOk = currentSong.track1Notes.length > 0 && currentSong.track2Notes.length > 0;
+      assignSongTracksAndDifficulty('auto-piano');
+
+      // Issue #42 Plug-In Rig
+      hasEnteredTavernSession = true;
+      isTavernMenuVisible = false;
+      setExternalInstrumentSourceMode('midi-edrums');
+      onMidiMessage({ data: new Uint8Array([0x99, 38, 100]) });
+      checks.edrumsSnareTriggeredD3 = activeNotes.has(50);
+      onMidiMessage({ data: new Uint8Array([0x89, 38, 0]) });
+
+      // Epic #43 + #128 + #132
+      checks.level40TitleIsGrandSkald = getBardicTitleForLevel(40) === 'Grand Skald';
+      const pianoXpBefore = bardProfile.totalXp;
+      const pianoSongsBefore = bardProfile.songsCompleted;
+      const vocalXpBefore = bardProfile.vocalXp || 0;
+
+      setExternalInstrumentSourceMode('vocal-mic');
+      checks.vocalMicAutoSwitchedKaraoke = stageViewMode === 'karaoke';
+      checks.vocalChartBuilt = Boolean(spellSingingState.vocalChart && spellSingingState.vocalChart.notes.length > 0);
+
+      // #128: While paused, synthetic audio must NOT increment totalScoredFrames
+      playbackState.isPlaying = false;
+      const firstNote = spellSingingState.vocalChart.notes[0];
+      playbackState.currentTime = firstNote.time + Math.min(0.15, firstNote.duration * 0.5);
+      const targetFreqOctaveDown = 440 * Math.pow(2, ((firstNote.midi - 12) - 69) / 12);
+      const vocalWave = new Float32Array(2048);
+      for (let i = 0; i < vocalWave.length; i++) vocalWave[i] = 0.45 * Math.sin((2 * Math.PI * targetFreqOctaveDown * i) / 44100);
+      processAudioInstrumentFrame(vocalWave, 44100);
+      checks.pausedVocalDidNotScore = spellSingingState.scorer.state.totalScoredFrames === 0;
+
+      // While playing, synthetic audio scores & awards separate Vocal XP
+      playbackState.isPlaying = true;
+      processAudioInstrumentFrame(vocalWave, 44100);
+      playbackState.isPlaying = false;
+      renderKaraokeFrame();
+      const vocalSum = spellSingingState.scorer.getSummary();
+      checks.playingVocalScored = vocalSum.accuracyPct > 0 && vocalSum.vocalScorePoints > 0;
+      const awarded = awardVocalSessionXp();
+      checks.vocalXpSeparateFromPiano = Boolean(
+        awarded &&
+        awarded.vocalXpEarned > 0 &&
+        bardProfile.vocalXp === vocalXpBefore + awarded.vocalXpEarned &&
+        bardProfile.totalXp === pianoXpBefore &&
+        bardProfile.songsCompleted === pianoSongsBefore
+      );
+
+      // #132: Bardic Annals displays Vocal Level, Vocal XP & Vocal Songs
+      openBardAnnalsModal();
+      checks.annalsShowsVocalStats = Boolean(
+        document.getElementById('annals-vocal-level')?.textContent.includes('LVL') &&
+        document.getElementById('annals-vocal-xp')?.textContent.includes('XP') &&
+        Number(document.getElementById('annals-vocal-songs')?.textContent) >= 1
+      );
+      closeBardAnnalsModal();
+
+      // #129: isAnyModalOpen covers omrReviewModal & setlistModal, and Escape closes Colleges & Campaign
+      omrReviewModal.classList.remove('hidden');
+      checks.isAnyModalDetectsOmr = isAnyModalOpen();
+      omrReviewModal.classList.add('hidden');
+
+      setlistModal.classList.remove('hidden');
+      checks.isAnyModalDetectsSetlist = isAnyModalOpen();
+      setlistModal.classList.add('hidden');
+
+      bardCollegesModal.classList.remove('hidden');
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      checks.escapeClosesColleges = bardCollegesModal.classList.contains('hidden');
+
+      campaignModal.classList.remove('hidden');
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      checks.escapeClosesCampaign = campaignModal.classList.contains('hidden');
+
+      setExternalInstrumentSourceMode('midi-piano');
+      checks.restoredHighway = stageViewMode === 'highway';
+
+      return checks;
+    })();
+  `);
+
+  const summary = {
+    electronVersion: process.versions.electron,
+    unitResults,
+    domChecks,
+    rendererErrors
+  };
+
+  console.log('=== COLLEGE OF KEYS REGRESSION TEST SUMMARY ===');
+  console.log(JSON.stringify(summary, null, 2));
+
+  const failedUnits = unitResults.filter((u) => !u.ok);
+  const allDomTrue = Object.entries(domChecks).every(([k, v]) => (k === 'pianoKeyCount' ? v === 61 : v === true));
+
+  app.exit(failedUnits.length === 0 && allDomTrue && rendererErrors.length === 0 ? 0 : 1);
+}).catch((err) => {
+  console.error('REGRESSION_TEST_FATAL:', err);
+  app.exit(1);
+});

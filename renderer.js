@@ -605,6 +605,9 @@ const annalsTotalXp = document.getElementById('annals-total-xp');
 const annalsSongsCompleted = document.getElementById('annals-songs-completed');
 const annalsBestChain = document.getElementById('annals-best-chain');
 const annalsCareerAccuracy = document.getElementById('annals-career-accuracy');
+const annalsVocalLevel = document.getElementById('annals-vocal-level');
+const annalsVocalXp = document.getElementById('annals-vocal-xp');
+const annalsVocalSongs = document.getElementById('annals-vocal-songs');
 const annalsFavSong = document.getElementById('annals-fav-song');
 const annalsFavPlays = document.getElementById('annals-fav-plays');
 const annalsBestSong = document.getElementById('annals-best-song');
@@ -2115,6 +2118,11 @@ function loadBardProfile() {
     bardProfile.totalXp = Math.max(0, Number(loaded.totalXp) || 0);
     bardProfile.vocalXp = Math.max(0, Number(loaded.vocalXp) || 0);
     bardProfile.vocalSongsCompleted = Math.max(0, Number(loaded.vocalSongsCompleted) || 0);
+    if (loaded.customLyricsBySongId && typeof loaded.customLyricsBySongId === 'object' && !Array.isArray(loaded.customLyricsBySongId)) {
+      bardProfile.customLyricsBySongId = { ...loaded.customLyricsBySongId };
+    } else {
+      bardProfile.customLyricsBySongId = {};
+    }
     bardProfile.bestCareerChain = Math.max(0, Number(loaded.bestCareerChain) || 0);
     bardProfile.songsCompleted = Math.max(0, Number(loaded.songsCompleted) || 0);
     bardProfile.lastSongTitle = loaded.lastSongTitle || null;
@@ -2241,6 +2249,9 @@ function saveBardProfile() {
     vocalXp: bardProfile.vocalXp || 0,
     vocalLevel: bardProfile.vocalLevel || 1,
     vocalSongsCompleted: bardProfile.vocalSongsCompleted || 0,
+    customLyricsBySongId: (typeof spellSingingState !== 'undefined' && spellSingingState.customLyricsBySongId)
+      ? spellSingingState.customLyricsBySongId
+      : (bardProfile.customLyricsBySongId || {}),
     bestCareerChain: bardProfile.bestCareerChain,
     songsCompleted: bardProfile.songsCompleted,
     // Last song is only updated by recordSongPerformance so boot auto-load never overwrites it (Issue #67)
@@ -3882,9 +3893,7 @@ function resetPlaybackToStart() {
     spellSingingState.scorer.reset();
   }
   if (spellSingingState) {
-    spellSingingState.pitchTrail = [];
-    spellSingingState.awardedThisRun = false;
-    spellSingingState.lastSampleTime = null;
+    spellSingingState.lastTeleprompterKey = '';
     updateKaraokeHudStats();
   }
   seekBackingAudioToSongTime(playbackState.currentTime);
@@ -8445,7 +8454,9 @@ const spellSingingState = {
   songId: null,
   vocalChart: null,
   scorer: null,
-  customLyricsBySongId: {},
+  customLyricsBySongId: (bardProfile && bardProfile.customLyricsBySongId && typeof bardProfile.customLyricsBySongId === 'object')
+    ? { ...bardProfile.customLyricsBySongId }
+    : {},
   octaveAgnostic: true,
   lastTeleprompterKey: '',
   micGuardReport: { micCount: 0, headphonesDetected: false, noMicWarning: false, bleedWarning: false }
@@ -8853,7 +8864,8 @@ function processAudioInstrumentFrame(floatBuffer, sampleRate = 44100) {
     rmsGate: externalInstrumentRig.audioGateThreshold
   });
 
-  // Epic #43 (#126 & #127): Feed continuous vocal pitch into Spell-Singing scorer in Karaoke mode
+  // Epic #43 (#126 & #127) & Issue #128: Feed continuous vocal pitch into Spell-Singing scorer in Karaoke mode.
+  // Only score target frames when playbackState.isPlaying is true so paused mic input doesn't tank accuracy.
   if (stageViewMode === 'karaoke' || externalInstrumentRig.sourceMode === 'vocal-mic') {
     ensureVocalChartForCurrentSong();
     const compensatedTime = Math.max(
@@ -8861,7 +8873,9 @@ function processAudioInstrumentFrame(floatBuffer, sampleRate = 44100) {
       (playbackState.currentTime || 0) - ((playbackState.inputLatencyOffsetMs || 0) / 1000)
     );
     const vocalEval = spellSingingState.scorer
-      ? spellSingingState.scorer.recordFrame(compensatedTime, detected)
+      ? spellSingingState.scorer.recordFrame(compensatedTime, detected, {
+          scoringActive: Boolean(playbackState.isPlaying)
+        })
       : null;
     if (detected) {
       updateLiveTunerReadout(detected.noteName, detected.cents);
@@ -8892,7 +8906,14 @@ function processAudioInstrumentFrame(floatBuffer, sampleRate = 44100) {
   return { type: 'pitch', foldedMidi, ...detected };
 }
 
-// Wire Spell-Singing Karaoke stage buttons & Paste Lyrics modal (#125-#127)
+// Issue #131: Auto-refresh mic list & Bleed Guard when USB mics or headphones are hot-plugged
+if (navigator.mediaDevices && typeof navigator.mediaDevices.addEventListener === 'function') {
+  navigator.mediaDevices.addEventListener('devicechange', () => {
+    refreshAudioInputDeviceList();
+  });
+}
+
+// Wire Spell-Singing Karaoke stage buttons & Paste Lyrics modal (#125-#127, #130)
 if (btnKaraokeMicToggle) {
   btnKaraokeMicToggle.addEventListener('click', () => {
     if (externalInstrumentRig.audioListening) {
@@ -8928,6 +8949,8 @@ if (btnLyricPasteClear && lyricPasteModal) {
   btnLyricPasteClear.addEventListener('click', () => {
     if (currentSong) {
       delete spellSingingState.customLyricsBySongId[currentSong.songId];
+      bardProfile.customLyricsBySongId = { ...spellSingingState.customLyricsBySongId };
+      saveBardProfile();
       ensureVocalChartForCurrentSong({ forceRebuild: true });
     }
     lyricPasteModal.classList.add('hidden');
@@ -8938,6 +8961,8 @@ if (btnLyricPasteApply && lyricPasteModal) {
   btnLyricPasteApply.addEventListener('click', () => {
     if (currentSong && lyricPasteTextarea) {
       spellSingingState.customLyricsBySongId[currentSong.songId] = lyricPasteTextarea.value || '';
+      bardProfile.customLyricsBySongId = { ...spellSingingState.customLyricsBySongId };
+      saveBardProfile();
       ensureVocalChartForCurrentSong({ forceRebuild: true });
     }
     lyricPasteModal.classList.add('hidden');
@@ -9265,8 +9290,10 @@ function isAnyModalOpen() {
   const deleteConfirmOpen = deleteSpellConfirmModal && !deleteSpellConfirmModal.classList.contains('hidden');
   const collegesOpen = bardCollegesModal && !bardCollegesModal.classList.contains('hidden');
   const campaignOpen = campaignModal && !campaignModal.classList.contains('hidden');
+  const omrOpen = omrReviewModal && !omrReviewModal.classList.contains('hidden');
+  const setlistOpen = setlistModal && !setlistModal.classList.contains('hidden');
   const lyricPasteOpen = lyricPasteModal && !lyricPasteModal.classList.contains('hidden');
-  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen || deleteConfirmOpen || collegesOpen || campaignOpen || lyricPasteOpen);
+  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen || deleteConfirmOpen || collegesOpen || campaignOpen || omrOpen || setlistOpen || lyricPasteOpen);
 }
 
 window.addEventListener('keydown', (e) => {
@@ -9283,7 +9310,7 @@ window.addEventListener('keydown', (e) => {
       return;
     }
   }
-  // Close open popovers and modals on Escape (Issue #33, #76, #77)
+  // Close open popovers and modals on Escape (Issue #33, #76, #77, #129)
   if (e.key === 'Escape') {
     if (closeAllConservatoryPopovers({ returnFocus: true })) {
       e.preventDefault();
@@ -9307,6 +9334,16 @@ window.addEventListener('keydown', (e) => {
     if (omrReviewModal && !omrReviewModal.classList.contains('hidden')) {
       e.preventDefault();
       closeOmrReviewModal();
+      return;
+    }
+    if (bardCollegesModal && !bardCollegesModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeCollegesModal();
+      return;
+    }
+    if (campaignModal && !campaignModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeCampaignModal();
       return;
     }
     if (questBoardModal && !questBoardModal.classList.contains('hidden')) {
@@ -12667,9 +12704,12 @@ window.addEventListener('blur', () => {
   }
 });
 
-// Terminate any active background Python transcription child process & audio audition on close/reload (Issue #17, #76)
+// Terminate any active background Python transcription child process, mic stream & audio audition on close/reload (Issue #17, #76, #130)
 window.addEventListener('beforeunload', () => {
   stopAudioAudition();
+  if (typeof stopLiveAudioInstrumentInput === 'function') {
+    stopLiveAudioInstrumentInput();
+  }
   const child = activeQuestChildProcess;
   if (child) {
     try {
@@ -13022,6 +13062,9 @@ function openBardAnnalsModal() {
   if (annalsCareerAccuracy) {
     annalsCareerAccuracy.textContent = stats.careerAccuracy !== null ? `${stats.careerAccuracy}%` : '—';
   }
+  if (annalsVocalLevel) annalsVocalLevel.textContent = `LVL ${bardProfile.vocalLevel || 1}`;
+  if (annalsVocalXp) annalsVocalXp.textContent = `${(bardProfile.vocalXp || 0).toLocaleString()} XP`;
+  if (annalsVocalSongs) annalsVocalSongs.textContent = String(bardProfile.vocalSongsCompleted || 0);
 
   // Highlights
   if (annalsFavSong) {

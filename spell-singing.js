@@ -436,17 +436,22 @@ function createVocalSessionScorer(vocalChart, options = {}) {
     return { currentIdx: phrases.length - 1, nextIdx: -1 };
   }
 
-  function recordFrame(songTime, detectedPitch) {
+  function recordFrame(songTime, detectedPitch, { scoringActive = true } = {}) {
+    // Issue #128: Trim future pitchTrail points when user scrubs backward
+    while (state.pitchTrail.length > 0 && state.pitchTrail[state.pitchTrail.length - 1].time > songTime) {
+      state.pitchTrail.pop();
+    }
+
     const targetNote = findTargetNoteAtTime(songTime);
-    if (targetNote) {
+    if (scoringActive && targetNote) {
       targetNote.totalFrames += 1;
       state.totalScoredFrames += 1;
     }
 
     if (!detectedPitch || !Number.isFinite(detectedPitch.midiFloat)) {
       state.activePitch = null;
-      // Forgive tiny breathing gaps <= 100ms
-      if (targetNote && songTime - state.lastInTuneTime <= SINGING_BREAK_TOLERANCE_SEC) {
+      // Forgive tiny breathing gaps <= 100ms while actively playing
+      if (scoringActive && targetNote && songTime - state.lastInTuneTime <= SINGING_BREAK_TOLERANCE_SEC) {
         targetNote.hitFrames += 0.5;
         targetNote.fillRatio = Math.min(1, targetNote.hitFrames / Math.max(1, targetNote.totalFrames));
       }
@@ -468,7 +473,7 @@ function createVocalSessionScorer(vocalChart, options = {}) {
     }
 
     let vibrato = false;
-    if (targetNote && dist.inTune) {
+    if (scoringActive && targetNote && dist.inTune) {
       state.lastInTuneTime = songTime;
       state.inTuneFrames += 1;
       if (dist.tier === 'perfect') state.perfectFrames += 1;
@@ -484,7 +489,7 @@ function createVocalSessionScorer(vocalChart, options = {}) {
       if (state.vocalCombo > state.maxVocalCombo) state.maxVocalCombo = state.vocalCombo;
       const tierPts = dist.tier === 'perfect' ? 12 : dist.tier === 'great' ? 9 : 6;
       state.vocalScorePoints += tierPts + (targetNote.isGolden ? 6 : 0) + (vibrato ? 4 : 0);
-    } else if (targetNote) {
+    } else if (scoringActive && targetNote) {
       state.vocalCombo = 0;
     }
 
@@ -498,11 +503,13 @@ function createVocalSessionScorer(vocalChart, options = {}) {
       vibrato
     };
     state.activePitch = point;
-    state.pitchTrail.push(point);
-    // Keep last 8 seconds of pitch trail
-    const cutoff = songTime - 8.0;
-    while (state.pitchTrail.length > 0 && state.pitchTrail[0].time < cutoff) {
-      state.pitchTrail.shift();
+    if (scoringActive) {
+      state.pitchTrail.push(point);
+      // Keep last 8 seconds of pitch trail
+      const cutoff = songTime - 8.0;
+      while (state.pitchTrail.length > 0 && state.pitchTrail[0].time < cutoff) {
+        state.pitchTrail.shift();
+      }
     }
 
     return { targetNote, ...dist, vibrato, displayMidi };
