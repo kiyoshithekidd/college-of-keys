@@ -1,8 +1,8 @@
 # College of Keys
 
-> **A D&D 5E Bard LitRPG Piano Practice & Rock Band-Style Play-Along Desktop Application**
+> **A D&D 5E Bard LitRPG Piano, Multi-Instrument & Spell-Singing Karaoke Desktop Application**
 
-**College of Keys** replaces clinical piano drills with an Arcane Bard progression loop. Connect a physical **61-key MIDI keyboard (`C2`–`C7`)**—or test with your mouse and QWERTY keyboard—to cast musical spells on a 60 FPS HTML5 Canvas ("The Spell Highway"), practice with intelligent **Wait Mode** and **100ms Chord Forgiveness**, toggle between **Solo Piano** and **Full Backing Band Play-Along**, and level up from *Tavern Busker* to *Grand Maestro*.
+**College of Keys** replaces clinical music drills with an Arcane Bard progression loop. Connect a physical **61-key MIDI keyboard (`C2`–`C7`)**, **GM E-Drums**, **USB/Line-In guitar or bass**, **USB/Bluetooth gamepad**, or **vocal microphone**—or test with your mouse and QWERTY keyboard—to cast musical spells on a 60 FPS HTML5 Canvas ("The Spell Highway") or sing along in standalone **Spell-Singing Karaoke Mode**. Practice with intelligent **Wait Mode**, **100ms Chord Forgiveness**, **6-Stem AI Play-Along Mixing**, and **Grand-Staff Sheet Music**, and level up from *Tavern Busker* to *Grand Maestro*.
 
 ---
 
@@ -23,6 +23,8 @@
 | **Maintenance** | **Rhythm-Game & Audio Quality Remediation (`v1.1.1`–`v1.1.2`, Fixes #31–#38, #44–#51, #55–#60)** | **Completed** |
 | **v1.2.0** | **Grand-Staff Sheet Music Split View (`#39`), MusicXML (`#40`), Song Bundles (`#76`), 3D d20 Dice Tray (`#25`), Inspiration Meter (`#24`), Practice Suite (`#30`, `#62`, `#63`) & Smooth 60 FPS Notation (`#96`, `#97`)** | **Completed** |
 | **v1.3.0** | **OMR Sheet Import (`#78`), Tavern Crowd Meter (`#26`), Setlists (`#64`), Achievements (`#65`), Interactive Tutorial (`#54`), Bard Colleges (`#27`) & 4-Act Story Campaign (`#29`)** | **Completed** |
+| **v1.3.1** | **Tavern Modal Z-Index, Consolidated Career Menu, Slim Playboard HUD & Imports Auto-Catalog (`#122`)** | **Completed** |
+| **v1.4.0** | **Electron `v45.3.4` (`#121`), Full-Song Piano Arrangement (`#123`), 6-Stem AI Play-Along Mixer (`#41`), Multi-Instrument Highways & Plug-In Rig (`#42`), Spell-Singing Karaoke Mode (`#43`, `#124`–`#127`), `npm test` Regression Suite (`#133`) & Full-Codebase Audit Fixes (`#128`–`#143`)** | **Completed** |
 
 ---
 
@@ -34,7 +36,7 @@
 - **Zero-Latency Audio (`<10ms`):** Powered by a persistent `Tone.PolySynth` voice pool with `Tone.context.lookAhead = 0`, 4 selectable instrument presets (*Tavern Grand Piano*, *Arcane Lute-Harp*, *Cathedral Pipe Organ*, *Eldritch Warm Pad*), and physical **Sustain Pedal (`CC 64`)** support.
 
 ### 2. 2-Bar Conservatory UI/UX Layout (~82% Stage Height)
-- **Bar 1 (`#tavern-header`):** Branding & Sourcing (`The Grimoire`, `Quest Board`, `Load .mid`, `Demo`), inline *Baldur's Gate 3*-style **Bardic Character Banner** (`LVL`, `Bardic Rank`, inline `XP Progress Bar`, `Total XP`, `🏆 Stats`), and compact `MIDI Status` + **`⚙ Audio & Keys`** popover.
+- **Bar 1 (`#tavern-header`):** Branding & Sourcing (`The Grimoire`, `Quest Board`, `Import`, `Demo`), consolidated **`🎭 Career ▾`** menu (`Setlists`, `Colleges`, `Campaign`), inline *Baldur's Gate 3*-style **Bardic Character Banner** (`LVL`, `Bardic Rank`, inline `XP Progress Bar`, `Total XP`, `🏆 Stats`), and compact `MIDI Status` + **`⚙ Audio & Keys`** popover.
 - **Bar 2 (`#spell-scroll-bar`):** Active Spell Title, Difficulty Badge, **`ⓘ Details`** inspector popover (`NPS`, `BPM`, track breakdowns, and testing shortcuts), Primary Transport (`▶ Cast Spell`, `⏮`, scrubber), and Practice Deck.
 - **Zero Note-Lane Occlusion:** Translucent, `pointer-events: none` **Top-Center Highway HUD Pill** keeps live `Spell Chain`, `Multiplier`, and `Wait Mode Target` at eye level without obscuring any keys across `C2–C7`.
 
@@ -70,7 +72,7 @@
   - `8.0+ NPS`: **9th-Level Spell** (`2.0x` XP)
 - **Bardic Inspiration Meter & Combo Shield (`#24`):** Build charge on clean hits to trigger a **10s `2.0x XP` Surge** (`Enter` or HUD click) or automatically absorb 1 off-key combo break with **Auto Combo Shield**.
 - **3D d20 Performance Check (`#25`):** At song completion, toss a 3D physics gold d20 (`three` + `cannon-es`) inside the tavern felt tray for `d20 + Accuracy Mod vs Song DC` bonus XP.
-- **XP & Bardic Titles:** Earn `+10 XP` per clean note (`+2 XP` "Fumbled Component" if paused `> 2s` in Wait Mode). Level up from **Level 1 (*Tavern Busker*)** to **Level 50 (*Grand Maestro*)**.
+- **XP & Bardic Titles:** Earn `+10 XP` per clean note (`+2 XP` "Fumbled Component" if paused `> 2s` in Wait Mode). Level up from **Level 1 (*Tavern Busker*)** through **Level 40 (*Grand Skald*)** to **Level 50 (*Grand Maestro*)**, with a separate **Vocal Level & Vocal XP** pool tracked in **The Bardic Annals**.
 
 ### 6. Scrolling Grand-Staff Sheet Music, MusicXML & Practice Suite (`v1.2.0`)
 - **Highway | Split | Score Views (`1` / `2` / `3`):** View falling notes, a **52% Grand-Staff Sheet Music + Spell Highway Split View**, or full **Scrolling Grand-Staff Score View** powered by VexFlow 5 + Bravura (`notation-engine.js`) with smooth 60 FPS camera panning and a notehead-tracking Crimson playhead.
@@ -78,12 +80,21 @@
 - **Rehearsal Loop (`#30`), Practice Tempo (`#63`) & Post-Song Breakdown (`#62`):** Set `[A]`/`[B]` phrase loops (`[` / `]` / `\`), slow tempo from `0.5x` to `1.25x` with pitch preservation (`-` / `=`), and jump straight into weak measures from the post-song breakdown.
 - **Grimoire Song Bundles & Sync Calibrator (`#76`):** Pair playable notes, sheet music references, and backing audio with Beat 1 alignment, RMS Auto-Align, and non-destructive **Smart MIDI Hygiene**.
 
-### 7. Bardic Career, Colleges, Setlists & Sheet-Music OMR (`v1.3.0`)
+### 7. Bardic Career, Colleges, Setlists & Sheet-Music OMR (`v1.3.0`–`v1.3.1`)
 - **4-Act Story Campaign (`#29` — *The Ballad of the Silver Keys*):** Progress from **Act I: Cobblestone Street Corner** (`DC 10`) → **The Silver Flagon Tavern** (`DC 12`) → **Grand Conservatory Hall** (`DC 15`) → **The Royal Court** (`DC 18`) with custom venue stage backdrops, story intros/epilogues, and DC-gated unlocks.
 - **Bard Colleges as Learning Tracks (`#27`):** Enroll in **College of Lore** (sight-reading & theory), **College of Cadence** (speed & accuracy), or **College of Revelry** (performance & showmanship), each with 3 curated drills and recommended Grimoire repertoire.
 - **Tavern Crowd Meter (`#26`) & Setlists (`#64`):** Keep the crowd energized from *Restless* (`0.85x` XP) up to *Enchanted* (`1.5x` XP), and build/save multi-song **Setlists** with back-to-back stage transitions.
 - **Achievements (`#65`) & Interactive Tutorial (`#54`):** Unlock 7 persistent Bardic milestones with in-moment celebration banners and view them in **The Bardic Annals**; launch the 4-step **Trainer's Guild Guided Tutorial** directly from the Tavern Menu.
-- **OMR Sheet-Music Import (`#78`):** Import PDF/image sheet music via Audiveris + confidence review (`omr-confidence.js`).
+- **OMR Sheet-Music Import (`#78`):** Import PDF/image sheet music via `homr` + `pypdfium2` with confidence review (`omr-confidence.js`).
+
+### 8. Multi-Instrument Highways, 6-Stem AI Play-Along & Spell-Singing Karaoke (`v1.4.0`)
+- **Quest Board Full-Song Piano Arrangement (`#123`):** Choose between **Piano Cover** and **Full-Song Piano Arrangement** (`--mode piano-cover|full-song` + in-app `buildFullSongArrangement()` in `midi-hygiene.js`) to extract playable RH melody + LH chords from any full-band song.
+- **6-Stem AI Separation & Play-Along Mixer (`#41`):** Split songs into 6 stems (`Piano`, `Drums`, `Bass`, `Vocals`, `Guitar`, `Other`) via Demucs `htdemucs_6s` (with spectral/transient fallback), auto-linked via `<Base>.bundle.json` sidecars and controlled in-app with per-stem **Mute / Solo** and volume sliders.
+- **Multi-Instrument Highways & Plug-In External Instrument Rig (`#42`):** Chart any instrument stem or GM track (`Piano`, `Bass`, `Drums`, `Guitar`, `Vocals`, `Synth / Other`) onto the highway, and plug in external **MIDI keyboards**, **GM E-Drums**, **Line-In/Mic pitch & acoustic drum onset**, or **USB/Bluetooth gamepads** (`instrument-input.js`) with automatic source routing.
+- **Spell-Singing — Standalone Karaoke / Let's Sing Mode (`#43`, `#124`–`#127`):**
+  - Select **Vocal Microphone** to auto-switch into the standalone **Karaoke Stage** (no piano required) with **Mic/Headphone Bleed Guard** and live USB mic/headphone hot-plug detection (`devicechange`).
+  - Extracts timed lyrics from **MusicXML `<lyric>`**, sibling **`.lrc` sidecars**, an in-app **Paste Lyrics** modal (persisted per song), or an automatic **Solfège (`Do Re Mi`)** fallback (`spell-singing.js`).
+  - Renders a horizontal **Vocal Pitch Highway** with dynamic phrase auto-zoom, live cents ribbon, 2-line teleprompter, **octave-agnostic (`mod 12`) scoring**, 100ms singing-break forgiveness, and a dedicated **Vocal XP / Vocal Level** progression track.
 
 ---
 
@@ -92,6 +103,7 @@
 | Input Method | How to Use |
 | :--- | :--- |
 | **Physical 61-Key MIDI Keyboard** | Plug in via USB. Auto-detected via Web MIDI (`navigator.requestMIDIAccess`) with hot-plug support (`onstatechange`), velocity-0 `NoteOff` handling, and Sustain Pedal (`CC 64`). |
+| **Plug-In External Instruments (`#42`, `#43`)** | Select **GM E-Drums**, **Line-In Guitar/Bass**, **Vocal Microphone (Karaoke)**, or **USB/Bluetooth Gamepad** in `⚙ Audio & Keys` — the app auto-routes to the matching highway or Karaoke Stage. |
 | **Mouse Fallback** | Click or drag across any white or black key on the canvas. |
 | **QWERTY Keyboard Fallback** | **White keys:** `A S D F G H J K L ;` &bull; **Black keys (sharps):** `W E T Y U O P` &bull; **Octave Shift:** `Z` (down) / `X` (up). Key labels auto-hide when physical MIDI is connected and can be toggled in `⚙ Audio & Keys`. |
 
@@ -100,7 +112,7 @@
 ## Getting Started
 
 ### Prerequisites
-- **Node.js LTS** (`v20+` / `v26+`)
+- **Node.js LTS** (`v20+` / `v24+`)
 - Windows / macOS / Linux desktop environment
 
 ### Running the App
@@ -111,17 +123,26 @@ Double-click [`start.bat`](./start.bat) or run from the project root:
 npm start
 ```
 
+### Running the Regression Test Suite
+Verify all core modules, Electron `v45.3.4` DOM checks, Karaoke/Plug-In Rig routing, Notation, MusicXML, Song Bundles, and OMR helpers:
+```bash
+npm test
+```
+
 ---
 
 ## Repository Structure & Documentation
 
-- [`main.js`](./main.js) — Electron main process & automatic Web MIDI permission handlers.
-- [`index.html`](./index.html) & [`styles.css`](./styles.css) — 2-Bar Conservatory HUD and responsive 60 FPS canvas stage.
-- [`renderer.js`](./renderer.js) — 61-key canvas geometry (`C2`–`C7`), Web MIDI listener, Mouse/QWERTY input, and `Tone.Sampler` / `Tone.PolySynth` audio engine.
+- [`main.js`](./main.js) — Electron main process, automatic Web MIDI/media permission handlers, and folder IPC.
+- [`index.html`](./index.html) & [`styles.css`](./styles.css) — 2-Bar Conservatory HUD, Karaoke Stage, and responsive 60 FPS canvas stage.
+- [`renderer.js`](./renderer.js) — 61-key canvas geometry (`C2`–`C7`), Web MIDI & Plug-In Rig listener, 6-Stem Mixer, Karaoke renderer, and `Tone.Sampler` / `Tone.PolySynth` audio engine.
 - [`notation-engine.js`](./notation-engine.js) — VexFlow 5 + Bravura Grand-Staff sheet music engine, LRU tile cache, and smooth tracking playhead.
+- [`instrument-input.js`](./instrument-input.js) & [`spell-singing.js`](./spell-singing.js) — External instrument input routing (MIDI, GM E-Drums, Line-In/Mic YIN pitch & onset detection, Gamepads) and Spell-Singing Karaoke lyrics, vocal chart builder, and octave-agnostic scorer.
 - [`d20-roller.js`](./d20-roller.js) — Three.js + `cannon-es` 3D physics d20 Performance Check dice tray.
-- [`musicxml-converter.js`](./musicxml-converter.js), [`midi-hygiene.js`](./midi-hygiene.js), [`song-bundle.js`](./song-bundle.js) & [`omr-confidence.js`](./omr-confidence.js) — Pure-JS MusicXML-to-MIDI converter, Smart MIDI Hygiene, Grimoire Song Bundle sync, and OMR confidence review.
+- [`musicxml-converter.js`](./musicxml-converter.js), [`midi-hygiene.js`](./midi-hygiene.js), [`song-bundle.js`](./song-bundle.js) & [`omr-confidence.js`](./omr-confidence.js) — Pure-JS MusicXML-to-MIDI converter, Smart MIDI Hygiene & Multi-Instrument Highways, Grimoire Song Bundle sync, and OMR confidence review.
 - [`tavern-setlists.js`](./tavern-setlists.js), [`bard-achievements.js`](./bard-achievements.js), [`guild-tutorial.js`](./guild-tutorial.js), [`bard-colleges.js`](./bard-colleges.js) & [`bard-campaign.js`](./bard-campaign.js) — Tavern Crowd Meter, Setlists, Achievements, Interactive Tutorial, Bard Colleges, and 4-Act Story Campaign modules.
+- [`python_ml/transcribe_quest.py`](./python_ml/transcribe_quest.py) & [`python_ml/omr_import.py`](./python_ml/omr_import.py) — Python ML pipelines for YouTube/audio transcription (`basic-pitch` + Demucs 6-stem separation) and PDF/image sheet-music OMR (`homr` + `pypdfium2`).
+- [`tests/run-tests.js`](./tests/run-tests.js) & [`tests/regression.test.js`](./tests/regression.test.js) — Automated unit + headless Electron DOM regression suite (`npm test`).
 - [`PERSONAS.md`](./PERSONAS.md) — Core user personas (The Returning Adult, The Gamer Bard, The Rock Band Player, Casual Song Player, Young Learner, Conservatory Purist) guiding all feature decisions.
 - [`Gemini.md`](./Gemini.md) — Detailed architectural plan, engineering decisions & rationale log, open-source benchmark notes, and build log.
 - [`CHANGELOG.md`](./CHANGELOG.md) — Versioned phase-by-phase changelog.

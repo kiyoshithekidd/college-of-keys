@@ -10,6 +10,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.4.0] - 2026-11-18
+
+### Added
+- **Spell-Singing — Standalone Karaoke / Let's Sing Mode (`#43`, `#124`–`#127`):**
+  - Added `spell-singing.js` with MusicXML `<lyric>` extraction, `.lrc` sidecar parsing, Paste Lyrics modal (persisted per song), and Solfège (`Do Re Mi`) fallback.
+  - Added standalone Karaoke Stage (`#karaoke-stage`) with horizontal Vocal Pitch Highway, dynamic phrase auto-zoom, live cents ribbon, 2-line teleprompter, octave-agnostic (`mod 12`) scoring, 100ms singing-break forgiveness, and a dedicated Vocal XP / Vocal Level pool (Level 40 Piano title renamed to *Grand Skald*).
+  - Added Plug-In Instrument Auto-Routing & Mic/Headphone Bleed Guard with live `devicechange` hot-plug detection (`#124`, `#131`).
+- **Multi-Instrument Highways & Plug-In External Instrument Rig (`#42`):**
+  - Added `instrument-input.js` supporting external MIDI keyboards/channels, GM E-Drums, Line-In/Mic pitch & acoustic drum onset detection, and USB/Bluetooth gamepads.
+  - Added `HIGHWAY_INSTRUMENTS`, `detectAvailableInstrumentHighways()`, and `mapInstrumentHighwayNotes()` in `midi-hygiene.js` to chart Piano, Bass, Drums, Guitar, Vocals, or Synth/Other onto the highway.
+- **6-Stem AI Separation & Play-Along Mixer (`#41`):**
+  - Added `--split-stems` (`htdemucs_6s` + spectral/transient fallback) in `python_ml/transcribe_quest.py`, `<Base>.bundle.json` stem sidecars, and an in-app 6-Stem Mixer with per-stem Mute/Solo and volume controls.
+- **Quest Board Full-Song Piano Arrangement (`#123`):**
+  - Added `--mode piano-cover|full-song` in `python_ml/transcribe_quest.py` and `buildFullSongArrangement()` in `midi-hygiene.js` for playable RH melody + LH chords from full-band tracks.
+- **Automated Regression Suite (`#133`):**
+  - Added `npm test` (`tests/run-tests.js`, `tests/regression.test.js`) covering 18 unit suites and 17 headless Electron DOM checks.
+
+### Changed
+- **Electron Runtime Upgrade (`#121`):** Upgraded Electron to `v45.3.4` and updated deprecated APIs.
+
+### Fixed
+- **Full-Codebase Audit & Stability Hardening (`#128`–`#143`):**
+  - **Live Gameplay, Karaoke, Input & UI (`#128`–`#132`, `#135`–`#137`, `#142`, `#143`):** Fixed paused-mic vocal scoring, backward-scrub pitch trail pruning, `beforeunload` mic/OMR/child cleanup, modal keyboard & Escape guards, GM Tom `48`/`50` drum lane mapping, 6-stem mixer sync, Revelry `rowdy` crowd mood, and Vocal stats in Bardic Annals.
+  - **Sheet Music, Notation, MusicXML & Song Data (`#134`, `#140`, `#141`):** Fixed VexFlow 5 dotted-rest tokens, transposed MusicXML per-measure key specs, `scoreId` transpose key, `invalidateMeasure` cache eviction, lookahead alpha caching, volta pass reset, multi-`direction-type` metronome parsing, durationless whole-measure rests & multi-part sync, first-part concert key preservation, staff `>= 3` preservation, leading-`..` portable paths, cleared bundle field preservation, case-insensitive/songId key migration, finite pitch folding, loop-based `minT`/`maxT`, and `chosenPlayableIndices`.
+  - **Python ML Transcription & OMR (`#138`, `#139`):** Hardened Demucs `Popen` UTF-8 decoding & `finally` cleanup, removed 180s/240s audio truncation caps, added full-mix fallback for silent piano stems, enforced `--no-backing`, hardened OMR top-level error reporting, multi-page `ET.parse` stitching, `pypdfium2` handle closing, `$1`/`$&`-safe XML title overrides, and renderer OMR error/stale-close/beforeunload lifecycle guards.
+
+---
+
 ## [1.2.0] - 2026-11-13
 
 ### Fixed
