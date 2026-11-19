@@ -140,11 +140,11 @@ function applyOmrOverridesToMusicXml(xmlText, { title = '', bpm = 0 } = {}) {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
     if (/<work-title>[\s\S]*?<\/work-title>/i.test(updated)) {
-      updated = updated.replace(/<work-title>[\s\S]*?<\/work-title>/i, `<work-title>${escaped}</work-title>`);
+      updated = updated.replace(/<work-title>[\s\S]*?<\/work-title>/i, () => `<work-title>${escaped}</work-title>`);
     } else if (/<movement-title>[\s\S]*?<\/movement-title>/i.test(updated)) {
-      updated = updated.replace(/<movement-title>[\s\S]*?<\/movement-title>/i, `<movement-title>${escaped}</movement-title>`);
+      updated = updated.replace(/<movement-title>[\s\S]*?<\/movement-title>/i, () => `<movement-title>${escaped}</movement-title>`);
     } else {
-      updated = updated.replace(/(<score-partwise[^>]*>)/i, `$1\n  <work><work-title>${escaped}</work-title></work>`);
+      updated = updated.replace(/(<score-partwise[^>]*>)/i, (_, tag) => `${tag}\n  <work><work-title>${escaped}</work-title></work>`);
     }
   }
 

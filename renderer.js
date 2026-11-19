@@ -12257,6 +12257,7 @@ async function startOmrImportFromFile(file) {
     return;
   }
 
+  pausePlayback();
   closeOmrReviewModal();
   activeOmrState.sourceName = file.name;
 
@@ -12289,6 +12290,7 @@ async function startOmrImportFromFile(file) {
   let latestWarnings = [];
   let stdoutBuf = '';
   child.stdout.on('data', (chunk) => {
+    if (activeOmrState.child !== child) return;
     stdoutBuf += chunk.toString();
     const lines = stdoutBuf.split(/\r?\n/);
     stdoutBuf = lines.pop() || '';
@@ -12316,7 +12318,15 @@ async function startOmrImportFromFile(file) {
     stderrText += chunk.toString();
   });
 
+  child.on('error', (err) => {
+    if (activeOmrState.child !== child) return;
+    activeOmrState.child = null;
+    showGrimoireToast(`Failed to launch OMR engine: ${err.message}`, 'error');
+    closeOmrReviewModal();
+  });
+
   child.on('close', (code) => {
+    if (activeOmrState.child !== child) return;
     activeOmrState.child = null;
     if (code !== 0 || !fs.existsSync(tempXmlPath)) {
       const msg = omrStatusText?.textContent || stderrText.trim().split(/\r?\n/).pop() || 'OMR conversion failed.';
@@ -12359,6 +12369,7 @@ function confirmOmrImport() {
     const xmlBuf = fs.readFileSync(destPath);
     const arrayBuf = xmlBuf.buffer.slice(xmlBuf.byteOffset, xmlBuf.byteOffset + xmlBuf.byteLength);
     closeOmrReviewModal();
+    hideTavernMenu();
     scanWatchedDirectories(false);
     renderGrimoireSidebar();
     loadSongFromBuffer(arrayBuf, path.basename(destPath), destPath);
@@ -12767,11 +12778,14 @@ window.addEventListener('blur', () => {
   }
 });
 
-// Terminate any active background Python transcription child process, mic stream & audio audition on close/reload (Issue #17, #76, #130)
+// Terminate any active background Python transcription/OMR child process, mic stream & audio audition on close/reload (Issue #17, #76, #130, #139)
 window.addEventListener('beforeunload', () => {
   stopAudioAudition();
   if (typeof stopLiveAudioInstrumentInput === 'function') {
     stopLiveAudioInstrumentInput();
+  }
+  if (typeof closeOmrReviewModal === 'function') {
+    closeOmrReviewModal();
   }
   const child = activeQuestChildProcess;
   if (child) {

@@ -44,16 +44,28 @@ def stitch_musicxml_pages(xml_paths, warnings):
     if len(xml_paths) == 1:
         return Path(xml_paths[0]).read_text(encoding='utf-8', errors='replace')
 
-    base_tree = ET.parse(xml_paths[0])
+    base_tree = None
+    base_idx = 0
+    for idx, xml_path in enumerate(xml_paths):
+        try:
+            base_tree = ET.parse(xml_path)
+            base_idx = idx
+            break
+        except Exception as exc:
+            warnings.append(f"Page {idx + 1} MusicXML parse warning: {exc}")
+
+    if base_tree is None:
+        raise RuntimeError("All OMR MusicXML pages failed XML parsing.")
+
     base_root = base_tree.getroot()
     base_parts = base_root.findall('part')
     if not base_parts:
-        return Path(xml_paths[0]).read_text(encoding='utf-8', errors='replace')
+        return Path(xml_paths[base_idx]).read_text(encoding='utf-8', errors='replace')
 
     # Track current measure count per part
     part_measure_counts = [len(p.findall('measure')) for p in base_parts]
 
-    for page_idx, xml_path in enumerate(xml_paths[1:], start=2):
+    for page_idx, xml_path in enumerate(xml_paths[base_idx + 1:], start=base_idx + 2):
         try:
             page_tree = ET.parse(xml_path)
             page_root = page_tree.getroot()
@@ -119,142 +131,160 @@ def main():
     parser.add_argument('--self-test', action='store_true', help='Write a valid self-test MusicXML and exit')
     args = parser.parse_args()
 
-    out_path = Path(args.out).resolve()
-    out_path.parent.mkdir(parents=True, exist_ok=True)
     warnings = []
-
-    if args.self_test:
-        emit_status('initializing', 20, 'Running OMR pipeline self-test...')
-        out_path.write_text(build_self_test_musicxml(), encoding='utf-8')
-        emit_status('done', 100, 'OMR self-test complete.', page=1, total_pages=1, output_path=str(out_path))
-        return 0
-
-    if not args.input_path:
-        emit_status('error', 0, 'No input PDF or image path provided.')
-        return 1
-
-    in_path = Path(args.input_path).resolve()
-    if not in_path.is_file():
-        emit_status('error', 0, f'Input file not found: {in_path}')
-        return 1
-
-    ext = in_path.suffix.lower()
-    if ext not in SUPPORTED_PDF_EXTS and ext not in SUPPORTED_IMAGE_EXTS:
-        emit_status('error', 0, f'Unsupported sheet music format "{ext}". Use PDF, PNG, JPG, WEBP, or TIFF.')
-        return 1
-
     try:
-        import homr  # noqa: F401
-    except ImportError:
-        emit_status(
-            'error',
-            0,
-            'Python OMR package "homr" is not installed in python_ml/.venv. Run: pip install homr pypdfium2 onnxruntime'
-        )
-        return 1
+        out_path = Path(args.out).resolve()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory(prefix='cok_omr_') as tmp_dir_str:
-        tmp_dir = Path(tmp_dir_str)
-        page_images = []
+        if args.self_test:
+            emit_status('initializing', 20, 'Running OMR pipeline self-test...')
+            out_path.write_text(build_self_test_musicxml(), encoding='utf-8')
+            emit_status('done', 100, 'OMR self-test complete.', page=1, total_pages=1, output_path=str(out_path))
+            return 0
 
-        if ext in SUPPORTED_PDF_EXTS:
-            try:
-                import pypdfium2 as pdfium
-            except ImportError:
-                emit_status('error', 0, 'Missing "pypdfium2" in python_ml/.venv for PDF rasterization.')
-                return 1
+        if not args.input_path:
+            emit_status('error', 0, 'No input PDF or image path provided.')
+            return 1
 
-            emit_status('rasterizing', 5, f'Opening PDF "{in_path.name}"...')
-            doc = pdfium.PdfDocument(str(in_path))
-            total_doc_pages = len(doc)
-            if total_doc_pages == 0:
-                emit_status('error', 0, 'PDF contains 0 pages.')
-                return 1
+        in_path = Path(args.input_path).resolve()
+        if not in_path.is_file():
+            emit_status('error', 0, f'Input file not found: {in_path}')
+            return 1
 
-            pages_to_run = min(total_doc_pages, max(1, args.max_pages))
-            if total_doc_pages > pages_to_run:
-                warnings.append(f'PDF has {total_doc_pages} pages; capped at first {pages_to_run} pages.')
+        ext = in_path.suffix.lower()
+        if ext not in SUPPORTED_PDF_EXTS and ext not in SUPPORTED_IMAGE_EXTS:
+            emit_status('error', 0, f'Unsupported sheet music format "{ext}". Use PDF, PNG, JPG, WEBP, or TIFF.')
+            return 1
 
-            scale = max(150, min(400, args.dpi)) / 72.0
-            for idx in range(pages_to_run):
-                emit_status(
-                    'rasterizing',
-                    5 + (15 * (idx + 1) / pages_to_run),
-                    f'Rendering PDF page {idx + 1}/{pages_to_run} at {args.dpi} DPI...',
-                    page=idx + 1,
-                    total_pages=pages_to_run
-                )
-                bitmap = doc[idx].render(scale=scale)
-                pil_img = bitmap.to_pil()
-                if pil_img.width < 400 or pil_img.height < 400:
-                    warnings.append(f'Page {idx + 1} resolution is low ({pil_img.width}x{pil_img.height}); accuracy may suffer.')
-                img_path = tmp_dir / f'page_{idx + 1:03d}.png'
-                pil_img.save(img_path)
-                page_images.append(img_path)
-        else:
-            try:
-                from PIL import Image
-            except ImportError:
-                emit_status('error', 0, 'Missing "Pillow" in python_ml/.venv for image loading.')
-                return 1
-
-            emit_status('rasterizing', 10, f'Preparing sheet image "{in_path.name}"...', page=1, total_pages=1)
-            img = Image.open(in_path).convert('RGB')
-            if img.width < 600 or img.height < 600:
-                warnings.append(f'Image resolution is low ({img.width}x{img.height}); scan at >=300 DPI for best results.')
-            img_path = tmp_dir / 'page_001.png'
-            img.save(img_path)
-            page_images.append(img_path)
-
-        total_pages = len(page_images)
-        xml_outputs = []
-
-        for idx, img_path in enumerate(page_images, start=1):
-            base_pct = 20 + (70 * (idx - 1) / total_pages)
-            emit_status(
-                'recognizing',
-                base_pct,
-                f'Recognizing notation on page {idx}/{total_pages} (homr)...',
-                page=idx,
-                total_pages=total_pages,
-                warnings=warnings
-            )
-            cmd = [sys.executable, '-m', 'homr.main', str(img_path)]
-            if args.no_title or idx > 1:
-                cmd.append('--no-title')
-            if args.tempo and args.tempo > 0:
-                cmd.extend(['--output-tempo', str(args.tempo)])
-
-            proc = subprocess.run(cmd, capture_output=True, text=True)
-            expected_xml = img_path.with_suffix('.musicxml')
-            if proc.returncode != 0 or not expected_xml.is_file():
-                err_tail = (proc.stderr or proc.stdout or '').strip().splitlines()[-1:] or ['Unknown OMR failure']
-                warnings.append(f'Page {idx} failed OMR ({err_tail[0]}).')
-                continue
-            xml_outputs.append(expected_xml)
-
-        if not xml_outputs:
+        try:
+            import homr  # noqa: F401
+        except ImportError:
             emit_status(
                 'error',
                 0,
-                'OMR could not recognize any playable notation from the input. Try a cleaner, higher-DPI printed score.',
-                warnings=warnings
+                'Python OMR package "homr" is not installed in python_ml/.venv. Run: pip install homr pypdfium2 onnxruntime'
             )
             return 1
 
-        emit_status('stitching', 94, f'Assembling MusicXML ({len(xml_outputs)}/{total_pages} pages)...', warnings=warnings)
-        merged_xml = stitch_musicxml_pages(xml_outputs, warnings)
-        out_path.write_text(merged_xml, encoding='utf-8')
-        emit_status(
-            'done',
-            100,
-            f'OMR complete ({len(xml_outputs)}/{total_pages} pages recognized).',
-            page=total_pages,
-            total_pages=total_pages,
-            warnings=warnings,
-            output_path=str(out_path)
-        )
-    return 0
+        with tempfile.TemporaryDirectory(prefix='cok_omr_') as tmp_dir_str:
+            tmp_dir = Path(tmp_dir_str)
+            page_images = []
+
+            if ext in SUPPORTED_PDF_EXTS:
+                try:
+                    import pypdfium2 as pdfium
+                except ImportError:
+                    emit_status('error', 0, 'Missing "pypdfium2" in python_ml/.venv for PDF rasterization.')
+                    return 1
+
+                emit_status('rasterizing', 5, f'Opening PDF "{in_path.name}"...')
+                doc = pdfium.PdfDocument(str(in_path))
+                try:
+                    total_doc_pages = len(doc)
+                    if total_doc_pages == 0:
+                        emit_status('error', 0, 'PDF contains 0 pages.')
+                        return 1
+
+                    pages_to_run = min(total_doc_pages, max(1, args.max_pages))
+                    if total_doc_pages > pages_to_run:
+                        warnings.append(f'PDF has {total_doc_pages} pages; capped at first {pages_to_run} pages.')
+
+                    scale = max(150, min(400, args.dpi)) / 72.0
+                    for idx in range(pages_to_run):
+                        emit_status(
+                            'rasterizing',
+                            5 + (15 * (idx + 1) / pages_to_run),
+                            f'Rendering PDF page {idx + 1}/{pages_to_run} at {args.dpi} DPI...',
+                            page=idx + 1,
+                            total_pages=pages_to_run
+                        )
+                        page = doc[idx]
+                        bitmap = None
+                        try:
+                            bitmap = page.render(scale=scale)
+                            pil_img = bitmap.to_pil()
+                            if pil_img.width < 400 or pil_img.height < 400:
+                                warnings.append(f'Page {idx + 1} resolution is low ({pil_img.width}x{pil_img.height}); accuracy may suffer.')
+                            img_path = tmp_dir / f'page_{idx + 1:03d}.png'
+                            pil_img.save(img_path)
+                            page_images.append(img_path)
+                        finally:
+                            if bitmap is not None and hasattr(bitmap, 'close'):
+                                bitmap.close()
+                            if hasattr(page, 'close'):
+                                page.close()
+                finally:
+                    if hasattr(doc, 'close'):
+                        doc.close()
+            else:
+                try:
+                    from PIL import Image
+                except ImportError:
+                    emit_status('error', 0, 'Missing "Pillow" in python_ml/.venv for image loading.')
+                    return 1
+
+                emit_status('rasterizing', 10, f'Preparing sheet image "{in_path.name}"...', page=1, total_pages=1)
+                with Image.open(in_path) as raw_img:
+                    img = raw_img.convert('RGB')
+                    if img.width < 600 or img.height < 600:
+                        warnings.append(f'Image resolution is low ({img.width}x{img.height}); scan at >=300 DPI for best results.')
+                    img_path = tmp_dir / 'page_001.png'
+                    img.save(img_path)
+                    page_images.append(img_path)
+
+            total_pages = len(page_images)
+            xml_outputs = []
+
+            for idx, img_path in enumerate(page_images, start=1):
+                base_pct = 20 + (70 * (idx - 1) / total_pages)
+                emit_status(
+                    'recognizing',
+                    base_pct,
+                    f'Recognizing notation on page {idx}/{total_pages} (homr)...',
+                    page=idx,
+                    total_pages=total_pages,
+                    warnings=warnings
+                )
+                cmd = [sys.executable, '-m', 'homr.main', str(img_path)]
+                if args.no_title or idx > 1:
+                    cmd.append('--no-title')
+                if args.tempo and args.tempo > 0:
+                    cmd.extend(['--output-tempo', str(args.tempo)])
+
+                proc = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+                expected_xml = img_path.with_suffix('.musicxml')
+                if proc.returncode != 0 or not expected_xml.is_file():
+                    err_tail = (proc.stderr or proc.stdout or '').strip().splitlines()[-1:] or ['Unknown OMR failure']
+                    warnings.append(f'Page {idx} failed OMR ({err_tail[0]}).')
+                    continue
+                xml_outputs.append(expected_xml)
+
+            if not xml_outputs:
+                emit_status(
+                    'error',
+                    0,
+                    'OMR could not recognize any playable notation from the input. Try a cleaner, higher-DPI printed score.',
+                    warnings=warnings
+                )
+                return 1
+
+            emit_status('stitching', 94, f'Assembling MusicXML ({len(xml_outputs)}/{total_pages} pages)...', warnings=warnings)
+            merged_xml = stitch_musicxml_pages(xml_outputs, warnings)
+            out_path.write_text(merged_xml, encoding='utf-8')
+            emit_status(
+                'done',
+                100,
+                f'OMR complete ({len(xml_outputs)}/{total_pages} pages recognized).',
+                page=total_pages,
+                total_pages=total_pages,
+                warnings=warnings,
+                output_path=str(out_path)
+            )
+        return 0
+    except Exception as exc:
+        emit_status('error', 0, str(exc), warnings=warnings)
+        sys.stderr.write(f"OMR Error: {exc}\n")
+        return 1
 
 
 if __name__ == '__main__':

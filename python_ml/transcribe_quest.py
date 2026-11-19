@@ -547,7 +547,7 @@ def try_basic_pitch_transcription(
 # TIER 2: BUILT-IN POLYPHONIC HARMONIC AUDIO-TO-MIDI TRANSCRIBER (Python 3.14 Ready)
 # ============================================================================
 
-def read_wav_mono_float(wav_path: Path, max_seconds: float = 180.0):
+def read_wav_mono_float(wav_path: Path, max_seconds=None):
     """
     Read an 8-bit, 16-bit, 24-bit, or 32-bit PCM .wav file into mono float samples [-1.0, 1.0] and sample_rate.
     Uses `wave` + `struct`/`array` from the Python standard library.
@@ -558,8 +558,11 @@ def read_wav_mono_float(wav_path: Path, max_seconds: float = 180.0):
         channels = max(1, wf.getnchannels())
         sampwidth = wf.getsampwidth()
         framerate = wf.getframerate()
-        max_frames = int(framerate * max_seconds)
-        nframes = min(wf.getnframes(), max_frames)
+        total_frames = wf.getnframes()
+        if max_seconds is not None and max_seconds > 0:
+            nframes = min(total_frames, int(framerate * max_seconds))
+        else:
+            nframes = total_frames
         raw_bytes = wf.readframes(nframes)
 
     if sampwidth == 2:
@@ -848,20 +851,24 @@ def separate_audio_into_6_stems(source_wav: Path, stems_dir: Path, tmp_dir: Path
             str(demucs_out),
             str(source_wav),
         ]
+        proc = None
         try:
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
             )
-            for line in proc.stdout:
-                m = re.search(r"(\d{1,3})%\|", line)
-                if m:
-                    pct = max(0, min(100, int(m.group(1))))
-                    scaled = 32 + int(pct * 0.22)
-                    log_status("splitting_stems", f"Demucs htdemucs_6s separating stems ({pct}%)...", scaled)
+            if proc.stdout is not None:
+                for line in proc.stdout:
+                    m = re.search(r"(\d{1,3})%\|", line)
+                    if m:
+                        pct = max(0, min(100, int(m.group(1))))
+                        scaled = 32 + int(pct * 0.22)
+                        log_status("splitting_stems", f"Demucs htdemucs_6s separating stems ({pct}%)...", scaled)
             proc.wait()
             if proc.returncode == 0:
                 model_dir = demucs_out / "htdemucs_6s" / source_wav.stem
@@ -878,9 +885,26 @@ def separate_audio_into_6_stems(source_wav: Path, stems_dir: Path, tmp_dir: Path
                         return resolved
         except Exception as exc:
             log_status("warning", f"Demucs htdemucs_6s fallback triggered: {exc}", 35)
+        finally:
+            if proc is not None:
+                try:
+                    if proc.poll() is None:
+                        proc.terminate()
+                        proc.wait(timeout=5)
+                except Exception:
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=2)
+                    except Exception:
+                        pass
+                if proc.stdout is not None:
+                    try:
+                        proc.stdout.close()
+                    except Exception:
+                        pass
 
     # 2. Built-in Spectral / Transient 6-Stem Separator Fallback
-    samples, sr = read_wav_mono_float(source_wav, max_seconds=240.0)
+    samples, sr = read_wav_mono_float(source_wav)
     n_samples = len(samples)
     if n_samples == 0:
         raise RuntimeError("Source WAV is empty; cannot separate stems.")
@@ -1345,7 +1369,7 @@ def main():
                 return 0
 
             dest_midi_path = output_dir / f"{safe_base}.mid"
-            dest_backing_path = output_dir / f"{safe_base}{source_audio_path.suffix.lower()}"
+            dest_backing_path = None
 
             # 1. Decode input audio (.webm/.m4a/.mp3/.wav) to 22050Hz mono 16-bit PCM .wav first
             #    so both Spotify basic-pitch (via soundfile) and fallback DSP can read it cleanly!
@@ -1365,16 +1389,18 @@ def main():
                         mono_pcm_wav=pcm_wav if has_pcm_wav else None,
                     )
                 except Exception:
-                    pass
+                    dest_backing_path = None
 
             # 2b. Issue #41 & #42: Optional 6-stem separation before MIDI writing
             stems_map = None
             stem_tracks = None
+            using_isolated_piano_stem = False
             if args.split_stems and has_pcm_wav:
                 stems_dir = output_dir / f"{safe_base}_stems"
                 stems_map = separate_audio_into_6_stems(pcm_wav, stems_dir, tmp_dir)
                 if arrangement_mode == "piano-cover" and stems_map.get("piano") and Path(stems_map["piano"]).exists():
                     inference_audio_path = Path(stems_map["piano"])
+                    using_isolated_piano_stem = True
                 stem_tracks = transcribe_separated_stems_for_highways(stems_map)
 
             # 3. Run Spotify basic-pitch neural network (ONNXRuntime) first
@@ -1386,11 +1412,27 @@ def main():
                 stem_tracks=stem_tracks,
             )
 
+            # If isolated piano stem produced 0 notes (e.g. guitar/synth track with no piano),
+            # retry basic-pitch on the full mix before falling back to DSP.
+            if not used_basic_pitch and using_isolated_piano_stem and has_pcm_wav:
+                log_status("warning", "Isolated piano stem yielded no notes; retrying transcription on full mix...", 62)
+                inference_audio_path = pcm_wav
+                used_basic_pitch = try_basic_pitch_transcription(
+                    pcm_wav,
+                    dest_midi_path,
+                    song_title=title,
+                    arrangement_mode=arrangement_mode,
+                    stem_tracks=stem_tracks,
+                )
+
             # 4. Fallback to built-in Polyphonic DSP Transcriber only if basic-pitch is unavailable
             if not used_basic_pitch:
                 if has_pcm_wav:
+                    dsp_source = pcm_wav if using_isolated_piano_stem else (
+                        inference_audio_path if Path(inference_audio_path).exists() else pcm_wav
+                    )
                     transcribe_wav_polyphonic_dsp(
-                        inference_audio_path if Path(inference_audio_path).exists() else pcm_wav,
+                        dsp_source,
                         dest_midi_path,
                         song_title=title,
                         arrangement_mode=arrangement_mode,
@@ -1402,6 +1444,7 @@ def main():
                     )
 
             # 5. Write sidecar <safe_base>.bundle.json when stems were separated so the app auto-links all 6 stems
+            has_backing_file = bool(dest_backing_path and dest_backing_path.exists())
             if stems_map:
                 sidecar_path = output_dir / f"{safe_base}.bundle.json"
                 rel_stems = {k: f"{safe_base}_stems/{Path(v).name}" for k, v in stems_map.items()}
@@ -1409,7 +1452,7 @@ def main():
                     "version": 1,
                     "title": title,
                     "notesFile": dest_midi_path.name,
-                    "backingAudioPath": dest_backing_path.name if dest_backing_path.exists() else None,
+                    "backingAudioPath": dest_backing_path.name if has_backing_file else None,
                     "stems": rel_stems,
                     "stemMix": {
                         "piano": {"muted": True, "solo": False},
@@ -1435,7 +1478,7 @@ def main():
                 {
                     "title": title,
                     "midi_path": str(dest_midi_path),
-                    "backing_path": str(dest_backing_path) if dest_backing_path.exists() else None,
+                    "backing_path": str(dest_backing_path) if has_backing_file else None,
                     "stems": {k: str(v) for k, v in stems_map.items()} if stems_map else None,
                     "split_stems": bool(stems_map),
                     "audio_only": False,

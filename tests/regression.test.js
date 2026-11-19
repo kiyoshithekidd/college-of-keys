@@ -438,6 +438,14 @@ async function runUnitTests() {
     assert.strictEqual(hw.chosenPlayableIndices.has(1), false, 'Unselected GM bass track must not be muted when Stem: Bass is chosen');
   });
 
+  record('Issue #139 OMR XML title override preserves $1/$& tokens safely', () => {
+    const omr = require(path.join(REPO_ROOT, 'omr-confidence.js'));
+    const xml = '<score-partwise version="3.1"><work><work-title>Old</work-title></work><part id="P1"><measure number="1"></measure></part></score-partwise>';
+    const out = omr.applyOmrOverridesToMusicXml(xml, { title: '$100 Bill & $& Song', bpm: 112 });
+    assert.ok(out.includes('<work-title>$100 Bill &amp; $&amp; Song</work-title>'), 'Special $1/$& tokens in OMR title must be preserved verbatim');
+    assert.ok(out.includes('tempo="112"'), 'BPM override must be injected');
+  });
+
   return results;
 }
 
