@@ -688,6 +688,7 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
   let primaryKeyFifths = null;
   let primaryKeyMode = 'major';
   const chordMarkers = []; // { ticks, symbol }
+  const lyricEvents = []; // { ticks, durationTicks, midi, text, syllabic, extend, verse, partIndex }
   let lyricCount = 0;
   let skippedGraceNotes = 0;
   let skippedOrnaments = 0;
@@ -873,6 +874,29 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
 
           const midiPitch = Math.max(0, Math.min(127, Math.round((octave + 1) * 12 + semitone + alter)));
           const staffNum = Math.max(1, parseInt(getText(child, 'staff') || '1', 10) || 1);
+
+          // Issue #125 (Epic #43): Extract timed <lyric> syllables for Spell-Singing Karaoke Mode
+          const noteLyrics = getChildren(child, 'lyric');
+          if (noteLyrics.length > 0) {
+            // Prefer verse 1 (or first lyric child) for primary karaoke line
+            const primaryLyric =
+              noteLyrics.find((l) => String(l.attrs?.number || '1') === '1') || noteLyrics[0];
+            const lyricText = String(getText(primaryLyric, 'text') || '').trim();
+            const syllabic = String(getText(primaryLyric, 'syllabic') || 'single').trim().toLowerCase();
+            const hasExtend = Boolean(getChild(primaryLyric, 'extend'));
+            if (lyricText) {
+              lyricEvents.push({
+                ticks: noteStartTicks,
+                durationTicks: noteTicks,
+                midi: midiPitch,
+                text: lyricText,
+                syllabic: ['single', 'begin', 'middle', 'end'].includes(syllabic) ? syllabic : 'single',
+                extend: hasExtend,
+                verse: String(primaryLyric.attrs?.number || '1'),
+                partIndex: pIdx
+              });
+            }
+          }
           const voiceId = (getText(child, 'voice') || '1').trim() || '1';
 
           // Check tie start/stop in <tie> and <notations><tied>
@@ -1102,6 +1126,25 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
     symbol: cm.symbol
   }));
 
+  const lyricsWithTime = lyricEvents
+    .slice()
+    .sort((a, b) => a.ticks - b.ticks || a.partIndex - b.partIndex)
+    .map((ev) => {
+      const startSec = ticksToSeconds(ev.ticks, tempoChanges, ppq);
+      const endSec = ticksToSeconds(ev.ticks + ev.durationTicks, tempoChanges, ppq);
+      return {
+        ticks: ev.ticks,
+        time: startSec,
+        duration: Math.max(0.08, endSec - startSec),
+        midi: ev.midi,
+        text: ev.text,
+        syllabic: ev.syllabic,
+        extend: ev.extend,
+        verse: ev.verse,
+        partIndex: ev.partIndex
+      };
+    });
+
   const selectedMeasures = (primaryPart?.measures && primaryPart.measures.length > 0)
     ? primaryPart.measures
     : (parsedParts[0]?.measures || globalMeasures);
@@ -1129,6 +1172,7 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
       isGrandStaff,
       partNames: parsedParts.map((p) => p.meta.name),
       chordMarkers: chordMarkersWithTime,
+      lyrics: lyricsWithTime,
       lyricCount,
       skippedGraceNotes,
       skippedOrnaments

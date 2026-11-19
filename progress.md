@@ -15,13 +15,13 @@ Last Updated: 2026-11-18
 - **Campaign Mode: Gigs at Venues:** `#29` (`bard-campaign.js`, `icon-campaign-map.png`, 3 new venue stage backdrops, 4-act story progression with DC unlocks)
 - **Quest Board Arrangement Mode:** `#123` (`python_ml/transcribe_quest.py --mode piano-cover|full-song`, `buildFullSongArrangement` in `midi-hygiene.js`, Quest Board mode selector cards, and in-app `Full-Song Piano Arrangement` track mode)
 - **AI Stem Separation & Real Audio Play-Along:** `#41` (`--split-stems` 6-stem separation in `python_ml/transcribe_quest.py` via `htdemucs_6s` + spectral/transient fallback, `<safe_base>.bundle.json` sidecar, 6-Stem Play-Along Mixer with Mute/Solo and Piano muted by default, local audio file picker, and FIFO background job queue with HUD pill)
-- **Multi-Instrument Highways (v2):** `#42` (`HIGHWAY_INSTRUMENTS`, `detectAvailableInstrumentHighways`, and `mapInstrumentHighwayNotes` in `midi-hygiene.js`, `#highway-instrument-select` HUD switcher for Piano, Bass, Drums, Guitar, Vocals, and Synth/Other, and automatic stem muting for the active highway instrument)
+- **Multi-Instrument Highways (v2) & Plug-In External Instrument Rig:** `#42` (`HIGHWAY_INSTRUMENTS`, `detectAvailableInstrumentHighways`, and `mapInstrumentHighwayNotes` in `midi-hygiene.js`, `instrument-input.js` for MIDI devices/channels, GM E-Drums, Line-In/Mic pitch & acoustic drum onset detection, and USB/Bluetooth gamepads)
+- **Spell-Singing (Vocals / Let's Sing / Karaoke Mode):** `#43` (`#124` Plug-In Instrument Auto-Routing & Mic/Headphone Bleed Guard; `#125` MusicXML `<lyric>` extraction, `.lrc` sidecar parser, Paste Lyrics modal & Solfège fallback; `#126` standalone Karaoke Stage with horizontal Vocal Pitch Highway, dynamic phrase auto-zoom, live cents ribbon & 2-line teleprompter; `#127` octave-agnostic `mod 12` scoring, 100ms singing-break forgiveness, separate Vocal XP/Level pool & Level 40 Piano title renamed to `Grand Skald`)
 
 ---
 
-## Remaining Open Backlog (2 Major Epics & Ports)
+## Remaining Open Backlog (1 Major Port)
 
-1. **#43 — `[Backlog] Epic A: Spell-Singing (Vocals / Let's Sing Mode)`** (`persona: rock-band`, `persona: young-learner`)
-2. **#23 — `[Backlog] Mobile iOS Port (iPad Mini)`** (`persona: returning-adult`)
+1. **#23 — `[Backlog] Mobile iOS Port (iPad Mini)`** (`persona: returning-adult`)
 
 

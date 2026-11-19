@@ -102,8 +102,18 @@ const {
   translateGmDrumMidiToHighwayLane,
   foldInstrumentMidiForHighway,
   detectPitchFromFloat32Buffer,
-  classifyAcousticDrumHitFromBuffer
+  classifyAcousticDrumHitFromBuffer,
+  getRecommendedHighwayForInputMode,
+  assessMicAndBleedGuard
 } = require('./instrument-input');
+const {
+  parseLrcText,
+  findSiblingLrcPath,
+  buildVocalChart,
+  calcVocalPitchDistance,
+  createVocalSessionScorer,
+  renderSpellSingingStage
+} = require('./spell-singing');
 
 const MIN_MIDI = 36; // C2
 const MAX_MIDI = 96; // C7
@@ -715,8 +725,8 @@ const playbackState = {
   isScrubbing: false
 };
 
-// Issue #39 State: Grand-Staff Sheet Music Renderer & Stage View Mode (Always boots in 'highway')
-const VALID_STAGE_VIEW_MODES = ['highway', 'split', 'score'];
+// Issue #39 & Epic #43 State: Grand-Staff Sheet Music Renderer & Stage View Mode (Always boots in 'highway')
+const VALID_STAGE_VIEW_MODES = ['highway', 'split', 'score', 'karaoke'];
 let stageViewMode = 'highway';
 let cachedNotationPaneHeight = 0;
 let cachedHighwayTopY = 0;
@@ -767,13 +777,16 @@ const encoreDrillQueue = {
   totalCleared: 0
 };
 
-// Phase 5 State: Persistent Bard Profile & Per-Song Performance Session Stats
+// Phase 5 & Issue #127 (Epic #43) State: Persistent Bard Profile (Piano XP + Separate Vocal XP Pool)
 const bardProfile = {
   totalXp: 0,
   level: 1,
   xpIntoLevel: 0,
   xpForNextLevel: LEVEL_1_XP_THRESHOLD,
   title: 'Tavern Busker',
+  vocalXp: 0,
+  vocalLevel: 1,
+  vocalSongsCompleted: 0,
   bestCareerChain: 0,
   songsCompleted: 0,
   practiceDays: {},
@@ -1901,16 +1914,37 @@ function setStageViewMode(mode, { announceToast = false } = {}) {
   stageViewMode = nextMode;
 
   if (stageContainer) {
-    stageContainer.classList.remove('mode-highway', 'mode-split', 'mode-score');
+    stageContainer.classList.remove('mode-highway', 'mode-split', 'mode-score', 'mode-karaoke');
     stageContainer.classList.add(`mode-${nextMode}`);
   }
   document.body.classList.toggle('view-mode-notation', nextMode === 'split' || nextMode === 'score');
+
+  const karaokeStageEl = document.getElementById('spell-singing-stage');
+  if (karaokeStageEl) {
+    karaokeStageEl.classList.toggle('hidden', nextMode !== 'karaoke');
+  }
 
   for (const btn of viewModeButtons) {
     const isActive = btn.dataset.viewMode === nextMode;
     btn.classList.toggle('active', isActive);
     btn.setAttribute('aria-checked', isActive ? 'true' : 'false');
     btn.tabIndex = isActive ? 0 : -1;
+  }
+
+  if (nextMode === 'karaoke') {
+    // Issue #43 (#126): Spell-Singing is a standalone karaoke flow; disable Wait Mode so vocal track plays smoothly
+    if (playbackState.waitMode && typeof setWaitModeEnabled === 'function') {
+      setWaitModeEnabled(false);
+    }
+    if (typeof ensureVocalChartForCurrentSong === 'function') {
+      ensureVocalChartForCurrentSong();
+    }
+    if (typeof refreshAudioInputDeviceList === 'function') {
+      refreshAudioInputDeviceList();
+    }
+    if (typeof updateKaraokeHudStats === 'function') {
+      updateKaraokeHudStats();
+    }
   }
 
   updateNotationQualityBanner();
@@ -1921,7 +1955,8 @@ function setStageViewMode(mode, { announceToast = false } = {}) {
     const labels = {
       highway: 'Highway View',
       split: 'Split View (Grand Staff + Highway)',
-      score: 'Score View (Full Grand Staff)'
+      score: 'Score View (Full Grand Staff)',
+      karaoke: 'Spell-Singing Karaoke Stage (Mic Only — No Piano Needed)'
     };
     showGrimoireToast(`\uD83C\uDFBC Switched to ${labels[nextMode]}`);
   }
@@ -2000,12 +2035,12 @@ function updateSpellInspectorHUD() {
  * Lvl 10+: College Initiate
  * Lvl 20+: Wandering Minstrel
  * Lvl 30+: Court Virtuoso
- * Lvl 40+: Spell-Singer
+ * Lvl 40+: Grand Skald (renamed from Spell-Singer per #43 / #127)
  * Lvl 50+: Grand Maestro
  */
 function getBardicTitleForLevel(level) {
   if (level >= 50) return 'Grand Maestro';
-  if (level >= 40) return 'Spell-Singer';
+  if (level >= 40) return 'Grand Skald';
   if (level >= 30) return 'Court Virtuoso';
   if (level >= 20) return 'Wandering Minstrel';
   if (level >= 10) return 'College Initiate';
@@ -2022,6 +2057,7 @@ function getXpRequiredForLevel(level) {
 
 /**
  * Recompute Level, XP into current level, XP required for next level, and Bardic Title from totalXp
+ * plus separate Vocal Level from bardProfile.vocalXp (Issue #127 / Epic #43).
  */
 function recomputeBardLevelFromTotalXp() {
   let remaining = Math.max(0, Math.floor(bardProfile.totalXp));
@@ -2038,6 +2074,17 @@ function recomputeBardLevelFromTotalXp() {
   bardProfile.xpIntoLevel = remaining;
   bardProfile.xpForNextLevel = req;
   bardProfile.title = getBardicTitleForLevel(lvl);
+
+  // Separate Vocal XP pool level calculation (#127)
+  let vocalRem = Math.max(0, Math.floor(bardProfile.vocalXp || 0));
+  let vLvl = 1;
+  let vReq = getXpRequiredForLevel(vLvl);
+  while (vocalRem >= vReq && vLvl < 99) {
+    vocalRem -= vReq;
+    vLvl++;
+    vReq = getXpRequiredForLevel(vLvl);
+  }
+  bardProfile.vocalLevel = vLvl;
 }
 
 /**
@@ -2066,6 +2113,8 @@ function loadBardProfile() {
 
   if (loaded && typeof loaded === 'object') {
     bardProfile.totalXp = Math.max(0, Number(loaded.totalXp) || 0);
+    bardProfile.vocalXp = Math.max(0, Number(loaded.vocalXp) || 0);
+    bardProfile.vocalSongsCompleted = Math.max(0, Number(loaded.vocalSongsCompleted) || 0);
     bardProfile.bestCareerChain = Math.max(0, Number(loaded.bestCareerChain) || 0);
     bardProfile.songsCompleted = Math.max(0, Number(loaded.songsCompleted) || 0);
     bardProfile.lastSongTitle = loaded.lastSongTitle || null;
@@ -2189,6 +2238,9 @@ function saveBardProfile() {
     totalXp: bardProfile.totalXp,
     level: bardProfile.level,
     title: bardProfile.title,
+    vocalXp: bardProfile.vocalXp || 0,
+    vocalLevel: bardProfile.vocalLevel || 1,
+    vocalSongsCompleted: bardProfile.vocalSongsCompleted || 0,
     bestCareerChain: bardProfile.bestCareerChain,
     songsCompleted: bardProfile.songsCompleted,
     // Last song is only updated by recordSongPerformance so boot auto-load never overwrites it (Issue #67)
@@ -3826,6 +3878,15 @@ function resetPlaybackToStart() {
   playbackState.currentTime = -playbackState.leadInSeconds;
   resetSongProgressFlags(-playbackState.leadInSeconds);
   resetSongSessionStats();
+  if (spellSingingState && spellSingingState.scorer) {
+    spellSingingState.scorer.reset();
+  }
+  if (spellSingingState) {
+    spellSingingState.pitchTrail = [];
+    spellSingingState.awardedThisRun = false;
+    spellSingingState.lastSampleTime = null;
+    updateKaraokeHudStats();
+  }
   seekBackingAudioToSongTime(playbackState.currentTime);
   if (!currentSong) {
     setStrikeStatusBadge('idle', 'Highway Clear — Open Grimoire to Choose a Spell');
@@ -5363,12 +5424,19 @@ function animationLoop(timestamp) {
       if (!songSessionStats.hasShownEndModal) {
         songSessionStats.hasShownEndModal = true;
         const shouldRecordCompletion = !songSessionStats.hasRecordedCompletion;
-        if (shouldRecordCompletion) {
-          songSessionStats.hasRecordedCompletion = true;
-          bardProfile.songsCompleted++;
-          saveBardProfile();
+        if (stageViewMode === 'karaoke') {
+          if (shouldRecordCompletion) {
+            songSessionStats.hasRecordedCompletion = true;
+            awardVocalSessionXp();
+          }
+        } else {
+          if (shouldRecordCompletion) {
+            songSessionStats.hasRecordedCompletion = true;
+            bardProfile.songsCompleted++;
+            saveBardProfile();
+          }
+          openPerformanceCheckModal({ recordPlay: shouldRecordCompletion });
         }
-        openPerformanceCheckModal({ recordPlay: shouldRecordCompletion });
       }
     }
   }
@@ -8032,6 +8100,13 @@ function updateAndDrawStrikeParticles(dt) {
  * Render the Spell Highway backdrop, falling notes, strike line, 61-key piano, and Phase 7 particles
  */
 function renderCanvas() {
+  if (stageViewMode === 'karaoke') {
+    if (typeof renderKaraokeFrame === 'function') {
+      renderKaraokeFrame();
+    }
+    return;
+  }
+
   const nowMs = performance.now();
   const particleDt = Math.min(0.05, Math.max(0.001, (nowMs - lastParticleFrameMs) / 1000));
   lastParticleFrameMs = nowMs;
@@ -8347,7 +8422,235 @@ function updateLiveTunerReadout(label, cents = null) {
   }
 }
 
-function setExternalInstrumentSourceMode(mode) {
+// Epic #43 (#124-#127): Spell-Singing Karaoke DOM & Runtime State
+const micBleedGuardBanner = document.getElementById('mic-bleed-guard-banner');
+const btnKaraokeMicToggle = document.getElementById('btn-karaoke-mic-toggle');
+const karaokeBleedBadge = document.getElementById('karaoke-bleed-badge');
+const karaokeNoMicBadge = document.getElementById('karaoke-no-mic-badge');
+const chkKaraokeOctaveFree = document.getElementById('chk-karaoke-octave-free');
+const btnKaraokePasteLyrics = document.getElementById('btn-karaoke-paste-lyrics');
+const karaokeVocalLevelBadge = document.getElementById('karaoke-vocal-level-badge');
+const karaokePitchAccuracyEl = document.getElementById('karaoke-pitch-accuracy');
+const karaokeVocalXpReadout = document.getElementById('karaoke-vocal-xp-readout');
+const vocalHighwayCanvas = document.getElementById('vocal-highway-canvas');
+const karaokeLyricsCurrentEl = document.getElementById('karaoke-lyrics-current');
+const karaokeLyricsNextEl = document.getElementById('karaoke-lyrics-next');
+const lyricPasteModal = document.getElementById('lyric-paste-modal');
+const lyricPasteTextarea = document.getElementById('lyric-paste-textarea');
+const btnLyricPasteCancel = document.getElementById('btn-lyric-paste-cancel');
+const btnLyricPasteClear = document.getElementById('btn-lyric-paste-clear');
+const btnLyricPasteApply = document.getElementById('btn-lyric-paste-apply');
+
+const spellSingingState = {
+  songId: null,
+  vocalChart: null,
+  scorer: null,
+  customLyricsBySongId: {},
+  octaveAgnostic: true,
+  lastTeleprompterKey: '',
+  micGuardReport: { micCount: 0, headphonesDetected: false, noMicWarning: false, bleedWarning: false }
+};
+
+function updateMicAndBleedGuardUI(report) {
+  spellSingingState.micGuardReport = report || spellSingingState.micGuardReport;
+  const r = spellSingingState.micGuardReport;
+  const isAudioVocalOrMic =
+    externalInstrumentRig.sourceMode === 'vocal-mic' ||
+    externalInstrumentRig.sourceMode === 'audio-pitch' ||
+    externalInstrumentRig.sourceMode === 'audio-drums' ||
+    stageViewMode === 'karaoke';
+
+  if (micBleedGuardBanner) {
+    if (!isAudioVocalOrMic) {
+      micBleedGuardBanner.classList.add('hidden');
+      micBleedGuardBanner.classList.remove('warning-error');
+    } else if (r.noMicWarning) {
+      micBleedGuardBanner.classList.remove('hidden');
+      micBleedGuardBanner.classList.add('warning-error');
+      micBleedGuardBanner.textContent = '⚠️ No microphone detected. Plug in a USB, built-in, or headset mic to sing.';
+    } else if (r.bleedWarning) {
+      micBleedGuardBanner.classList.remove('hidden');
+      micBleedGuardBanner.classList.remove('warning-error');
+      micBleedGuardBanner.textContent = '🎧 Headphones recommended so backing track speakers do not bleed into your mic.';
+    } else {
+      micBleedGuardBanner.classList.add('hidden');
+    }
+  }
+
+  if (karaokeNoMicBadge) {
+    karaokeNoMicBadge.classList.toggle('hidden', !r.noMicWarning);
+  }
+  if (karaokeBleedBadge) {
+    karaokeBleedBadge.classList.toggle('hidden', r.noMicWarning || !r.bleedWarning);
+  }
+}
+
+function ensureVocalChartForCurrentSong({ forceRebuild = false } = {}) {
+  if (!currentSong) return null;
+  if (!forceRebuild && spellSingingState.songId === currentSong.songId && spellSingingState.vocalChart) {
+    return spellSingingState.vocalChart;
+  }
+
+  // Gather vocal notes from dedicated vocal track or top melody track
+  let vocalNotes = [];
+  if (Array.isArray(currentSong.rawTracks) && currentSong.rawTracks.length > 0) {
+    const mapped = mapInstrumentHighwayNotes(currentSong.rawTracks, 'vocals', currentSong.duration || 1);
+    vocalNotes = [...(mapped.track1Raw || []), ...(mapped.track2Raw || [])];
+  }
+  if (vocalNotes.length === 0) {
+    vocalNotes = [...(currentSong.track1Notes || [])];
+  }
+
+  // Load sibling .lrc if present next to the song file (#125)
+  let lrcLines = [];
+  const siblingLrc = findSiblingLrcPath(currentSong.filePath);
+  if (siblingLrc) {
+    try {
+      lrcLines = parseLrcText(fs.readFileSync(siblingLrc, 'utf8'));
+    } catch {
+      lrcLines = [];
+    }
+  }
+
+  const musicXmlLyrics = Array.isArray(currentSong.musicXmlMeta?.lyrics)
+    ? currentSong.musicXmlMeta.lyrics
+    : [];
+  const customLyricsText = spellSingingState.customLyricsBySongId[currentSong.songId] || '';
+
+  const chart = buildVocalChart({
+    vocalNotes,
+    musicXmlLyrics,
+    lrcLines,
+    customLyricsText,
+    fallbackMode: 'solfege'
+  });
+
+  spellSingingState.songId = currentSong.songId;
+  spellSingingState.vocalChart = chart;
+  spellSingingState.scorer = createVocalSessionScorer(chart, {
+    octaveAgnostic: spellSingingState.octaveAgnostic
+  });
+  spellSingingState.lastTeleprompterKey = '';
+  updateKaraokeHudStats();
+  return chart;
+}
+
+function updateKaraokeHudStats() {
+  if (karaokeVocalLevelBadge) {
+    karaokeVocalLevelBadge.textContent = `Vocal LVL ${bardProfile.vocalLevel || 1}`;
+  }
+  if (karaokeVocalXpReadout) {
+    karaokeVocalXpReadout.textContent = `${(bardProfile.vocalXp || 0).toLocaleString()} Vocal XP`;
+  }
+  if (karaokePitchAccuracyEl && spellSingingState.scorer) {
+    const sum = spellSingingState.scorer.getSummary();
+    karaokePitchAccuracyEl.textContent = `${sum.accuracyPct}% Pitch`;
+  }
+  if (btnKaraokeMicToggle) {
+    btnKaraokeMicToggle.textContent = externalInstrumentRig.audioListening
+      ? '⏹ Stop Mic'
+      : '🎤 Enable Mic';
+  }
+}
+
+function updateKaraokeTeleprompter(songTime) {
+  if (!karaokeLyricsCurrentEl || !karaokeLyricsNextEl || !spellSingingState.scorer) return;
+  const chart = spellSingingState.vocalChart;
+  if (!chart || !chart.phrases || chart.phrases.length === 0) {
+    karaokeLyricsCurrentEl.textContent = 'Load a song with melody or lyrics to begin Spell-Singing…';
+    karaokeLyricsNextEl.textContent = '';
+    return;
+  }
+
+  const { currentIdx, nextIdx } = spellSingingState.scorer.getActivePhraseIndices(songTime);
+  const curPhrase = currentIdx >= 0 ? chart.phrases[currentIdx] : null;
+  const nextPhrase = nextIdx >= 0 ? chart.phrases[nextIdx] : null;
+
+  if (!curPhrase) {
+    karaokeLyricsCurrentEl.textContent = '';
+    karaokeLyricsNextEl.textContent = '';
+    return;
+  }
+
+  // Build progressive syllable highlight key to avoid redundant DOM rebuilds
+  let activeNoteIdx = -1;
+  let sungCount = 0;
+  for (let i = 0; i < curPhrase.notes.length; i++) {
+    const n = curPhrase.notes[i];
+    if (songTime > n.endTime) {
+      sungCount++;
+    } else if (songTime >= n.time && songTime <= n.endTime) {
+      activeNoteIdx = i;
+    }
+  }
+  const renderKey = `${currentIdx}:${sungCount}:${activeNoteIdx}:${nextIdx}`;
+  if (renderKey === spellSingingState.lastTeleprompterKey) return;
+  spellSingingState.lastTeleprompterKey = renderKey;
+
+  karaokeLyricsCurrentEl.innerHTML = '';
+  curPhrase.notes.forEach((n, idx) => {
+    const span = document.createElement('span');
+    span.className = 'karaoke-syl';
+    if (idx === activeNoteIdx) {
+      span.classList.add('active');
+    } else if (songTime > n.endTime) {
+      span.classList.add('sung');
+    }
+    const prev = idx > 0 ? curPhrase.notes[idx - 1] : null;
+    const prevContinues = prev && (prev.syllabic === 'begin' || prev.syllabic === 'middle');
+    const prefix = idx > 0 && !prevContinues ? ' ' : '';
+    span.textContent = `${prefix}${n.lyric || ''}`;
+    karaokeLyricsCurrentEl.appendChild(span);
+  });
+
+  karaokeLyricsNextEl.textContent = nextPhrase ? nextPhrase.text : '✨ Final phrase — finish strong!';
+}
+
+function renderKaraokeFrame() {
+  if (!vocalHighwayCanvas) return;
+  const rect = vocalHighwayCanvas.parentElement?.getBoundingClientRect();
+  const w = Math.max(320, Math.round(rect?.width || vocalHighwayCanvas.clientWidth || 800));
+  const h = Math.max(200, Math.round(rect?.height || vocalHighwayCanvas.clientHeight || 320));
+  const dpr = window.devicePixelRatio || 1;
+  if (vocalHighwayCanvas.width !== Math.round(w * dpr) || vocalHighwayCanvas.height !== Math.round(h * dpr)) {
+    vocalHighwayCanvas.width = Math.round(w * dpr);
+    vocalHighwayCanvas.height = Math.round(h * dpr);
+  }
+  const vCtx = vocalHighwayCanvas.getContext('2d');
+  if (!vCtx) return;
+
+  vCtx.save();
+  vCtx.scale(dpr, dpr);
+  const chart = ensureVocalChartForCurrentSong();
+  const songTime = playbackState.currentTime || 0;
+  renderSpellSingingStage(vCtx, w, h, {
+    vocalChart: chart,
+    scorerState: spellSingingState.scorer?.state,
+    currentTime: songTime
+  });
+  vCtx.restore();
+
+  updateKaraokeTeleprompter(songTime);
+  updateKaraokeHudStats();
+}
+
+function awardVocalSessionXp() {
+  if (!spellSingingState.scorer) return null;
+  const summary = spellSingingState.scorer.getSummary();
+  if (summary.vocalXpEarned > 0) {
+    bardProfile.vocalXp = (bardProfile.vocalXp || 0) + summary.vocalXpEarned;
+    bardProfile.vocalSongsCompleted = (bardProfile.vocalSongsCompleted || 0) + 1;
+    recomputeBardLevelFromTotalXp();
+    saveBardProfile();
+    updateKaraokeHudStats();
+    showGrimoireToast(
+      `🎤 Spell-Singing Complete! +${summary.vocalXpEarned} Vocal XP (${summary.accuracyPct}% Pitch • Vocal LVL ${bardProfile.vocalLevel})`
+    );
+  }
+  return summary;
+}
+
+function setExternalInstrumentSourceMode(mode, { autoRouteHighway = true } = {}) {
   const validIds = new Set(INPUT_SOURCE_MODES.map((m) => m.id));
   const nextMode = validIds.has(mode) ? mode : 'midi-piano';
   externalInstrumentRig.sourceMode = nextMode;
@@ -8362,7 +8665,7 @@ function setExternalInstrumentSourceMode(mode) {
   }
 
   const isMidiMode = nextMode === 'midi-piano' || nextMode === 'midi-edrums';
-  const isAudioMode = nextMode === 'audio-pitch' || nextMode === 'audio-drums';
+  const isAudioMode = nextMode === 'vocal-mic' || nextMode === 'audio-pitch' || nextMode === 'audio-drums';
 
   if (midiInputRoutingRows) {
     midiInputRoutingRows.classList.toggle('hidden', !isMidiMode);
@@ -8376,28 +8679,46 @@ function setExternalInstrumentSourceMode(mode) {
   } else if (externalInstrumentRig.audioListening) {
     stopLiveAudioInstrumentInput();
   }
+
+  // Issue #124 (Epic #43): "Whatever is plugged in is what the notes are going to be."
+  if (autoRouteHighway) {
+    const rec = getRecommendedHighwayForInputMode(nextMode, currentSong?.activeHighwayInstrument || 'piano');
+    if (currentSong && rec.trackMode) {
+      assignSongTracksAndDifficulty(rec.trackMode, { autoSyncStemMute: rec.autoMuteStem });
+    }
+    if (rec.stageViewMode && stageViewMode !== rec.stageViewMode) {
+      setStageViewMode(rec.stageViewMode);
+    }
+  }
+  updateMicAndBleedGuardUI();
 }
 
 async function refreshAudioInputDeviceList() {
-  if (!navigator.mediaDevices || typeof navigator.mediaDevices.enumerateDevices !== 'function' || !audioInputDeviceSelect) {
+  if (!navigator.mediaDevices || typeof navigator.mediaDevices.enumerateDevices !== 'function') {
+    updateMicAndBleedGuardUI(assessMicAndBleedGuard([]));
     return;
   }
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    const audioInputs = devices.filter((d) => d.kind === 'audioinput');
+    const report = assessMicAndBleedGuard(devices);
+    updateMicAndBleedGuardUI(report);
+
+    if (!audioInputDeviceSelect) return;
     const prevVal = audioInputDeviceSelect.value || externalInstrumentRig.selectedAudioDeviceId || 'default';
     audioInputDeviceSelect.innerHTML = '';
 
     const defaultOpt = document.createElement('option');
     defaultOpt.value = 'default';
-    defaultOpt.textContent = 'Default Audio Interface / Mic';
+    defaultOpt.textContent = report.micCount > 0
+      ? 'Default Audio Interface / Mic'
+      : 'No Microphone Detected';
     audioInputDeviceSelect.appendChild(defaultOpt);
 
-    audioInputs.forEach((dev, idx) => {
-      if (!dev.deviceId || dev.deviceId === 'default') return;
+    report.mics.forEach((mic) => {
+      if (!mic.deviceId || mic.deviceId === 'default') return;
       const opt = document.createElement('option');
-      opt.value = dev.deviceId;
-      opt.textContent = dev.label || `Audio Input / Line-In #${idx + 1}`;
+      opt.value = mic.deviceId;
+      opt.textContent = `${mic.label} (${mic.category})`;
       audioInputDeviceSelect.appendChild(opt);
     });
 
@@ -8405,7 +8726,7 @@ async function refreshAudioInputDeviceList() {
       audioInputDeviceSelect.value = prevVal;
     }
   } catch {
-    // Ignore device enumeration errors in restricted environments
+    updateMicAndBleedGuardUI(assessMicAndBleedGuard([]));
   }
 }
 
@@ -8444,7 +8765,12 @@ async function startLiveAudioInstrumentInput() {
       btnToggleAudioInput.textContent = '⏹ Stop Line-In / Mic';
       btnToggleAudioInput.classList.add('active');
     }
-    setMidiStatus('connected', 'Line-In / Mic Active', 'Real-time Guitar / Bass / Vocal / Drum Audio Input Active');
+    updateKaraokeHudStats();
+    setMidiStatus(
+      'connected',
+      externalInstrumentRig.sourceMode === 'vocal-mic' ? '🎤 Vocal Mic Active' : 'Line-In / Mic Active',
+      'Real-time Microphone / Line-In Audio Pitch Input Active'
+    );
     await refreshAudioInputDeviceList();
     return true;
   } catch (err) {
@@ -8482,6 +8808,7 @@ function stopLiveAudioInstrumentInput() {
   if (audioInputMeterFill) {
     audioInputMeterFill.style.width = '0%';
   }
+  updateKaraokeHudStats();
   updateLiveTunerReadout(null);
 }
 
@@ -8504,7 +8831,7 @@ function processAudioInstrumentFrame(floatBuffer, sampleRate = 44100) {
   }
 
   const activeInst = currentSong?.activeHighwayInstrument || 'piano';
-  if (externalInstrumentRig.sourceMode === 'audio-drums' || activeInst === 'drums') {
+  if (externalInstrumentRig.sourceMode === 'audio-drums' || (activeInst === 'drums' && stageViewMode !== 'karaoke')) {
     const hit = classifyAcousticDrumHitFromBuffer(
       floatBuffer,
       sampleRate,
@@ -8521,10 +8848,28 @@ function processAudioInstrumentFrame(floatBuffer, sampleRate = 44100) {
     return null;
   }
 
-  // Monophonic Pitch Detection for Guitar, Bass, Vocals, or Synth Line-In
+  // Monophonic Pitch Detection for Vocal Mic (Spell-Singing), Guitar, or Bass Line-In
   const detected = detectPitchFromFloat32Buffer(floatBuffer, sampleRate, {
     rmsGate: externalInstrumentRig.audioGateThreshold
   });
+
+  // Epic #43 (#126 & #127): Feed continuous vocal pitch into Spell-Singing scorer in Karaoke mode
+  if (stageViewMode === 'karaoke' || externalInstrumentRig.sourceMode === 'vocal-mic') {
+    ensureVocalChartForCurrentSong();
+    const compensatedTime = Math.max(
+      0,
+      (playbackState.currentTime || 0) - ((playbackState.inputLatencyOffsetMs || 0) / 1000)
+    );
+    const vocalEval = spellSingingState.scorer
+      ? spellSingingState.scorer.recordFrame(compensatedTime, detected)
+      : null;
+    if (detected) {
+      updateLiveTunerReadout(detected.noteName, detected.cents);
+    }
+    updateKaraokeHudStats();
+    return detected ? { type: 'vocal-pitch', ...detected, vocalEval } : null;
+  }
+
   if (!detected) {
     if (externalInstrumentRig.activeAudioMidiNote !== null) {
       handleNoteOff(externalInstrumentRig.activeAudioMidiNote);
@@ -8545,6 +8890,59 @@ function processAudioInstrumentFrame(floatBuffer, sampleRate = 44100) {
     handleNoteOn(foldedMidi, vel, 'audio-pitch');
   }
   return { type: 'pitch', foldedMidi, ...detected };
+}
+
+// Wire Spell-Singing Karaoke stage buttons & Paste Lyrics modal (#125-#127)
+if (btnKaraokeMicToggle) {
+  btnKaraokeMicToggle.addEventListener('click', () => {
+    if (externalInstrumentRig.audioListening) {
+      stopLiveAudioInstrumentInput();
+    } else {
+      setExternalInstrumentSourceMode('vocal-mic', { autoRouteHighway: false });
+      startLiveAudioInstrumentInput();
+    }
+  });
+}
+if (chkKaraokeOctaveFree) {
+  chkKaraokeOctaveFree.addEventListener('change', () => {
+    spellSingingState.octaveAgnostic = Boolean(chkKaraokeOctaveFree.checked);
+    if (spellSingingState.scorer) {
+      spellSingingState.scorer.state.octaveAgnostic = spellSingingState.octaveAgnostic;
+    }
+  });
+}
+if (btnKaraokePasteLyrics && lyricPasteModal) {
+  btnKaraokePasteLyrics.addEventListener('click', () => {
+    if (lyricPasteTextarea && currentSong) {
+      lyricPasteTextarea.value = spellSingingState.customLyricsBySongId[currentSong.songId] || '';
+    }
+    lyricPasteModal.classList.remove('hidden');
+  });
+}
+if (btnLyricPasteCancel && lyricPasteModal) {
+  btnLyricPasteCancel.addEventListener('click', () => {
+    lyricPasteModal.classList.add('hidden');
+  });
+}
+if (btnLyricPasteClear && lyricPasteModal) {
+  btnLyricPasteClear.addEventListener('click', () => {
+    if (currentSong) {
+      delete spellSingingState.customLyricsBySongId[currentSong.songId];
+      ensureVocalChartForCurrentSong({ forceRebuild: true });
+    }
+    lyricPasteModal.classList.add('hidden');
+    showGrimoireToast('Reverted to MusicXML / Solfège melodic guide.');
+  });
+}
+if (btnLyricPasteApply && lyricPasteModal) {
+  btnLyricPasteApply.addEventListener('click', () => {
+    if (currentSong && lyricPasteTextarea) {
+      spellSingingState.customLyricsBySongId[currentSong.songId] = lyricPasteTextarea.value || '';
+      ensureVocalChartForCurrentSong({ forceRebuild: true });
+    }
+    lyricPasteModal.classList.add('hidden');
+    showGrimoireToast('🎤 Synced custom lyrics to the Spell-Singing Karaoke Stage!');
+  });
 }
 
 function pollExternalInstrumentFrame() {
@@ -8867,7 +9265,8 @@ function isAnyModalOpen() {
   const deleteConfirmOpen = deleteSpellConfirmModal && !deleteSpellConfirmModal.classList.contains('hidden');
   const collegesOpen = bardCollegesModal && !bardCollegesModal.classList.contains('hidden');
   const campaignOpen = campaignModal && !campaignModal.classList.contains('hidden');
-  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen || deleteConfirmOpen || collegesOpen || campaignOpen);
+  const lyricPasteOpen = lyricPasteModal && !lyricPasteModal.classList.contains('hidden');
+  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen || deleteConfirmOpen || collegesOpen || campaignOpen || lyricPasteOpen);
 }
 
 window.addEventListener('keydown', (e) => {
@@ -8888,6 +9287,11 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (closeAllConservatoryPopovers({ returnFocus: true })) {
       e.preventDefault();
+      return;
+    }
+    if (lyricPasteModal && !lyricPasteModal.classList.contains('hidden')) {
+      e.preventDefault();
+      lyricPasteModal.classList.add('hidden');
       return;
     }
     if (deleteSpellConfirmModal && !deleteSpellConfirmModal.classList.contains('hidden')) {
@@ -9008,6 +9412,11 @@ window.addEventListener('keydown', (e) => {
     if (e.code === 'Digit3') {
       e.preventDefault();
       setStageViewMode('score', { announceToast: true });
+      return;
+    }
+    if (e.code === 'Digit4') {
+      e.preventDefault();
+      setStageViewMode('karaoke', { announceToast: true });
       return;
     }
   }

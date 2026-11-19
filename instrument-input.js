@@ -36,8 +36,9 @@ const GM_DRUM_HIGHWAY_LANES = {
 
 const INPUT_SOURCE_MODES = [
   { id: 'midi-piano', label: '🎹 MIDI Keyboard / Synth (Ch 1–16)', type: 'midi' },
+  { id: 'vocal-mic', label: '🎤 Vocal Microphone (Karaoke / Spell-Singing)', type: 'audio' },
   { id: 'midi-edrums', label: '🥁 Electronic Drum Kit / MIDI Pads (GM Drums)', type: 'midi' },
-  { id: 'audio-pitch', label: '🎸 Audio Interface / Mic Pitch (Guitar, Bass, Vocals)', type: 'audio' },
+  { id: 'audio-pitch', label: '🎸 Audio Interface Line-In (Guitar / Bass)', type: 'audio' },
   { id: 'audio-drums', label: '🎙️ Acoustic Drum / Tap Mic (Kick / Snare / Hat)', type: 'audio' },
   { id: 'gamepad', label: '🎮 Rock Band / USB Gamepad Controller', type: 'gamepad' }
 ];
@@ -287,6 +288,102 @@ const GAMEPAD_DRUM_BUTTON_MAP = {
 
 const GAMEPAD_FRET_SCALE_OFFSETS = [0, 2, 4, 5, 7, 9, 11, 12];
 
+/**
+ * Issue #124 (Epic #43): "Whatever is plugged in is what the notes are going to be."
+ * Maps the selected external input source to its matching Highway track mode and stage view.
+ */
+function getRecommendedHighwayForInputMode(sourceMode, currentInstrument = 'piano') {
+  const mode = String(sourceMode || 'midi-piano').toLowerCase();
+  if (mode === 'vocal-mic') {
+    return {
+      trackMode: 'instrument-vocals',
+      instrumentId: 'vocals',
+      stageViewMode: 'karaoke',
+      autoMuteStem: true
+    };
+  }
+  if (mode === 'midi-edrums' || mode === 'audio-drums') {
+    return {
+      trackMode: 'instrument-drums',
+      instrumentId: 'drums',
+      stageViewMode: 'highway',
+      autoMuteStem: true
+    };
+  }
+  if (mode === 'audio-pitch') {
+    const keepBassOrGuitar = currentInstrument === 'bass' ? 'bass' : 'guitar';
+    return {
+      trackMode: `instrument-${keepBassOrGuitar}`,
+      instrumentId: keepBassOrGuitar,
+      stageViewMode: 'highway',
+      autoMuteStem: true
+    };
+  }
+  if (mode === 'gamepad') {
+    return {
+      trackMode: currentInstrument === 'drums' ? 'instrument-drums' : 'instrument-guitar',
+      instrumentId: currentInstrument === 'drums' ? 'drums' : 'guitar',
+      stageViewMode: 'highway',
+      autoMuteStem: true
+    };
+  }
+  return {
+    trackMode: 'auto-piano',
+    instrumentId: 'piano',
+    stageViewMode: 'highway',
+    autoMuteStem: true
+  };
+}
+
+/**
+ * Issue #124: Inspect connected audioinput & audiooutput devices to categorize mics
+ * (USB / Headset / Built-in) and warn about missing mics or speaker-to-mic bleed risk.
+ */
+function assessMicAndBleedGuard(devices = []) {
+  const list = Array.isArray(devices) ? devices : [];
+  const mics = [];
+  const outputs = [];
+
+  for (const dev of list) {
+    if (!dev || typeof dev !== 'object') continue;
+    const label = String(dev.label || '');
+    if (dev.kind === 'audioinput') {
+      let category = 'System Mic';
+      if (/usb|yeti|shure|scarlett|focusrite|blue|rode|at2020|condenser|interface/i.test(label)) {
+        category = 'USB / Interface Mic';
+      } else if (/headset|airpods|earbuds|bluetooth|hands-free|headphone/i.test(label)) {
+        category = 'Headset Mic';
+      } else if (/built-in|internal|macbook|array|realtek|laptop/i.test(label)) {
+        category = 'Built-in Mic';
+      }
+      mics.push({
+        deviceId: dev.deviceId || 'default',
+        label: label || `Microphone ${mics.length + 1}`,
+        category
+      });
+    } else if (dev.kind === 'audiooutput') {
+      outputs.push({
+        deviceId: dev.deviceId || 'default',
+        label: label || `Audio Output ${outputs.length + 1}`
+      });
+    }
+  }
+
+  const headphonesDetected = outputs.some((o) =>
+    /headphone|headset|airpods|earbuds|earphone|buds|studio monitor|usb audio/i.test(o.label)
+  );
+  const speakersLikely = outputs.length === 0 || !headphonesDetected;
+
+  return {
+    micCount: mics.length,
+    mics,
+    headphonesDetected,
+    speakersLikely,
+    noMicWarning: mics.length === 0,
+    bleedWarning: mics.length > 0 && speakersLikely
+  };
+}
+
 module.exports = {
   GM_DRUM_HIGHWAY_LANES,
   INPUT_SOURCE_MODES,
@@ -298,5 +395,7 @@ module.exports = {
   translateGmDrumMidiToHighwayLane,
   foldInstrumentMidiForHighway,
   detectPitchFromFloat32Buffer,
-  classifyAcousticDrumHitFromBuffer
+  classifyAcousticDrumHitFromBuffer,
+  getRecommendedHighwayForInputMode,
+  assessMicAndBleedGuard
 };

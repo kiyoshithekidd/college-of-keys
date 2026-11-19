@@ -328,11 +328,15 @@
                 </div>
                 <select id="input-source-mode-select" class="tavern-select">
                   <option value="midi-piano" selected>&#127929; MIDI Keyboard / Synth (Ch 1&ndash;16)</option>
+                  <option value="vocal-mic">&#127908; Vocal Microphone (Karaoke / Spell-Singing)</option>
                   <option value="midi-edrums">&#129345; Electronic Drum Kit / MIDI Pads (GM Drums)</option>
-                  <option value="audio-pitch">&#127928; Audio Interface / Mic Pitch (Guitar, Bass, Vocals)</option>
+                  <option value="audio-pitch">&#127928; Audio Interface Line-In (Guitar / Bass)</option>
                   <option value="audio-drums">&#127897; Acoustic Drum / Tap Mic (Kick / Snare / Hat)</option>
                   <option value="gamepad">&#127918; Rock Band / USB Gamepad Controller</option>
                 </select>
+
+                <!-- Issue #124: Mic / Headphone Speaker Bleed Guard Banner -->
+                <div id="mic-bleed-guard-banner" class="mic-bleed-guard-banner hidden" role="status" aria-live="polite"></div>
 
                 <!-- MIDI Device & Channel Routing (Shown for midi-piano and midi-edrums) -->
                 <div id="midi-input-routing-rows" class="instrument-sub-rows">
@@ -712,6 +716,9 @@
         <button id="btn-view-score" type="button" class="view-mode-btn" role="radio" aria-checked="false" tabindex="-1" data-view-mode="score" title="Score View — Full Scrolling Grand Staff (Shortcut: 3)">
           Score
         </button>
+        <button id="btn-view-karaoke" type="button" class="view-mode-btn" role="radio" aria-checked="false" tabindex="-1" data-view-mode="karaoke" title="Spell-Singing Karaoke Mode — Standalone Mic Pitch Highway &amp; Synced Lyrics, No Piano Needed (Shortcut: 4)">
+          &#127908; Karaoke
+        </button>
       </div>
 
       <!-- Right: Wait Mode, Unified 1-Click Practice Mode Selector, Backing Band & Tempo -->
@@ -852,6 +859,49 @@
             </button>
           </div>
         </div>
+
+        <!-- Epic #43 (#126): Standalone Spell-Singing Karaoke Stage (No Piano Keyboard Required) -->
+        <section id="spell-singing-stage" class="spell-singing-stage hidden" aria-label="Spell-Singing Karaoke Stage">
+          <div class="karaoke-top-bar">
+            <div class="karaoke-controls-left">
+              <span class="karaoke-mode-badge">&#127908; Spell-Singing Karaoke</span>
+              <button id="btn-karaoke-mic-toggle" type="button" class="tavern-btn tavern-btn-cast btn-compact" title="Start or stop microphone vocal pitch tracking">
+                &#127908; Enable Mic
+              </button>
+              <span id="karaoke-bleed-badge" class="karaoke-bleed-badge hidden" title="Headphones recommended when singing with a backing track to prevent speaker bleed into the mic">
+                &#127911; Use Headphones (Speaker Bleed Guard)
+              </span>
+              <span id="karaoke-no-mic-badge" class="karaoke-no-mic-badge hidden" title="No microphone detected — connect a USB, built-in, or headset mic">
+                &#9888;&#65039; No Mic Detected
+              </span>
+            </div>
+            <div class="karaoke-controls-right">
+              <label class="karaoke-toggle-label" title="Allow singing in any comfortable octave (Baritone / Tenor / Alto / Soprano)">
+                <input id="chk-karaoke-octave-free" type="checkbox" checked />
+                <span>Octave-Free</span>
+              </label>
+              <button id="btn-karaoke-paste-lyrics" type="button" class="tavern-btn btn-compact" title="Paste custom lyrics or .LRC timestamps for this song">
+                &#128221; Lyrics / .LRC
+              </button>
+              <div class="karaoke-vocal-xp-pill" title="Separate Vocal XP &amp; Live Pitch Accuracy (Tracked independently from Piano XP)">
+                <span id="karaoke-vocal-level-badge">Vocal LVL 1</span>
+                <span>&bull;</span>
+                <strong id="karaoke-pitch-accuracy">0% Pitch</strong>
+                <span>&bull;</span>
+                <span id="karaoke-vocal-xp-readout">0 Vocal XP</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="karaoke-canvas-wrap">
+            <canvas id="vocal-highway-canvas"></canvas>
+          </div>
+
+          <div class="karaoke-teleprompter" aria-live="polite">
+            <div id="karaoke-lyrics-current" class="karaoke-lyrics-current">Press Play and sing along&hellip;</div>
+            <div id="karaoke-lyrics-next" class="karaoke-lyrics-next"></div>
+          </div>
+        </section>
 
         <!-- Phase 6: Live Folder Watcher Toast Notification -->
         <div id="grimoire-toast" class="grimoire-toast hidden">
@@ -1836,6 +1886,23 @@
       <div class="modal-actions confirm-delete-actions">
         <button id="btn-delete-confirm-cancel" type="button" class="tavern-btn">Cancel</button>
         <button id="btn-delete-confirm-accept" type="button" class="tavern-btn btn-danger-confirm">&#128230; Move to Archive</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Issue #125 (Epic #43): Paste Lyrics / .LRC Modal -->
+  <div id="lyric-paste-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="lyric-paste-title">
+    <div class="performance-modal-card lyric-paste-modal-card">
+      <div class="modal-header-ornament">&#127908; SPELL-SINGING LYRICS &#127908;</div>
+      <h2 id="lyric-paste-title" class="modal-main-title">Sync Lyrics or .LRC Timestamps</h2>
+      <p class="lyric-paste-hint">
+        Paste standard <code>.lrc</code> lines (<code>[00:12.50] Sing the melody</code>) or plain lyric lines. Leave blank to use MusicXML lyrics or the built-in Solf&egrave;ge melodic guide.
+      </p>
+      <textarea id="lyric-paste-textarea" class="lyric-paste-textarea" rows="8" placeholder="[00:02.00] First line of the chorus...&#10;[00:06.50] Second line of the chorus..."></textarea>
+      <div class="modal-actions">
+        <button id="btn-lyric-paste-cancel" type="button" class="tavern-btn">Cancel</button>
+        <button id="btn-lyric-paste-clear" type="button" class="tavern-btn">Use Default / Solf&egrave;ge</button>
+        <button id="btn-lyric-paste-apply" type="button" class="tavern-btn tavern-btn-cast">&#10024; Apply Lyrics</button>
       </div>
     </div>
   </div>
