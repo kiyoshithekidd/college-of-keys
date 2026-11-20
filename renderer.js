@@ -489,6 +489,8 @@ const questSplitStemsCheckbox = document.getElementById('quest-split-stems-check
 const questEngineOptionRow = document.getElementById('quest-engine-option-row');
 const questTranscriptionEngineSelect = document.getElementById('quest-transcription-engine');
 const questEngineHint = document.getElementById('quest-engine-hint');
+const questFullSongPipelineRow = document.getElementById('quest-full-song-pipeline-row');
+const questFullSongPipelineSelect = document.getElementById('quest-full-song-pipeline');
 const btnQuestPickLocalAudio = document.getElementById('btn-quest-pick-local-audio');
 const questLocalAudioInput = document.getElementById('quest-local-audio-input');
 const btnQuestRunBackground = document.getElementById('btn-quest-run-background');
@@ -11771,6 +11773,11 @@ function getSelectedQuestTranscriptionEngine(arrangementMode = getSelectedQuestA
   return val === 'transkun' ? 'transkun' : 'basic-pitch';
 }
 
+function getSelectedFullSongPipeline() {
+  const val = (questFullSongPipelineSelect?.value || 'auto').trim();
+  return val === 'basic-pitch' ? 'basic-pitch' : 'auto';
+}
+
 function syncQuestArrangementModeUI() {
   const mode = getSelectedQuestArrangementMode();
   if (questModeCardPianoCover) {
@@ -11781,6 +11788,9 @@ function syncQuestArrangementModeUI() {
   }
   if (questEngineOptionRow) {
     questEngineOptionRow.classList.toggle('hidden', mode === 'full-song');
+  }
+  if (questFullSongPipelineRow) {
+    questFullSongPipelineRow.classList.toggle('hidden', mode !== 'full-song');
   }
   if (questEngineHint && mode === 'piano-cover') {
     const eng = getSelectedQuestTranscriptionEngine(mode);
@@ -11870,12 +11880,17 @@ function runQuestBoardTranscriber({ selfTest = false, queuedJob = null } = {}) {
   const transcriptionEngine = queuedJob
     ? (queuedJob.transcriptionEngine || 'basic-pitch')
     : getSelectedQuestTranscriptionEngine(arrangementMode);
+  const fullSongPipeline = queuedJob
+    ? (queuedJob.fullSongPipeline || 'auto')
+    : getSelectedFullSongPipeline();
   const splitStems = queuedJob
     ? Boolean(queuedJob.splitStems)
     : (questSplitStemsCheckbox ? Boolean(questSplitStemsCheckbox.checked) : true);
   const isSelfTest = queuedJob ? Boolean(queuedJob.selfTest) : Boolean(selfTest);
   const modeLabel = arrangementMode === 'full-song' ? 'Full-Song Arrangement' : 'Piano Cover';
-  const engineLabel = transcriptionEngine === 'transkun' ? 'Transkun V2' : 'basic-pitch';
+  const engineLabel = arrangementMode === 'full-song'
+    ? (fullSongPipeline === 'basic-pitch' ? 'basic-pitch' : 'Auto Demucs+CREPE')
+    : (transcriptionEngine === 'transkun' ? 'Transkun V2' : 'basic-pitch');
 
   if (!isSelfTest && !rawUrlOrPath) {
     showGrimoireToast('Please paste a YouTube URL (or local audio path), or click "Run ML Self-Test"!', 'error');
@@ -11891,6 +11906,7 @@ function runQuestBoardTranscriber({ selfTest = false, queuedJob = null } = {}) {
       customTitle,
       arrangementMode,
       transcriptionEngine,
+      fullSongPipeline,
       splitStems
     });
     updateQuestQueueUI();
@@ -11907,6 +11923,9 @@ function runQuestBoardTranscriber({ selfTest = false, queuedJob = null } = {}) {
 
   const pythonExe = resolvePythonExecutable();
   const args = [scriptPath, '--output-dir', IMPORTS_DIR, '--mode', arrangementMode, '--engine', transcriptionEngine];
+  if (arrangementMode === 'full-song') {
+    args.push('--full-song-pipeline', fullSongPipeline);
+  }
   if (splitStems) {
     args.push('--split-stems');
   }
@@ -11927,7 +11946,8 @@ function runQuestBoardTranscriber({ selfTest = false, queuedJob = null } = {}) {
   if (btnQuestLoadResult) btnQuestLoadResult.classList.add('hidden');
 
   if (questLogOutput) {
-    questLogOutput.textContent = `[Quest Started • ${modeLabel} • ${engineLabel}${splitStems ? ' + 6-Stem Demucs' : ''}] Spawning: ${path.basename(pythonExe)} python_ml/transcribe_quest.py --mode ${arrangementMode} --engine ${transcriptionEngine}${splitStems ? ' --split-stems' : ''} ${isSelfTest ? '--self-test' : rawUrlOrPath}`;
+    const pipelineFlag = arrangementMode === 'full-song' ? ` --full-song-pipeline ${fullSongPipeline}` : '';
+    questLogOutput.textContent = `[Quest Started • ${modeLabel} • ${engineLabel}${splitStems ? ' + 6-Stem Demucs' : ''}] Spawning: ${path.basename(pythonExe)} python_ml/transcribe_quest.py --mode ${arrangementMode} --engine ${transcriptionEngine}${pipelineFlag}${splitStems ? ' --split-stems' : ''} ${isSelfTest ? '--self-test' : rawUrlOrPath}`;
   }
 
   try {
