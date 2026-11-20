@@ -544,6 +544,163 @@ def try_basic_pitch_transcription(
 
 
 # ============================================================================
+# TIER 1B (OPTIONAL): TRANSKUN V2 PIANO TRANSCRIPTION ENGINE (ISMIR 2024, MIT)
+# ============================================================================
+
+def _read_wav_for_transkun(wav_path: Path):
+    """
+    Read a WAV/audio file into `(sample_rate, float32 array shaped (frames, channels))`
+    without relying on `pydub`/`audioop` (safe on Python 3.13+).
+    """
+    try:
+        import soundfile as sf
+        import numpy as np
+        data, sr = sf.read(str(wav_path), dtype="float32", always_2d=True)
+        return int(sr), data
+    except Exception:
+        import numpy as np
+        samples, sr = read_wav_mono_float(wav_path)
+        arr = np.asarray(samples, dtype=np.float32).reshape(-1, 1)
+        return int(sr), arr
+
+
+def try_transkun_transcription(
+    audio_path: Path,
+    output_midi_path: Path,
+    song_title: str = "Transcribed Spell",
+    arrangement_mode: str = "piano-cover",
+    stem_tracks: dict = None,
+) -> bool:
+    """
+    Issue #144/#145: Optional high-accuracy solo-piano transcription using Transkun V2
+    (Yujia-Yan/Transkun, MIT license).
+    - Loads bundled `pretrained/2.0.pt` & `2.0.conf` via `transkun.__file__` (no `pkg_resources`).
+    - Reads 44.1 kHz audio directly (no `pydub`/`audioop`), resampling with `soxr` if needed.
+    - Applies CC 64 sustain-pedal extension (`parseEventAll(..., extendSustainPedal=True)`)
+      before `clean_and_quantize_neural_notes()` so valid key-release notes are not discarded
+      by the `< 95 ms` filter.
+    """
+    try:
+        import torch
+        import moduleconf
+        import soxr
+        import transkun
+        from transkun import Data as tk_data
+    except Exception:
+        return False
+
+    pretrained_dir = Path(transkun.__file__).resolve().parent / "pretrained"
+    weight_path = pretrained_dir / "2.0.pt"
+    conf_path = pretrained_dir / "2.0.conf"
+    if not weight_path.exists() or not conf_path.exists():
+        log_status("warning", "Transkun pretrained checkpoint not found; falling back to basic-pitch.", 56)
+        return False
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    mode_label = "Full-Song Piano Arrangement" if arrangement_mode == "full-song" else "Piano Cover"
+    speed_hint = "GPU CUDA" if device == "cuda" else "CPU (~40s per min of audio)"
+    log_status(
+        "transcribing",
+        f"Running Transkun V2 high-accuracy piano engine ({mode_label} mode, {speed_hint})...",
+        55,
+    )
+
+    try:
+        conf_manager = moduleconf.parseFromFile(str(conf_path))
+        transkun_cls = conf_manager["Model"].module.TransKun
+        conf = conf_manager["Model"].config
+
+        checkpoint = torch.load(str(weight_path), map_location=device)
+        model = transkun_cls(conf=conf).to(device)
+        state_dict = checkpoint.get("best_state_dict") or checkpoint.get("state_dict")
+        model.load_state_dict(state_dict, strict=False)
+        model.eval()
+
+        fs, audio = _read_wav_for_transkun(audio_path)
+        if fs != model.fs:
+            audio = soxr.resample(audio, fs, model.fs)
+
+        with torch.no_grad():
+            x = torch.from_numpy(audio).to(device)
+            notes_est = model.transcribe(
+                x,
+                stepInSecond=None,
+                segmentSizeInSecond=None,
+                discardSecondHalf=False,
+            )
+
+        midi_data = tk_data.writeMidi(notes_est)
+
+        # Estimate tempo from transcribed MIDI if available
+        detected_bpm = 120
+        try:
+            est = float(midi_data.estimate_tempo())
+            if 55.0 <= est <= 200.0:
+                detected_bpm = int(round(est))
+        except Exception:
+            detected_bpm = 120
+
+        # Apply CC 64 sustain-pedal extension so Transkun's No-Pedal-Ext key-release notes
+        # preserve natural musical duration before <95ms hygiene filtering.
+        raw_notes = []
+        for inst in midi_data.instruments:
+            if not inst.notes:
+                continue
+            tk_notes = [tk_data.Note(n.start, n.end, n.pitch, n.velocity) for n in inst.notes]
+            try:
+                extended = tk_data.parseEventAll(
+                    tk_notes,
+                    inst.control_changes,
+                    extendSustainPedal=True,
+                )
+                iterable_notes = [ev for ev in extended if getattr(ev, "pitch", -1) >= 0]
+            except Exception:
+                iterable_notes = tk_notes
+
+            for n in iterable_notes:
+                dur = max(0.08, float(n.end) - float(n.start))
+                vel = max(40, min(120, int(round(float(n.velocity)))))
+                raw_notes.append({
+                    "midi": int(n.pitch),
+                    "start": round(float(n.start), 3),
+                    "duration": round(dur, 3),
+                    "velocity": vel,
+                })
+
+        raw_notes.sort(key=lambda item: (item["start"], item["midi"]))
+
+        if arrangement_mode == "full-song":
+            final_notes = build_full_song_arrangement(raw_notes, bpm=detected_bpm)
+        else:
+            final_notes = clean_and_quantize_neural_notes(raw_notes)
+
+        if not final_notes and raw_notes:
+            final_notes = raw_notes
+
+        if not final_notes:
+            log_status("warning", "Transkun V2 produced 0 notes; falling back to basic-pitch.", 60)
+            return False
+
+        log_status(
+            "writing_midi",
+            f"Transkun V2 ({mode_label}) produced {len(final_notes)} playable piano notes ({detected_bpm} BPM). Writing MIDI...",
+            88,
+        )
+        write_standard_midi_file(
+            output_midi_path,
+            final_notes,
+            song_title=song_title,
+            bpm=detected_bpm,
+            stem_tracks=stem_tracks,
+        )
+        return output_midi_path.exists()
+    except Exception as exc:
+        log_status("warning", f"Transkun V2 fallback triggered: {exc}", 58)
+    return False
+
+
+
+# ============================================================================
 # TIER 2: BUILT-IN POLYPHONIC HARMONIC AUDIO-TO-MIDI TRANSCRIBER (Python 3.14 Ready)
 # ============================================================================
 
@@ -1290,6 +1447,12 @@ def main():
         help="Transcription mode (Issue #123): 'piano-cover' (exact piano transcription) or 'full-song' (RH vocal/lead melody + LH chord/bass arrangement)",
     )
     parser.add_argument(
+        "--engine",
+        choices=["basic-pitch", "transkun", "auto"],
+        default="basic-pitch",
+        help="Transcription engine (Issue #144/#145): 'basic-pitch' (fast default, works on any instrument), 'transkun' (high-accuracy solo piano, requires optional PyTorch/Transkun install), or 'auto' (uses Transkun for piano-cover when installed, else basic-pitch)",
+    )
+    parser.add_argument(
         "--split-stems",
         action="store_true",
         help="Issue #41 & #42: Separate audio into 6 stems (piano, drums, bass, vocals, guitar, other) for real-audio play-along and multi-instrument highways",
@@ -1314,6 +1477,7 @@ def main():
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     arrangement_mode = args.mode or "piano-cover"
+    requested_engine = args.engine or "basic-pitch"
 
     try:
         with tempfile.TemporaryDirectory() as tmp_dir_str:
@@ -1391,46 +1555,82 @@ def main():
                 except Exception:
                     dest_backing_path = None
 
-            # 2b. Issue #41 & #42: Optional 6-stem separation before MIDI writing
+            # 2b. Issue #41 & #42: Optional 6-stem separation before MIDI writing.
+            #     Note (Issue #144/#145): Do NOT route piano-cover transcription through the weak
+            #     htdemucs_6s `piano.wav` stem; keep 6-stem separation for the play-along mixer
+            #     and Multi-Instrument Highways while transcribing the clean decoded audio.
             stems_map = None
             stem_tracks = None
-            using_isolated_piano_stem = False
             if args.split_stems and has_pcm_wav:
                 stems_dir = output_dir / f"{safe_base}_stems"
                 stems_map = separate_audio_into_6_stems(pcm_wav, stems_dir, tmp_dir)
-                if arrangement_mode == "piano-cover" and stems_map.get("piano") and Path(stems_map["piano"]).exists():
-                    inference_audio_path = Path(stems_map["piano"])
-                    using_isolated_piano_stem = True
                 stem_tracks = transcribe_separated_stems_for_highways(stems_map)
 
-            # 3. Run Spotify basic-pitch neural network (ONNXRuntime) first
-            used_basic_pitch = try_basic_pitch_transcription(
-                inference_audio_path,
-                dest_midi_path,
-                song_title=title,
-                arrangement_mode=arrangement_mode,
-                stem_tracks=stem_tracks,
-            )
+            # 3. Resolve requested engine (Issue #144/#145)
+            try:
+                import importlib.util
+                has_transkun = (
+                    importlib.util.find_spec("transkun") is not None
+                    and importlib.util.find_spec("torch") is not None
+                )
+            except Exception:
+                has_transkun = False
 
-            # If isolated piano stem produced 0 notes (e.g. guitar/synth track with no piano),
-            # retry basic-pitch on the full mix before falling back to DSP.
-            if not used_basic_pitch and using_isolated_piano_stem and has_pcm_wav:
-                log_status("warning", "Isolated piano stem yielded no notes; retrying transcription on full mix...", 62)
-                inference_audio_path = pcm_wav
-                used_basic_pitch = try_basic_pitch_transcription(
-                    pcm_wav,
+            try_transkun_first = False
+            if requested_engine == "transkun":
+                if arrangement_mode == "full-song":
+                    log_status(
+                        "warning",
+                        "Transkun V2 is a solo-piano model; basic-pitch is recommended for Full-Song Arrangement mode.",
+                        54,
+                    )
+                if has_transkun:
+                    try_transkun_first = True
+                else:
+                    log_status(
+                        "warning",
+                        "Transkun V2 is not installed in this Python environment; falling back to Spotify basic-pitch.",
+                        54,
+                    )
+            elif requested_engine == "auto" and arrangement_mode == "piano-cover" and has_transkun:
+                try_transkun_first = True
+
+            used_engine = None
+
+            # 3a. Optional Tier 1B: Transkun V2 (44.1 kHz high-accuracy solo piano)
+            if try_transkun_first:
+                transkun_wav = tmp_dir / "transkun_44k.wav"
+                if dest_backing_path and dest_backing_path.exists() and dest_backing_path.suffix.lower() == ".wav":
+                    transkun_input = dest_backing_path
+                elif convert_audio_to_stereo_backing_wav(source_audio_path, transkun_wav):
+                    transkun_input = transkun_wav
+                else:
+                    transkun_input = inference_audio_path
+
+                if try_transkun_transcription(
+                    transkun_input,
                     dest_midi_path,
                     song_title=title,
                     arrangement_mode=arrangement_mode,
                     stem_tracks=stem_tracks,
-                )
+                ):
+                    used_engine = "transkun-v2"
 
-            # 4. Fallback to built-in Polyphonic DSP Transcriber only if basic-pitch is unavailable
-            if not used_basic_pitch:
+            # 3b. Tier 1: Spotify basic-pitch neural network (ONNXRuntime)
+            if used_engine is None:
+                if try_basic_pitch_transcription(
+                    inference_audio_path,
+                    dest_midi_path,
+                    song_title=title,
+                    arrangement_mode=arrangement_mode,
+                    stem_tracks=stem_tracks,
+                ):
+                    used_engine = "spotify-basic-pitch"
+
+            # 4. Tier 2: Fallback to built-in Polyphonic DSP Transcriber if neural engines are unavailable
+            if used_engine is None:
                 if has_pcm_wav:
-                    dsp_source = pcm_wav if using_isolated_piano_stem else (
-                        inference_audio_path if Path(inference_audio_path).exists() else pcm_wav
-                    )
+                    dsp_source = inference_audio_path if Path(inference_audio_path).exists() else pcm_wav
                     transcribe_wav_polyphonic_dsp(
                         dsp_source,
                         dest_midi_path,
@@ -1438,6 +1638,7 @@ def main():
                         arrangement_mode=arrangement_mode,
                         stem_tracks=stem_tracks,
                     )
+                    used_engine = "polyphonic-harmonic-dsp"
                 else:
                     raise RuntimeError(
                         "Could not decode audio stream to PCM WAV (ffmpeg/audioread unavailable or unsupported format)."
@@ -1483,7 +1684,7 @@ def main():
                     "split_stems": bool(stems_map),
                     "audio_only": False,
                     "arrangement_mode": arrangement_mode,
-                    "engine": "spotify-basic-pitch" if used_basic_pitch else "polyphonic-harmonic-dsp",
+                    "engine": used_engine,
                 },
             )
             return 0

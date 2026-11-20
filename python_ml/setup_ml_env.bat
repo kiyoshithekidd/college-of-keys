@@ -62,6 +62,9 @@ echo [4/4] Running End-to-End Self-Test into ..\Imports\ ...
 echo.
 echo ============================================================================
 echo   Setup & Self-Test Complete! Check the College of Keys Grimoire sidebar.
+echo   Optional: For High-Accuracy Solo Piano mode (Transkun V2, requires PyTorch):
+echo     "%PYTHON_EXE%" -m pip install -r "%~dp0requirements-transkun.txt"
 echo ============================================================================
 pause
+
 

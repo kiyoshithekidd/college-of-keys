@@ -11,8 +11,9 @@ Keeping this pipeline decoupled from the Electron binary prevents bundling multi
 1. **YouTube Audio Extraction (`yt-dlp`)**:
    - Downloads audio from any YouTube URL (or converts local `.wav`/`.mp3`/`.flac` files).
    - Preserves a synced `.wav` backing track alongside the generated `.mid` file in `../Imports/`.
-2. **Dual-Engine Polyphonic Audio-to-MIDI Transcription**:
-   - **Tier 1 (`spotify/basic-pitch`)**: Uses Spotify's neural audio-to-MIDI model when running in a Python 3.10–3.12 environment with `basic-pitch` installed.
+2. **Multi-Engine Polyphonic Audio-to-MIDI Transcription (`--engine basic-pitch|transkun|auto`)**:
+   - **Tier 1 (`spotify/basic-pitch`, default)**: Fast, lightweight ONNX neural audio-to-MIDI model (~1 s/min on CPU). Works across all instruments and powers `#123` Full-Song Arrangement mode.
+   - **Tier 1B (`transkun` V2, optional)**: High-accuracy solo-piano transcription engine (MIT license, 44.1 kHz + CC 64 sustain-pedal extension). Install optionally with `pip install -r python_ml/requirements-transkun.txt` (requires PyTorch). Falls back automatically to `basic-pitch` if not installed.
    - **Tier 2 (Built-in Polyphonic Harmonic Spectral Transcriber + Pure-Python SMF `.mid` Writer)**: Automatically runs out-of-the-box on **Python 3.13 / 3.14+** (or offline environments) using windowed spectral analysis across MIDI pitches `36..96` (`C2`–`C7`), harmonic overtone suppression, onset/duration tracking, and Standard MIDI File (Format 1) generation split into Right Hand (`Track 1`) and Left Hand (`Track 2`).
 3. **Zero-Config `--self-test` Mode**:
    - Synthesizes a multi-voice stereo polyphonic audio recording (*The Bard's Arcane Prelude*, 16-bit 44.1kHz `.wav`), transcribes the audio waveform into a two-hand `.mid` file, and drops both files into `../Imports/` so the running Electron app's Phase 6 Grimoire folder watcher ingests it immediately.

@@ -1347,6 +1347,18 @@
             </div>
           </div>
 
+          <!-- Issue #144/#145: Transcription Engine Choice (Piano Cover Mode) -->
+          <div id="quest-engine-option-row" class="quest-engine-option-row">
+            <label for="quest-transcription-engine" class="quest-engine-label">
+              &#9881; <strong>Piano Engine:</strong>
+            </label>
+            <select id="quest-transcription-engine" class="quest-engine-select" title="Choose between fast basic-pitch (default) or high-accuracy solo-piano Transkun V2 (optional PyTorch install)">
+              <option value="basic-pitch" selected>Fast &mdash; Spotify basic-pitch (Default &bull; ~1s/min CPU)</option>
+              <option value="transkun">High-Accuracy Piano &mdash; Transkun V2 (Solo piano &bull; ~40s/min CPU, optional install)</option>
+            </select>
+            <span id="quest-engine-hint" class="quest-engine-hint">Falls back to basic-pitch automatically if Transkun is not installed.</span>
+          </div>
+
           <!-- Issue #41 & #42: 6-Stem Demucs Separation & Multi-Instrument Highway Toggle -->
           <div class="quest-stems-option-row">
             <label for="quest-split-stems-checkbox" class="quest-stem-toggle-label" title="Separate audio into 6 stems (Piano, Drums, Bass, Vocals, Guitar, Other) with Piano muted by default for live play-along, plus Multi-Instrument Highway charts">
