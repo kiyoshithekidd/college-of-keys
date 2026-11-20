@@ -486,6 +486,9 @@ const questProgressPct = document.getElementById('quest-progress-pct');
 const questProgressFill = document.getElementById('quest-progress-fill');
 const questLogOutput = document.getElementById('quest-log-output');
 const questSplitStemsCheckbox = document.getElementById('quest-split-stems-checkbox');
+const questEngineOptionRow = document.getElementById('quest-engine-option-row');
+const questTranscriptionEngineSelect = document.getElementById('quest-transcription-engine');
+const questEngineHint = document.getElementById('quest-engine-hint');
 const btnQuestPickLocalAudio = document.getElementById('btn-quest-pick-local-audio');
 const questLocalAudioInput = document.getElementById('quest-local-audio-input');
 const btnQuestRunBackground = document.getElementById('btn-quest-run-background');
@@ -11760,6 +11763,14 @@ function getSelectedQuestArrangementMode() {
   return 'piano-cover';
 }
 
+function getSelectedQuestTranscriptionEngine(arrangementMode = getSelectedQuestArrangementMode()) {
+  if (arrangementMode === 'full-song') {
+    return 'basic-pitch';
+  }
+  const val = (questTranscriptionEngineSelect?.value || 'basic-pitch').trim();
+  return val === 'transkun' ? 'transkun' : 'basic-pitch';
+}
+
 function syncQuestArrangementModeUI() {
   const mode = getSelectedQuestArrangementMode();
   if (questModeCardPianoCover) {
@@ -11767,6 +11778,15 @@ function syncQuestArrangementModeUI() {
   }
   if (questModeCardFullSong) {
     questModeCardFullSong.classList.toggle('active', mode === 'full-song');
+  }
+  if (questEngineOptionRow) {
+    questEngineOptionRow.classList.toggle('hidden', mode === 'full-song');
+  }
+  if (questEngineHint && mode === 'piano-cover') {
+    const eng = getSelectedQuestTranscriptionEngine(mode);
+    questEngineHint.textContent = eng === 'transkun'
+      ? 'Uses Transkun V2 (44.1kHz + sustain pedal). Falls back to basic-pitch if not installed.'
+      : 'Falls back to basic-pitch automatically if Transkun is not installed.';
   }
   if (btnRunQuestUrl) {
     btnRunQuestUrl.innerHTML = mode === 'full-song'
@@ -11780,6 +11800,9 @@ if (questModePianoCover) {
 }
 if (questModeFullSong) {
   questModeFullSong.addEventListener('change', syncQuestArrangementModeUI);
+}
+if (questTranscriptionEngineSelect) {
+  questTranscriptionEngineSelect.addEventListener('change', syncQuestArrangementModeUI);
 }
 if (btnQuestSwitchToBundle) {
   btnQuestSwitchToBundle.addEventListener('click', () => {
@@ -11844,11 +11867,15 @@ function runQuestBoardTranscriber({ selfTest = false, queuedJob = null } = {}) {
   const rawUrlOrPath = queuedJob ? queuedJob.rawUrlOrPath : (questYoutubeUrlInput?.value || '').trim();
   const customTitle = queuedJob ? queuedJob.customTitle : (questCustomTitleInput?.value || '').trim();
   const arrangementMode = queuedJob ? queuedJob.arrangementMode : getSelectedQuestArrangementMode();
+  const transcriptionEngine = queuedJob
+    ? (queuedJob.transcriptionEngine || 'basic-pitch')
+    : getSelectedQuestTranscriptionEngine(arrangementMode);
   const splitStems = queuedJob
     ? Boolean(queuedJob.splitStems)
     : (questSplitStemsCheckbox ? Boolean(questSplitStemsCheckbox.checked) : true);
   const isSelfTest = queuedJob ? Boolean(queuedJob.selfTest) : Boolean(selfTest);
   const modeLabel = arrangementMode === 'full-song' ? 'Full-Song Arrangement' : 'Piano Cover';
+  const engineLabel = transcriptionEngine === 'transkun' ? 'Transkun V2' : 'basic-pitch';
 
   if (!isSelfTest && !rawUrlOrPath) {
     showGrimoireToast('Please paste a YouTube URL (or local audio path), or click "Run ML Self-Test"!', 'error');
@@ -11863,6 +11890,7 @@ function runQuestBoardTranscriber({ selfTest = false, queuedJob = null } = {}) {
       rawUrlOrPath,
       customTitle,
       arrangementMode,
+      transcriptionEngine,
       splitStems
     });
     updateQuestQueueUI();
@@ -11878,7 +11906,7 @@ function runQuestBoardTranscriber({ selfTest = false, queuedJob = null } = {}) {
   }
 
   const pythonExe = resolvePythonExecutable();
-  const args = [scriptPath, '--output-dir', IMPORTS_DIR, '--mode', arrangementMode];
+  const args = [scriptPath, '--output-dir', IMPORTS_DIR, '--mode', arrangementMode, '--engine', transcriptionEngine];
   if (splitStems) {
     args.push('--split-stems');
   }
@@ -11899,7 +11927,7 @@ function runQuestBoardTranscriber({ selfTest = false, queuedJob = null } = {}) {
   if (btnQuestLoadResult) btnQuestLoadResult.classList.add('hidden');
 
   if (questLogOutput) {
-    questLogOutput.textContent = `[Quest Started • ${modeLabel}${splitStems ? ' + 6-Stem Demucs' : ''}] Spawning: ${path.basename(pythonExe)} python_ml/transcribe_quest.py --mode ${arrangementMode}${splitStems ? ' --split-stems' : ''} ${isSelfTest ? '--self-test' : rawUrlOrPath}`;
+    questLogOutput.textContent = `[Quest Started • ${modeLabel} • ${engineLabel}${splitStems ? ' + 6-Stem Demucs' : ''}] Spawning: ${path.basename(pythonExe)} python_ml/transcribe_quest.py --mode ${arrangementMode} --engine ${transcriptionEngine}${splitStems ? ' --split-stems' : ''} ${isSelfTest ? '--self-test' : rawUrlOrPath}`;
   }
 
   try {
