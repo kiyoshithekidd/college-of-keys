@@ -699,6 +699,499 @@ def try_transkun_transcription(
     return False
 
 
+# ============================================================================
+# ISSUE #146: FULL-SONG DEMUCS + CREPE VOCAL MELODY + HARMONY PIPELINE
+# ============================================================================
+
+def separate_audio_into_4_stems_demucs(source_wav: Path, tmp_dir: Path):
+    """
+    Issue #146: Run Demucs 4-stem (`htdemucs`) to isolate `vocals`, `other`, `bass`, and `drums`
+    for Full-Song Arrangement mode. Faster and cleaner than 6-stem, and never relies on the weak
+    `htdemucs_6s` piano stem. Returns dict mapping stem_name -> Path, or None if unavailable.
+    """
+    try:
+        import importlib.util
+        if importlib.util.find_spec("demucs") is None:
+            return None
+    except Exception:
+        return None
+
+    demucs_out = tmp_dir / "demucs_4s_out"
+    log_status("splitting_stems", "Running Demucs htdemucs (4-stem) for vocal melody & harmony separation...", 32)
+    cmd = [
+        sys.executable,
+        "-m",
+        "demucs.separate",
+        "-n",
+        "htdemucs",
+        "-o",
+        str(demucs_out),
+        str(source_wav),
+    ]
+    proc = None
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+        if proc.stdout is not None:
+            for line in proc.stdout:
+                m = re.search(r"(\d{1,3})%\|", line)
+                if m:
+                    pct = max(0, min(100, int(m.group(1))))
+                    scaled = 32 + int(pct * 0.22)
+                    log_status("splitting_stems", f"Demucs 4-stem separating vocals & harmony ({pct}%)...", scaled)
+        proc.wait()
+        if proc.returncode == 0:
+            model_dir = demucs_out / "htdemucs" / source_wav.stem
+            if model_dir.exists():
+                resolved = {}
+                for stem_name in ("vocals", "other", "bass", "drums"):
+                    cand = model_dir / f"{stem_name}.wav"
+                    if cand.exists():
+                        resolved[stem_name] = cand
+                if "vocals" in resolved and "other" in resolved:
+                    log_status("splitting_stems", "Demucs 4-stem vocal & harmony separation complete!", 54)
+                    return resolved
+    except Exception as exc:
+        log_status("warning", f"Demucs 4-stem separation fallback triggered: {exc}", 35)
+    finally:
+        if proc is not None:
+            try:
+                if proc.poll() is None:
+                    proc.terminate()
+                    proc.wait(timeout=5)
+            except Exception:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=2)
+                except Exception:
+                    pass
+            if proc.stdout is not None:
+                try:
+                    proc.stdout.close()
+                except Exception:
+                    pass
+    return None
+
+
+def _segment_f0_track_to_melody_notes(
+    times,
+    midi_floats,
+    voiced_mask,
+    rms_values,
+    min_hold_frames: int = 4,
+    min_dur_sec: float = 0.10,
+) -> list:
+    """
+    Convert a frame-wise pitch contour (10ms hop) into clean monophonic Right-Hand piano notes
+    using hysteresis note segmentation (`min_hold_frames` consecutive frames on a new semitone
+    before switching, preventing vibrato flicker) and comfortable RH range folding (60..84).
+    """
+    n_frames = min(len(times), len(midi_floats), len(voiced_mask), len(rms_values))
+    if n_frames == 0:
+        return []
+
+    raw_segments = []
+    cur_pitch = None
+    cur_start = 0.0
+    cur_rms_sum = 0.0
+    cur_count = 0
+
+    cand_pitch = None
+    cand_count = 0
+    cand_start = 0.0
+
+    def flush_current(end_t):
+        nonlocal cur_pitch, cur_start, cur_rms_sum, cur_count
+        if cur_pitch is not None and cur_count > 0:
+            dur = float(end_t) - float(cur_start)
+            if dur >= min_dur_sec:
+                avg_rms = cur_rms_sum / max(1, cur_count)
+                vel = max(68, min(118, int(round(74 + min(1.0, avg_rms * 8.0) * 40))))
+                raw_segments.append({
+                    "midi": int(cur_pitch),
+                    "start": round(float(cur_start), 3),
+                    "duration": round(min(2.4, dur), 3),
+                    "velocity": vel,
+                    "hand": "rh",
+                })
+        cur_pitch = None
+        cur_start = 0.0
+        cur_rms_sum = 0.0
+        cur_count = 0
+
+    for i in range(n_frames):
+        t = float(times[i])
+        voiced = bool(voiced_mask[i])
+        mf = float(midi_floats[i]) if voiced and math.isfinite(float(midi_floats[i])) else None
+        rms = float(rms_values[i])
+
+        if not voiced or mf is None:
+            flush_current(t)
+            cand_pitch = None
+            cand_count = 0
+            continue
+
+        semitone = int(round(mf))
+        if cur_pitch is None:
+            if cand_pitch == semitone:
+                cand_count += 1
+            else:
+                cand_pitch = semitone
+                cand_count = 1
+                cand_start = t
+            if cand_count >= min_hold_frames:
+                cur_pitch = cand_pitch
+                cur_start = cand_start
+                cur_rms_sum = rms * cand_count
+                cur_count = cand_count
+                cand_pitch = None
+                cand_count = 0
+        elif semitone == cur_pitch:
+            cur_rms_sum += rms
+            cur_count += 1
+            cand_pitch = None
+            cand_count = 0
+        else:
+            if cand_pitch == semitone:
+                cand_count += 1
+            else:
+                cand_pitch = semitone
+                cand_count = 1
+                cand_start = t
+            if cand_count >= min_hold_frames:
+                flush_current(cand_start)
+                cur_pitch = cand_pitch
+                cur_start = cand_start
+                cur_rms_sum = rms * cand_count
+                cur_count = cand_count
+                cand_pitch = None
+                cand_count = 0
+            else:
+                cur_rms_sum += rms
+                cur_count += 1
+
+    if n_frames > 0:
+        hop = (float(times[-1]) - float(times[0])) / max(1, n_frames - 1) if n_frames > 1 else 0.01
+        flush_current(float(times[n_frames - 1]) + hop)
+
+    # Fold into comfortable Right-Hand piano range (C4=60 .. C6=84) and trim overlaps
+    rh_notes = []
+    prev_pitch = 67
+    for seg in raw_segments:
+        p = seg["midi"]
+        while p < 60:
+            p += 12
+        while p > 84:
+            p -= 12
+        # Smooth sudden octave jumps when an octave neighbor stays inside 60..84
+        if abs(p - prev_pitch) >= 10:
+            if p - 12 >= 60 and abs((p - 12) - prev_pitch) < abs(p - prev_pitch):
+                p -= 12
+            elif p + 12 <= 84 and abs((p + 12) - prev_pitch) < abs(p - prev_pitch):
+                p += 12
+        if rh_notes:
+            prev_n = rh_notes[-1]
+            max_prev_dur = round(max(0.08, seg["start"] - prev_n["start"] - 0.015), 3)
+            if prev_n["duration"] > max_prev_dur:
+                prev_n["duration"] = max_prev_dur
+        seg["midi"] = p
+        rh_notes.append(seg)
+        prev_pitch = p
+
+    return rh_notes
+
+
+def extract_vocal_melody_crepe(vocals_wav: Path):
+    """
+    Issue #146: Extract a clean monophonic Right-Hand melody from an isolated `vocals.wav` stem.
+    1. Prefers `torchcrepe` (CREPE pitch tracker with Viterbi decoding + periodicity gating).
+    2. Falls back to `librosa.pyin` when `torchcrepe` is not installed.
+    Returns `(rh_notes, tracker_name)` or `([], None)`.
+    """
+    try:
+        import numpy as np
+        import librosa
+    except Exception:
+        return [], None
+
+    sr_target = 16000
+    hop_length = 160  # 10ms hop at 16 kHz
+    try:
+        y, _ = librosa.load(str(vocals_wav), sr=sr_target, mono=True)
+    except Exception:
+        return [], None
+
+    if len(y) < hop_length * 4:
+        return [], None
+
+    rms_frames = librosa.feature.rms(y=y, frame_length=1024, hop_length=hop_length)[0]
+    peak_rms = float(np.max(rms_frames)) if len(rms_frames) > 0 else 0.0
+    if peak_rms < 1e-4:
+        return [], None
+    rms_gate = max(0.008, peak_rms * 0.10)
+
+    # 1. Primary: torchcrepe (CREPE + Viterbi)
+    try:
+        import torch
+        import torchcrepe
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model_size = "full" if device == "cuda" else "tiny"
+        log_status(
+            "transcribing",
+            f"Tracking vocal lead melody with CREPE ({model_size}, {device.upper()})...",
+            62,
+        )
+        audio_tensor = torch.tensor(y, dtype=torch.float32).unsqueeze(0)
+        pitch, periodicity = torchcrepe.predict(
+            audio_tensor,
+            sr_target,
+            hop_length=hop_length,
+            fmin=80.0,
+            fmax=1000.0,
+            model=model_size,
+            batch_size=512 if device == "cuda" else 256,
+            device=device,
+            decoder=torchcrepe.decode.viterbi,
+            return_periodicity=True,
+        )
+        periodicity = torchcrepe.filter.median(periodicity, 3)
+        pitch = torchcrepe.filter.mean(pitch, 3)
+
+        f0_np = pitch.squeeze(0).detach().cpu().numpy()
+        per_np = periodicity.squeeze(0).detach().cpu().numpy()
+        n = min(len(f0_np), len(per_np), len(rms_frames))
+        times = np.arange(n, dtype=np.float32) * (hop_length / float(sr_target))
+        voiced = (per_np[:n] >= 0.25) & (rms_frames[:n] >= rms_gate) & (f0_np[:n] > 0)
+        midi_floats = np.where(voiced, 69.0 + 12.0 * np.log2(np.maximum(1.0, f0_np[:n]) / 440.0), np.nan)
+
+        rh_notes = _segment_f0_track_to_melody_notes(
+            times, midi_floats, voiced, rms_frames[:n], min_hold_frames=4, min_dur_sec=0.10
+        )
+        if rh_notes:
+            return rh_notes, "crepe"
+    except Exception:
+        pass
+
+    # 2. Fallback: librosa.pyin on the isolated vocal stem
+    try:
+        log_status("transcribing", "Tracking vocal lead melody with pYIN on isolated vocals stem...", 62)
+        f0, voiced_flag, voiced_prob = librosa.pyin(
+            y,
+            fmin=80.0,
+            fmax=1000.0,
+            sr=sr_target,
+            frame_length=1024,
+            hop_length=hop_length,
+        )
+        n = min(len(f0), len(voiced_flag), len(rms_frames))
+        times = np.arange(n, dtype=np.float32) * (hop_length / float(sr_target))
+        voiced = (
+            np.asarray(voiced_flag[:n], dtype=bool)
+            & (~np.isnan(f0[:n]))
+            & (rms_frames[:n] >= rms_gate)
+            & (np.nan_to_num(voiced_prob[:n], nan=0.0) >= 0.25)
+        )
+        midi_floats = np.where(voiced, 69.0 + 12.0 * np.log2(np.maximum(1.0, np.nan_to_num(f0[:n], nan=440.0)) / 440.0), np.nan)
+        rh_notes = _segment_f0_track_to_melody_notes(
+            times, midi_floats, voiced, rms_frames[:n], min_hold_frames=4, min_dur_sec=0.10
+        )
+        if rh_notes:
+            return rh_notes, "pyin"
+    except Exception:
+        pass
+
+    return [], None
+
+
+def extract_harmony_chords_from_stems(other_wav: Path, bass_wav: Path = None):
+    """
+    Issue #146: Derive clean 2-beat Left-Hand root + fifth/third chord accompaniment
+    from separated `other.wav` (and optional `bass.wav`) stems using CQT chroma histograms.
+    Returns `(lh_notes, detected_bpm)`.
+    """
+    try:
+        import numpy as np
+        import librosa
+    except Exception:
+        return [], 120
+
+    sr = 22050
+    hop_length = 512
+    try:
+        y_other, _ = librosa.load(str(other_wav), sr=sr, mono=True)
+    except Exception:
+        return [], 120
+
+    if len(y_other) < hop_length * 4:
+        return [], 120
+
+    y_bass = None
+    if bass_wav and Path(bass_wav).exists():
+        try:
+            y_bass, _ = librosa.load(str(bass_wav), sr=sr, mono=True)
+            min_len = min(len(y_other), len(y_bass))
+            y_other = y_other[:min_len]
+            y_bass = y_bass[:min_len]
+        except Exception:
+            y_bass = None
+
+    # Estimate tempo from harmonic stems
+    detected_bpm = 120
+    try:
+        tempo_mix = y_other + (y_bass * 0.8 if y_bass is not None else 0.0)
+        tempo_est, _ = librosa.beat.beat_track(y=tempo_mix, sr=sr)
+        if hasattr(tempo_est, "__len__"):
+            tempo_est = float(tempo_est[0]) if len(tempo_est) > 0 else 120.0
+        else:
+            tempo_est = float(tempo_est)
+        if 55.0 <= tempo_est <= 200.0:
+            detected_bpm = int(round(tempo_est))
+    except Exception:
+        detected_bpm = 120
+
+    chroma_other = librosa.feature.chroma_cqt(y=y_other, sr=sr, hop_length=hop_length)
+    rms_other = librosa.feature.rms(y=y_other, hop_length=hop_length)[0]
+    if y_bass is not None:
+        chroma_bass = librosa.feature.chroma_cqt(y=y_bass, sr=sr, hop_length=hop_length)
+        rms_bass = librosa.feature.rms(y=y_bass, hop_length=hop_length)[0]
+    else:
+        chroma_bass = np.zeros_like(chroma_other)
+        rms_bass = np.zeros_like(rms_other)
+
+    n_frames = chroma_other.shape[1]
+    frame_sec = hop_length / float(sr)
+    total_sec = n_frames * frame_sec
+
+    beat_sec = 60.0 / max(45.0, min(220.0, float(detected_bpm)))
+    bar_window_sec = max(0.65, min(2.4, beat_sec * 2.0))
+
+    combined_rms = rms_other + rms_bass
+    peak_rms = float(np.max(combined_rms)) if len(combined_rms) > 0 else 0.0
+    activity_gate = max(0.008, peak_rms * 0.12)
+
+    lh_notes = []
+    w_start = 0.0
+    while w_start < total_sec - 0.1:
+        w_end = min(total_sec, w_start + bar_window_sec)
+        f0 = int(w_start / frame_sec)
+        f1 = min(n_frames, max(f0 + 1, int(w_end / frame_sec)))
+        if f0 >= n_frames:
+            break
+
+        win_rms = float(np.mean(combined_rms[f0:f1]))
+        if win_rms >= activity_gate:
+            other_pc = np.mean(chroma_other[:, f0:f1], axis=1)
+            bass_pc = np.mean(chroma_bass[:, f0:f1], axis=1)
+
+            best_root_pc = 0
+            best_score = -1.0
+            for root_pc in range(12):
+                fifth_pc = (root_pc + 7) % 12
+                maj3_pc = (root_pc + 4) % 12
+                min3_pc = (root_pc + 3) % 12
+                score = (
+                    float(bass_pc[root_pc]) * 1.8
+                    + float(other_pc[root_pc]) * 1.3
+                    + float(other_pc[fifth_pc]) * 0.85
+                    + max(float(other_pc[maj3_pc]), float(other_pc[min3_pc])) * 0.75
+                )
+                if score > best_score:
+                    best_score = score
+                    best_root_pc = root_pc
+
+            root_midi = 36 + best_root_pc
+            fifth_midi = root_midi + 7
+            maj3_pc = (best_root_pc + 4) % 12
+            min3_pc = (best_root_pc + 3) % 12
+            third_interval = 4 if other_pc[maj3_pc] >= other_pc[min3_pc] else 3
+            upper_lh_midi = fifth_midi if fifth_midi < 59 else (root_midi + third_interval)
+            if upper_lh_midi >= 60:
+                upper_lh_midi -= 12
+
+            chord_dur = round(max(0.28, min(bar_window_sec * 0.88, total_sec - w_start)), 3)
+            anchor_t = round(w_start, 3)
+            lh_notes.append({
+                "midi": int(root_midi),
+                "start": anchor_t,
+                "duration": chord_dur,
+                "velocity": 80,
+                "hand": "lh",
+            })
+            if upper_lh_midi != root_midi and 36 <= upper_lh_midi < 60:
+                lh_notes.append({
+                    "midi": int(upper_lh_midi),
+                    "start": anchor_t,
+                    "duration": chord_dur,
+                    "velocity": 72,
+                    "hand": "lh",
+                })
+
+        w_start = round(w_start + bar_window_sec, 3)
+
+    return lh_notes, detected_bpm
+
+
+def try_full_song_demucs_crepe_arrangement(
+    source_wav: Path,
+    output_midi_path: Path,
+    tmp_dir: Path,
+    song_title: str = "Transcribed Spell",
+    existing_stems_map: dict = None,
+    stem_tracks: dict = None,
+):
+    """
+    Issue #146: Full-Song Arrangement pipeline using:
+    1. Demucs (`htdemucs` 4-stem, or reusing already-separated `vocals`/`other`/`bass` stems — never `piano.wav`)
+    2. Vocal stem + CREPE (or pYIN fallback) for the Right-Hand lead melody
+    3. `other` + `bass` stems + CQT chroma chord estimation for the Left-Hand accompaniment
+    Returns the engine label string (e.g. `"demucs-crepe-harmony"`) on success, or `None` to fall back.
+    """
+    stems = None
+    if existing_stems_map and existing_stems_map.get("vocals") and existing_stems_map.get("other"):
+        stems = existing_stems_map
+    else:
+        stems = separate_audio_into_4_stems_demucs(source_wav, tmp_dir)
+
+    if not stems or not Path(stems["vocals"]).exists() or not Path(stems["other"]).exists():
+        return None
+
+    rh_notes, tracker_name = extract_vocal_melody_crepe(Path(stems["vocals"]))
+    log_status("transcribing", "Extracting Left-Hand chords & bass from separated harmony stems...", 76)
+    lh_notes, detected_bpm = extract_harmony_chords_from_stems(
+        Path(stems["other"]),
+        Path(stems["bass"]) if stems.get("bass") else None,
+    )
+
+    combined = sorted(rh_notes + lh_notes, key=lambda n: (n["start"], n["midi"]))
+    if not combined:
+        log_status("warning", "Demucs + CREPE pipeline produced 0 notes; falling back to basic-pitch arrangement.", 78)
+        return None
+
+    engine_tag = f"demucs-{tracker_name or 'melody'}-harmony"
+    log_status(
+        "writing_midi",
+        f"Demucs + {(tracker_name or 'melody').upper()} produced {len(rh_notes)} RH melody + {len(lh_notes)} LH chord notes ({detected_bpm} BPM). Writing MIDI...",
+        88,
+    )
+    write_standard_midi_file(
+        output_midi_path,
+        combined,
+        song_title=song_title,
+        bpm=detected_bpm,
+        stem_tracks=stem_tracks,
+    )
+    return engine_tag if output_midi_path.exists() else None
+
+
+
 
 # ============================================================================
 # TIER 2: BUILT-IN POLYPHONIC HARMONIC AUDIO-TO-MIDI TRANSCRIBER (Python 3.14 Ready)
@@ -1453,6 +1946,12 @@ def main():
         help="Transcription engine (Issue #144/#145): 'basic-pitch' (fast default, works on any instrument), 'transkun' (high-accuracy solo piano, requires optional PyTorch/Transkun install), or 'auto' (uses Transkun for piano-cover when installed, else basic-pitch)",
     )
     parser.add_argument(
+        "--full-song-pipeline",
+        choices=["auto", "demucs-crepe", "basic-pitch"],
+        default="auto",
+        help="Full-Song Arrangement pipeline (Issue #146): 'auto' (uses Demucs 4-stem + CREPE vocal melody + other/bass chords when Demucs is installed, else basic-pitch), 'demucs-crepe', or 'basic-pitch'",
+    )
+    parser.add_argument(
         "--split-stems",
         action="store_true",
         help="Issue #41 & #42: Separate audio into 6 stems (piano, drums, bass, vocals, guitar, other) for real-audio play-along and multi-instrument highways",
@@ -1478,6 +1977,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     arrangement_mode = args.mode or "piano-cover"
     requested_engine = args.engine or "basic-pitch"
+    full_song_pipeline = args.full_song_pipeline or "auto"
 
     try:
         with tempfile.TemporaryDirectory() as tmp_dir_str:
@@ -1566,39 +2066,62 @@ def main():
                 stems_map = separate_audio_into_6_stems(pcm_wav, stems_dir, tmp_dir)
                 stem_tracks = transcribe_separated_stems_for_highways(stems_map)
 
-            # 3. Resolve requested engine (Issue #144/#145)
+            # 3. Resolve requested engine (Issue #144/#145/#146)
             try:
                 import importlib.util
                 has_transkun = (
                     importlib.util.find_spec("transkun") is not None
                     and importlib.util.find_spec("torch") is not None
                 )
+                has_demucs = importlib.util.find_spec("demucs") is not None
             except Exception:
                 has_transkun = False
-
-            try_transkun_first = False
-            if requested_engine == "transkun":
-                if arrangement_mode == "full-song":
-                    log_status(
-                        "warning",
-                        "Transkun V2 is a solo-piano model; basic-pitch is recommended for Full-Song Arrangement mode.",
-                        54,
-                    )
-                if has_transkun:
-                    try_transkun_first = True
-                else:
-                    log_status(
-                        "warning",
-                        "Transkun V2 is not installed in this Python environment; falling back to Spotify basic-pitch.",
-                        54,
-                    )
-            elif requested_engine == "auto" and arrangement_mode == "piano-cover" and has_transkun:
-                try_transkun_first = True
+                has_demucs = False
 
             used_engine = None
 
+            # 3.0. Issue #146: Full-Song Arrangement via Demucs 4-stem + CREPE vocal melody + other/bass chords
+            if arrangement_mode == "full-song" and full_song_pipeline in ("auto", "demucs-crepe"):
+                if has_demucs and has_pcm_wav:
+                    demucs_engine = try_full_song_demucs_crepe_arrangement(
+                        pcm_wav,
+                        dest_midi_path,
+                        tmp_dir=tmp_dir,
+                        song_title=title,
+                        existing_stems_map=stems_map if stems_map else None,
+                        stem_tracks=stem_tracks,
+                    )
+                    if demucs_engine:
+                        used_engine = demucs_engine
+                elif full_song_pipeline == "demucs-crepe":
+                    log_status(
+                        "warning",
+                        "Demucs is not installed in this Python environment; falling back to basic-pitch Full-Song Arrangement.",
+                        54,
+                    )
+
+            try_transkun_first = False
+            if used_engine is None:
+                if requested_engine == "transkun":
+                    if arrangement_mode == "full-song":
+                        log_status(
+                            "warning",
+                            "Transkun V2 is a solo-piano model; basic-pitch is recommended for Full-Song Arrangement mode.",
+                            54,
+                        )
+                    if has_transkun:
+                        try_transkun_first = True
+                    else:
+                        log_status(
+                            "warning",
+                            "Transkun V2 is not installed in this Python environment; falling back to Spotify basic-pitch.",
+                            54,
+                        )
+                elif requested_engine == "auto" and arrangement_mode == "piano-cover" and has_transkun:
+                    try_transkun_first = True
+
             # 3a. Optional Tier 1B: Transkun V2 (44.1 kHz high-accuracy solo piano)
-            if try_transkun_first:
+            if used_engine is None and try_transkun_first:
                 transkun_wav = tmp_dir / "transkun_44k.wav"
                 if dest_backing_path and dest_backing_path.exists() and dest_backing_path.suffix.lower() == ".wav":
                     transkun_input = dest_backing_path

@@ -64,6 +64,8 @@ echo ===========================================================================
 echo   Setup & Self-Test Complete! Check the College of Keys Grimoire sidebar.
 echo   Optional: For High-Accuracy Solo Piano mode (Transkun V2, requires PyTorch):
 echo     "%PYTHON_EXE%" -m pip install -r "%~dp0requirements-transkun.txt"
+echo   Optional: For Full-Song Vocal+Chord Arrangement (Demucs + CREPE, requires PyTorch):
+echo     "%PYTHON_EXE%" -m pip install -r "%~dp0requirements-full-song.txt"
 echo ============================================================================
 pause
 

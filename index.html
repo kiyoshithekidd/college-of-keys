@@ -1359,6 +1359,18 @@
             <span id="quest-engine-hint" class="quest-engine-hint">Falls back to basic-pitch automatically if Transkun is not installed.</span>
           </div>
 
+          <!-- Issue #146: Full-Song Arrangement Pipeline Choice (Demucs + CREPE vs basic-pitch) -->
+          <div id="quest-full-song-pipeline-row" class="quest-engine-option-row hidden">
+            <label for="quest-full-song-pipeline" class="quest-engine-label">
+              &#127908; <strong>Full-Song Pipeline:</strong>
+            </label>
+            <select id="quest-full-song-pipeline" class="quest-engine-select" title="Choose Demucs 4-stem + CREPE vocal melody + chroma chords (when installed) or fast basic-pitch arrangement">
+              <option value="auto" selected>Auto &mdash; Demucs + CREPE Vocal Melody (if installed, else basic-pitch)</option>
+              <option value="basic-pitch">Fast &mdash; Spotify basic-pitch Arrangement (~1s/min CPU)</option>
+            </select>
+            <span id="quest-full-song-hint" class="quest-engine-hint">Isolates vocals for RH melody (CREPE) and harmony stems for LH chords.</span>
+          </div>
+
           <!-- Issue #41 & #42: 6-Stem Demucs Separation & Multi-Instrument Highway Toggle -->
           <div class="quest-stems-option-row">
             <label for="quest-split-stems-checkbox" class="quest-stem-toggle-label" title="Separate audio into 6 stems (Piano, Drums, Bass, Vocals, Guitar, Other) with Piano muted by default for live play-along, plus Multi-Instrument Highway charts">

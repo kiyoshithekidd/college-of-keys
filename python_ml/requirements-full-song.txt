@@ -1,0 +1,16 @@
+# College of Keys — Optional Full-Song Arrangement Pipeline (Demucs + CREPE, Issue #146)
+# Separates vocals + harmony (`other`/`bass`) with Demucs (`htdemucs` 4-stem),
+# tracks the Right-Hand vocal lead melody with `torchcrepe` (Viterbi + hysteresis),
+# and extracts Left-Hand chords from `other` + `bass` stems.
+#
+# Install into the Python ML environment (Python 3.10–3.12 recommended):
+#   pip install -r python_ml/requirements-full-song.txt
+#
+# For CPU-only machines (smaller download ~200 MB vs ~2.5 GB CUDA):
+#   pip install --extra-index-url https://download.pytorch.org/whl/cpu torch torchaudio
+#   pip install -r python_ml/requirements-full-song.txt
+
+torch>=2.1.0
+torchaudio>=2.1.0
+demucs>=4.0.1
+torchcrepe>=0.0.22
