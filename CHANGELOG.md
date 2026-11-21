@@ -10,6 +10,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.5.0] - 2026-11-20
+
+### Added
+- **Optional Transkun V2 High-Accuracy Solo Piano Engine (`#144`, `#145`, PR `#147`):**
+  - Added `--engine basic-pitch|transkun|auto` to `python_ml/transcribe_quest.py` (default `basic-pitch`), preserving 44.1 kHz audio input, applying CC 64 sustain-pedal extension (`parseEventAll(..., extendSustainPedal=True)`) before `< 95 ms` hygiene filtering, estimating BPM via `pretty_midi`, and falling back automatically to `basic-pitch` → DSP when PyTorch/Transkun is not installed.
+  - Added optional `python_ml/requirements-transkun.txt` and Quest Board **Piano Engine** selector (`Fast — Spotify basic-pitch` vs `High-Accuracy Piano — Transkun V2`) in `index.html`, `styles.css`, and `renderer.js`.
+  - Added `docs/transkun-spike-findings.md` documenting the 5-song head-to-head benchmark (`basic-pitch` vs Transkun V2 vs ByteDance), spArtitI claim verification, and architectural decision record.
+- **Demucs 4-Stem + CREPE Vocal Melody & Harmony Full-Song Pipeline (`#146`, PR `#148`):**
+  - Added `--full-song-pipeline auto|demucs-crepe|basic-pitch` in `python_ml/transcribe_quest.py` for `#123` Full-Song Arrangement mode.
+  - Added `separate_audio_into_4_stems_demucs()` (`htdemucs` 4-stem, or reusing already-separated `vocals`/`other`/`bass` stems), `extract_vocal_melody_crepe()` (`torchcrepe` Viterbi + periodicity/RMS gating + 40 ms hysteresis note segmentation with `librosa.pyin` fallback), and `extract_harmony_chords_from_stems()` (CQT chroma 2-beat Left-Hand root + fifth/third chord extraction).
+  - Added optional `python_ml/requirements-full-song.txt` and Quest Board **Full-Song Pipeline** selector under Full-Song Arrangement mode.
+
+### Fixed
+- **Demucs 6-Stem Piano Routing (`#144`, `#145`, PR `#147`):** Stopped routing `piano-cover` + `--split-stems` transcription through the weak `htdemucs_6s` `piano.wav` stem; 6-stem separation now powers the play-along mixer and Multi-Instrument Highways while piano-cover transcription uses clean audio.
+
+---
+
 ## [1.4.0] - 2026-11-18
 
 ### Added
