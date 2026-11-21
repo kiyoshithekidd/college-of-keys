@@ -25,6 +25,7 @@
 | **v1.3.0** | **OMR Sheet Import (`#78`), Tavern Crowd Meter (`#26`), Setlists (`#64`), Achievements (`#65`), Interactive Tutorial (`#54`), Bard Colleges (`#27`) & 4-Act Story Campaign (`#29`)** | **Completed** |
 | **v1.3.1** | **Tavern Modal Z-Index, Consolidated Career Menu, Slim Playboard HUD & Imports Auto-Catalog (`#122`)** | **Completed** |
 | **v1.4.0** | **Electron `v45.3.4` (`#121`), Full-Song Piano Arrangement (`#123`), 6-Stem AI Play-Along Mixer (`#41`), Multi-Instrument Highways & Plug-In Rig (`#42`), Spell-Singing Karaoke Mode (`#43`, `#124`–`#127`), `npm test` Regression Suite (`#133`) & Full-Codebase Audit Fixes (`#128`–`#143`)** | **Completed** |
+| **v1.5.0** | **Optional Transkun V2 Solo-Piano Engine (`#144`, `#145`), Quest Board Engine & Pipeline Selectors, Demucs 4-Stem + CREPE Vocal Melody & Chroma Harmony Full-Song Pipeline (`#146`) & Clean Piano-Cover Stem Routing** | **Completed** |
 
 ---
 
@@ -96,6 +97,16 @@
   - Extracts timed lyrics from **MusicXML `<lyric>`**, sibling **`.lrc` sidecars**, an in-app **Paste Lyrics** modal (persisted per song), or an automatic **Solfège (`Do Re Mi`)** fallback (`spell-singing.js`).
   - Renders a horizontal **Vocal Pitch Highway** with dynamic phrase auto-zoom, live cents ribbon, 2-line teleprompter, **octave-agnostic (`mod 12`) scoring**, 100ms singing-break forgiveness, and a dedicated **Vocal XP / Vocal Level** progression track.
 
+### 9. Multi-Engine AI Transcription & Demucs + CREPE Full-Song Pipeline (`v1.5.0`)
+- **Quest Board Piano Engine Selector (`#144`, `#145`):** Choose per song in **Piano Cover Mode** between:
+  - **Fast (`basic-pitch`, default):** Lightweight ONNX model (~1 s/min on CPU), works on any instrument with zero PyTorch dependency.
+  - **High-Accuracy Piano (`Transkun V2`, optional):** State-of-the-art solo-piano Transformer + Semi-CRF engine (MIT license, 44.1 kHz input + CC 64 sustain-pedal extension + BPM estimation), automatically falling back to `basic-pitch` if not installed.
+- **Clean Piano-Cover Stem Routing (`#144`, `#145`):** When 6-stem separation is enabled alongside Piano Cover mode, `htdemucs_6s` powers the play-along mixer and Multi-Instrument Highways while piano transcription reads the clean audio directly (avoiding the weak 6-stem piano stem).
+- **Demucs 4-Stem + CREPE Full-Song Pipeline (`#146`):** Under **Full-Song Arrangement** mode, choose **Auto (`Demucs + CREPE`)** or **Fast (`basic-pitch`)**:
+  - Separates `vocals`, `other`, and `bass` via Demucs 4-stem (`htdemucs`, or reuses already-separated stems).
+  - Extracts a clean monophonic Right-Hand lead melody from `vocals.wav` using **CREPE (`torchcrepe`)** with Viterbi decoding and 40 ms hysteresis segmentation to suppress vibrato flicker (falling back to `librosa.pyin`).
+  - Derives 2-beat Left-Hand root + fifth/third chord voicings from `other.wav` + `bass.wav` via CQT chroma histograms.
+
 ---
 
 ## Controls & Input Modes
@@ -122,6 +133,20 @@ Double-click [`start.bat`](./start.bat) or run from the project root:
 # or
 npm start
 ```
+
+### Optional Python ML Pipelines (`python_ml/`)
+- **Core Quest Board & OMR (`basic-pitch` + `yt-dlp` + `homr`):**
+  ```powershell
+  .\python_ml\setup_ml_env.bat
+  ```
+- **Optional High-Accuracy Solo Piano (`Transkun V2`, requires PyTorch):**
+  ```powershell
+  pip install -r python_ml/requirements-transkun.txt
+  ```
+- **Optional Full-Song Vocal + Harmony (`Demucs` + `torchcrepe`, requires PyTorch):**
+  ```powershell
+  pip install -r python_ml/requirements-full-song.txt
+  ```
 
 ### Running the Regression Test Suite
 Verify all core modules, Electron `v45.3.4` DOM checks, Karaoke/Plug-In Rig routing, Notation, MusicXML, Song Bundles, and OMR helpers:
