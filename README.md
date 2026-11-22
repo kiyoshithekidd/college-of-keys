@@ -26,6 +26,7 @@
 | **v1.3.1** | **Tavern Modal Z-Index, Consolidated Career Menu, Slim Playboard HUD & Imports Auto-Catalog (`#122`)** | **Completed** |
 | **v1.4.0** | **Electron `v45.3.4` (`#121`), Full-Song Piano Arrangement (`#123`), 6-Stem AI Play-Along Mixer (`#41`), Multi-Instrument Highways & Plug-In Rig (`#42`), Spell-Singing Karaoke Mode (`#43`, `#124`–`#127`), `npm test` Regression Suite (`#133`) & Full-Codebase Audit Fixes (`#128`–`#143`)** | **Completed** |
 | **v1.5.0** | **Optional Transkun V2 Solo-Piano Engine (`#144`, `#145`), Quest Board Engine & Pipeline Selectors, Demucs 4-Stem + CREPE Vocal Melody & Chroma Harmony Full-Song Pipeline (`#146`) & Clean Piano-Cover Stem Routing** | **Completed** |
+| **v1.5.1** | **Performance & QA Hardening (`#150`–`#156`): Debounced Profile Saves, Idle Tavern Canvas Guard, `O(visible)` Highway Scans, Zero-Alloc YIN DSP, `O(M+N)` VexFlow Partitioning, Single-Pass `readdirSync` Bundles, `O(log T)` MusicXML, Vectorized Python WAV Writer & CSS/GPU Compositor Cleanup** | **Completed** |
 
 ---
 

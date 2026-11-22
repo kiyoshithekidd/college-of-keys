@@ -10,6 +10,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.5.1] - 2026-11-21
+
+### Changed & Fixed
+- **Main-Thread I/O, Idle Canvas & DOM Dirty Checks (`#150`, PR `#157`):**
+  - Added debounced `scheduleSaveBardProfile()` / `flushSaveBardProfile()` in `renderer.js` so note/chord completions no longer execute synchronous `fs.writeFileSync` + double `JSON.stringify` on every hit (flushed on pause, song end, and `beforeunload`).
+  - Short-circuited 60 FPS `renderCanvas()` while `isTavernMenuVisible && !playbackState.isPlaying`.
+  - Cached transposed chord markers on `currentSong` and added dirty checks to `updateTimelineUI()`, `updateChordBannerHUD()`, and `setStrikeStatusBadge()`.
+- **Highway Complexity & Canvas 2D State Churn (`#151`, PR `#157`):**
+  - Added early `break` to Arcade note expiration loops, `findFirstNoteIndexAtOrAfter()` binary-search cursors in `processSongAudioTriggers()` and `drawFallingSpellHighway()`, and sliding-window pointers in `computeMidiChordMarkers()`, `midi-hygiene.js`, and `python_ml/transcribe_quest.py`.
+  - Reused `reusableStrikeLineGuides` `Map`, hoisted uniform key fonts outside the 61-key loops, capped per-particle `shadowBlur`, and bounded `timingErrorsMs` to 2,000 samples.
+- **Vocal Pitch DSP & Karaoke Mode (`#152`, PR `#157`):**
+  - Removed unused `diff` allocation, reused `scratchYinCmnd`, and accepted `precomputedRms` in `instrument-input.js` (`detectPitchFromFloat32Buffer`), while throttling live audio pitch polling to ~55 Hz.
+  - Cached Karaoke stage dimensions on resize instead of calling `getBoundingClientRect()` every frame, dirty-checked `updateKaraokeHudStats()`, batched contiguous pitch-trail `ctx.stroke()` paths and replaced `shadowBlur` in `spell-singing.js`, tracked per-lane `audio-drums` release timers, and added 0-XP Karaoke completion feedback.
+- **Audio Engine, 6-Stem Sync & WebMIDI (`#153`, PR `#157`):**
+  - Removed duplicate per-frame `syncBackingAudioElement()`, guarded `HTMLAudioElement` property mutations (`muted`, `preservesPitch`, `playbackRate`), switched Salamander piano sample loading to async `pathToFileURL`, fixed the Beat-1 audition button race condition, and cached `midiAccessInstance` on rescan.
+- **Notation Engine & OMR Confidence (`#154`, PR `#157`):**
+  - Fixed `invalidateMeasure()` tile lookup, reduced `collectBarSegments()` to `O(M + N)`, memoized `midiToVexKey()`, reused `nowMs` in the overlay loop in `notation-engine.js`, and fixed `analyzeOmrConfidence()` in `omr-confidence.js` displaying `Key signature shift (?)` and duplicate meter/key warnings.
+- **Song Bundles, MusicXML & Python ML (`#155`, PR `#157`):**
+  - Replaced 70+ per-song `fs.existsSync`/`statSync` calls with single-pass `fs.readdirSync` in `song-bundle.js`, added `O(log T)` binary-search `ticksToSeconds()` in `musicxml-converter.js`, vectorized `_write_mono_float_wav()` in `python_ml/transcribe_quest.py`, and added subprocess timeouts in `python_ml/omr_import.py` and `transcribe_quest.py`.
+- **CSS/GPU Compositor, 3D D20 Disposal & Revelry Peak Mood (`#156`, PR `#157`):**
+  - Halted offscreen CSS animations inside `.tavern-title-splash.dismissed *` and `.tavern-scene-overlay.hidden *`, removed 3x `backdrop-filter: blur()` over the 60 FPS `#spell-canvas` in `styles.css`, freed the 2D atlas `<canvas>` and Cannon listener on 3D D20 `dispose()` in `d20-roller.js`, added `decoding="async"` / `loading="lazy"` in `index.html`, and tracked `peakCrowdMoodId` for College of Revelry in `bard-colleges.js` and `renderer.js`.
+
+---
+
 ## [1.5.0] - 2026-11-20
 
 ### Added
