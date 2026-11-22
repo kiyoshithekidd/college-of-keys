@@ -970,17 +970,12 @@ function initAudioEngine() {
   }).connect(pianoToneFilter);
 
   const sampleUrls = {};
-  const createdBlobUrls = [];
   const samplesDir = path.join(__dirname, 'assets', 'samples', 'piano');
 
   for (const [noteKey, fileName] of Object.entries(SALAMANDER_SAMPLE_MAP)) {
     const filePath = path.join(samplesDir, fileName);
     if (fs.existsSync(filePath)) {
-      const fileBuf = fs.readFileSync(filePath);
-      const blob = new Blob([fileBuf], { type: 'audio/mpeg' });
-      const blobUrl = URL.createObjectURL(blob);
-      sampleUrls[noteKey] = blobUrl;
-      createdBlobUrls.push(blobUrl);
+      sampleUrls[noteKey] = pathToFileURL(filePath).href;
     }
   }
 
@@ -990,14 +985,6 @@ function initAudioEngine() {
     release: 1.4,
     onload: () => {
       grandPianoLoaded = true;
-      for (const blobUrl of createdBlobUrls) {
-        try {
-          URL.revokeObjectURL(blobUrl);
-        } catch {
-          // Ignore URL revocation errors
-        }
-      }
-      createdBlobUrls.length = 0;
     }
   }).connect(pianoWarmthEQ);
 
@@ -2246,7 +2233,15 @@ function loadBardProfile() {
 /**
  * Save persistent Bard profile to localStorage and bard_profile.json (songHistory stored separately in song_stats.json)
  */
+let bardProfileSaveTimer = null;
+let bardProfileDirty = false;
+
 function saveBardProfile() {
+  if (bardProfileSaveTimer) {
+    clearTimeout(bardProfileSaveTimer);
+    bardProfileSaveTimer = null;
+  }
+  bardProfileDirty = false;
   const payload = {
     totalXp: bardProfile.totalXp,
     level: bardProfile.level,
@@ -2282,6 +2277,33 @@ function saveBardProfile() {
   } catch {
     // Ignore disk write errors
   }
+}
+
+function scheduleSaveBardProfile(delayMs = 1200) {
+  bardProfileDirty = true;
+  if (bardProfileSaveTimer) return;
+  bardProfileSaveTimer = setTimeout(() => {
+    bardProfileSaveTimer = null;
+    if (bardProfileDirty) {
+      saveBardProfile();
+    }
+  }, delayMs);
+}
+
+function flushSaveBardProfile() {
+  if (bardProfileSaveTimer) {
+    clearTimeout(bardProfileSaveTimer);
+    bardProfileSaveTimer = null;
+  }
+  if (bardProfileDirty) {
+    saveBardProfile();
+  }
+}
+
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('beforeunload', () => {
+    flushSaveBardProfile();
+  });
 }
 
 /**
@@ -2444,7 +2466,11 @@ function awardBardXp(xpAmount) {
   songSessionStats.songXpEarned += xpAmount;
   bardProfile.totalXp += xpAmount;
   recomputeBardLevelFromTotalXp();
-  saveBardProfile();
+  if (playbackState.isPlaying) {
+    scheduleSaveBardProfile();
+  } else {
+    saveBardProfile();
+  }
 }
 
 let achievementBannerTimer = null;
@@ -2559,15 +2585,22 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll, rh
     : (rhythmTier === 'perfect' || isCleanChordRoll ? 3.5 : (rhythmTier === 'good' ? 1.0 : (rhythmTier === 'miss' ? -2.0 : 2.5)));
   songSessionStats.crowdEnergy = applyCrowdEnergyDelta(songSessionStats.crowdEnergy ?? 50, crowdDelta);
   const crowdMood = getCrowdMoodForEnergy(songSessionStats.crowdEnergy);
+  if (
+    crowdMood.id === 'enchanted' ||
+    (crowdMood.id === 'rowdy' && songSessionStats.peakCrowdMoodId !== 'enchanted')
+  ) {
+    songSessionStats.peakCrowdMoodId = crowdMood.id;
+  }
   if (crowdMood.id === 'enchanted') {
     checkAndUnlockAchievements({ crowdMoodId: crowdMood.id });
   }
   if (
     typeof updateCollegeProgress === 'function' &&
-    (crowdMood.id === 'rowdy' || crowdMood.id === 'lively' || crowdMood.id === 'enchanted' || songSessionStats.maxSpellChain >= 25)
+    (crowdMood.id === 'rowdy' || crowdMood.id === 'enchanted' || songSessionStats.maxSpellChain >= 25)
   ) {
     updateCollegeProgress({
       crowdMoodId: crowdMood.id,
+      peakCrowdMoodId: songSessionStats.peakCrowdMoodId || crowdMood.id,
       maxSpellChain: songSessionStats.maxSpellChain
     });
   }
@@ -3680,7 +3713,13 @@ function getNextUnsatisfiedStrikeGroup() {
 /**
  * Update the Phase 4 Strike Status Pill in the HUD
  */
+let lastStrikeBadgeMode = null;
+let lastStrikeBadgeText = null;
+
 function setStrikeStatusBadge(mode, text) {
+  if (mode === lastStrikeBadgeMode && text === lastStrikeBadgeText) return;
+  lastStrikeBadgeMode = mode;
+  lastStrikeBadgeText = text;
   strikeZoneStatusPill.classList.remove('strike-waiting', 'strike-hit', 'strike-fumble');
   if (mode === 'waiting') strikeZoneStatusPill.classList.add('strike-waiting');
   if (mode === 'hit') strikeZoneStatusPill.classList.add('strike-hit');
@@ -3788,6 +3827,9 @@ function evaluateStrikeZoneInput(midi) {
       if (!playbackState.waitMode) {
         const strikeSongTime = Number.isFinite(group.firstStrikeSongTime) ? group.firstStrikeSongTime : effectiveSongTime;
         signedTimingMs = Math.round((strikeSongTime - group.anchorTime) * 1000);
+        if (songSessionStats.timingErrorsMs.length >= 2000) {
+          songSessionStats.timingErrorsMs.shift();
+        }
         songSessionStats.timingErrorsMs.push(signedTimingMs);
         if (playbackState.rhythmMode) {
           const absErr = Math.abs(signedTimingMs);
@@ -3983,6 +4025,7 @@ function pausePlayback() {
       }
     }
   }
+  flushSaveBardProfile();
 }
 
 function togglePlayback() {
@@ -3994,18 +4037,35 @@ function togglePlayback() {
   }
 }
 
+let lastTimelineReadoutText = '';
+let lastTimelineSliderValue = '';
+
 function updateTimelineUI() {
   if (!currentSong) {
-    songTimeReadout.textContent = '0:00 / 0:00';
-    songProgressSlider.value = '0';
+    if (lastTimelineReadoutText !== '0:00 / 0:00') {
+      lastTimelineReadoutText = '0:00 / 0:00';
+      songTimeReadout.textContent = lastTimelineReadoutText;
+    }
+    if (lastTimelineSliderValue !== '0') {
+      lastTimelineSliderValue = '0';
+      songProgressSlider.value = '0';
+    }
     return;
   }
   const displayTime = Math.max(0, Math.min(currentSong.duration, playbackState.currentTime));
-  songTimeReadout.textContent = `${formatSeconds(displayTime)} / ${formatSeconds(currentSong.duration)}`;
+  const nextText = `${formatSeconds(displayTime)} / ${formatSeconds(currentSong.duration)}`;
+  if (nextText !== lastTimelineReadoutText) {
+    lastTimelineReadoutText = nextText;
+    songTimeReadout.textContent = nextText;
+  }
 
   if (!playbackState.isScrubbing) {
     const ratio = currentSong.duration > 0 ? displayTime / currentSong.duration : 0;
-    songProgressSlider.value = String(Math.round(ratio * 1000));
+    const nextSlider = String(Math.round(ratio * 1000));
+    if (nextSlider !== lastTimelineSliderValue) {
+      lastTimelineSliderValue = nextSlider;
+      songProgressSlider.value = nextSlider;
+    }
   }
 }
 
@@ -4223,12 +4283,27 @@ function computeMidiChordMarkers(song) {
 
   const markers = [];
   let prevSymbol = null;
+  let winStartIdx = 0;
   for (let wStart = 0; wStart < totalDur; wStart += windowSec) {
     const wEnd = wStart + windowSec;
-    const active = notes.filter((n) => {
+    while (winStartIdx < notes.length) {
+      const candidate = notes[winStartIdx];
+      const cEnd = candidate.time + Math.max(0.08, Number(candidate.duration) || 0.25);
+      if (candidate.time < wStart - 0.05 && cEnd <= wStart + 0.06) {
+        winStartIdx++;
+      } else {
+        break;
+      }
+    }
+    const active = [];
+    for (let i = winStartIdx; i < notes.length; i++) {
+      const n = notes[i];
+      if (n.time >= wEnd - 0.02) break;
       const nEnd = n.time + Math.max(0.08, Number(n.duration) || 0.25);
-      return (n.time >= wStart - 0.05 && n.time < wEnd - 0.02) || (n.time < wStart && nEnd > wStart + 0.06);
-    });
+      if ((n.time >= wStart - 0.05 && n.time < wEnd - 0.02) || (n.time < wStart && nEnd > wStart + 0.06)) {
+        active.push(n);
+      }
+    }
     if (active.length < 2) continue;
 
     const pcs = new Set(active.map((n) => ((n.midi % 12) + 12) % 12));
@@ -4271,10 +4346,16 @@ function getEffectiveChordMarkers(song = currentSong) {
   const shift = Math.round(Number(song.transposeSemitones) || 0);
   if (Array.isArray(song.chordMarkers) && song.chordMarkers.length > 0) {
     if (((shift % 12) + 12) % 12 === 0) return song.chordMarkers;
-    return song.chordMarkers.map((m) => ({
+    if (song._cachedTransposedChordShift === shift && Array.isArray(song._cachedTransposedChordMarkers)) {
+      return song._cachedTransposedChordMarkers;
+    }
+    const transposed = song.chordMarkers.map((m) => ({
       time: m.time,
       symbol: transposeChordSymbol(m.symbol, shift)
     }));
+    song._cachedTransposedChordShift = shift;
+    song._cachedTransposedChordMarkers = transposed;
+    return transposed;
   }
   if (!Array.isArray(song._computedMidiChordMarkers)) {
     song._computedMidiChordMarkers = computeMidiChordMarkers(song);
@@ -4282,15 +4363,26 @@ function getEffectiveChordMarkers(song = currentSong) {
   return song._computedMidiChordMarkers;
 }
 
+let lastChordBannerVisible = null;
+let lastChordCurrentText = null;
+let lastChordNextText = null;
+let lastChordNextVisible = null;
+
 function updateChordBannerHUD(currentTime = playbackState.currentTime) {
   if (!hudChordBanner || !hudChordCurrent || !hudChordNext) return;
   if (!showChordBanner || !currentSong) {
-    hudChordBanner.classList.add('hidden');
+    if (lastChordBannerVisible !== false) {
+      lastChordBannerVisible = false;
+      hudChordBanner.classList.add('hidden');
+    }
     return;
   }
   const markers = getEffectiveChordMarkers(currentSong);
   if (!markers || markers.length === 0) {
-    hudChordBanner.classList.add('hidden');
+    if (lastChordBannerVisible !== false) {
+      lastChordBannerVisible = false;
+      hudChordBanner.classList.add('hidden');
+    }
     return;
   }
 
@@ -4314,12 +4406,26 @@ function updateChordBannerHUD(currentTime = playbackState.currentTime) {
     next = markers[1] && markers[1].symbol !== displayCurrent ? markers[1] : null;
   }
 
-  hudChordBanner.classList.remove('hidden');
-  hudChordCurrent.textContent = displayCurrent;
+  if (lastChordBannerVisible !== true) {
+    lastChordBannerVisible = true;
+    hudChordBanner.classList.remove('hidden');
+  }
+  if (lastChordCurrentText !== displayCurrent) {
+    lastChordCurrentText = displayCurrent;
+    hudChordCurrent.textContent = displayCurrent;
+  }
   if (next) {
-    hudChordNext.textContent = `Next: ${next.symbol}`;
-    hudChordNext.classList.remove('hidden');
-  } else {
+    const nextText = `Next: ${next.symbol}`;
+    if (lastChordNextText !== nextText) {
+      lastChordNextText = nextText;
+      hudChordNext.textContent = nextText;
+    }
+    if (lastChordNextVisible !== true) {
+      lastChordNextVisible = true;
+      hudChordNext.classList.remove('hidden');
+    }
+  } else if (lastChordNextVisible !== false) {
+    lastChordNextVisible = false;
     hudChordNext.classList.add('hidden');
   }
 }
@@ -4712,10 +4818,6 @@ async function startAudioAudition() {
     audioAuditionEl = el;
     audioAuditionStartedAtMs = performance.now();
     if (btnSyncAudition) btnSyncAudition.textContent = '\u23F9 Stop Audition';
-    if (btnSyncMarkBeat1) btnSyncMarkBeat1.textContent = '\uD83C\uDFAF Tap Beat 1 Now!';
-    if (syncStatusHint) {
-      syncStatusHint.textContent = 'Listening from 0:00… click "🎯 Tap Beat 1 Now!" when Measure 1 / Beat 1 hits.';
-    }
 
     await el.play();
     if (seq !== auditionRequestSeq || el._disposed || currentSong !== targetSong) {
@@ -4726,6 +4828,10 @@ async function startAudioAudition() {
     }
 
     isAuditionPending = false;
+    if (btnSyncMarkBeat1) btnSyncMarkBeat1.textContent = '\uD83C\uDFAF Tap Beat 1 Now!';
+    if (syncStatusHint) {
+      syncStatusHint.textContent = 'Listening from 0:00… click "🎯 Tap Beat 1 Now!" when Measure 1 / Beat 1 hits.';
+    }
     audioAuditionTimer = setInterval(() => {
       if (!audioAuditionEl || audioAuditionEl._disposed) return;
       const elapsed = Number(audioAuditionEl.currentTime) || 0;
@@ -4746,7 +4852,8 @@ async function startAudioAudition() {
 
 function handleMarkBeat1Click() {
   if (!currentSong?.backingAudioPath) return;
-  if (isAuditionPending) return;
+  const isActivelyPlaying = Boolean(audioAuditionEl && !audioAuditionEl.paused && audioAuditionEl.currentTime > 0);
+  if (isAuditionPending && !isActivelyPlaying) return;
   if (!audioAuditionEl || audioAuditionEl.paused) {
     startAudioAudition();
     return;
@@ -4852,7 +4959,10 @@ function syncBackingAudioElement(currentTime = playbackState.currentTime) {
 
   const syncSingleAudioEl = (audioEl, forceMuteOrPause = false, mutedFlag = false) => {
     if (!audioEl) return;
-    audioEl.muted = Boolean(mutedFlag);
+    const nextMuted = Boolean(mutedFlag);
+    if (audioEl.muted !== nextMuted) {
+      audioEl.muted = nextMuted;
+    }
     const audioDur = audioEl.duration;
     const pastAudioEnd = Number.isFinite(audioDur) && audioDur > 0 && mapped.clampedAudioTime >= audioDur - 0.02;
 
@@ -4866,9 +4976,11 @@ function syncBackingAudioElement(currentTime = playbackState.currentTime) {
       currentTime < currentSong.duration;
 
     if (shouldPlay) {
-      audioEl.preservesPitch = true;
-      audioEl.webkitPreservesPitch = true;
-      audioEl.playbackRate = effRate;
+      if (!audioEl.preservesPitch) audioEl.preservesPitch = true;
+      if (!audioEl.webkitPreservesPitch) audioEl.webkitPreservesPitch = true;
+      if (Math.abs((Number(audioEl.playbackRate) || 1) - effRate) > 0.0005) {
+        audioEl.playbackRate = effRate;
+      }
       const targetAudioTime = Number.isFinite(audioDur) && audioDur > 0
         ? Math.min(mapped.clampedAudioTime, Math.max(0, audioDur - 0.02))
         : mapped.clampedAudioTime;
@@ -4906,7 +5018,7 @@ function syncBackingAudioElement(currentTime = playbackState.currentTime) {
     if (currentSong.backingAudioEl && !currentSong.backingAudioEl.paused) {
       currentSong.backingAudioEl.pause();
     }
-    const mix = normalizeStemMix(currentSong.stemMix);
+    const mix = currentSong.stemMix || normalizeStemMix(null);
     for (const [stemName, stEl] of stemEntries) {
       const audible = isStemAudibleInMix(stemName, mix, playbackState.backingBandEnabled);
       syncSingleAudioEl(stEl, false, !audible);
@@ -4919,6 +5031,21 @@ function syncBackingAudioElement(currentTime = playbackState.currentTime) {
 /**
  * Trigger Accompaniment & Backing Band notes that cross currentTime during this frame
  */
+function findFirstNoteIndexAtOrAfter(notes, minTimeSec) {
+  if (!Array.isArray(notes) || notes.length === 0) return 0;
+  let lo = 0;
+  let hi = notes.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (notes[mid].time < minTimeSec) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
 function processSongAudioTriggers(prevTime, newTime) {
   if (!currentSong) return;
 
@@ -4926,49 +5053,50 @@ function processSongAudioTriggers(prevTime, newTime) {
   const speed = playbackState.playbackSpeed;
 
   if (shouldAutoPlayHand(1) && inst) {
-    for (const n of currentSong.track1Notes) {
-      if (!n.autoTriggered && n.time >= prevTime && n.time <= newTime) {
+    const notes = currentSong.track1Notes;
+    for (let i = findFirstNoteIndexAtOrAfter(notes, prevTime); i < notes.length; i++) {
+      const n = notes[i];
+      if (n.time > newTime) break;
+      if (!n.autoTriggered && n.time >= prevTime) {
         n.autoTriggered = true;
         n.satisfied = true;
         const vel = getVoicedVelocity(n.midi, n.velocity);
         const dur = Math.max(0.06, n.duration / speed);
         inst.triggerAttackRelease(n.foldedName, dur, Tone.now(), vel);
         spawnKeyParticleBurst(n.midi, 'gold', 8, false);
-      } else if (n.time > newTime) {
-        break;
       }
     }
   }
 
   if (shouldAutoPlayHand(2) && inst) {
-    for (const n of currentSong.track2Notes) {
-      if (!n.autoTriggered && n.time >= prevTime && n.time <= newTime) {
+    const notes = currentSong.track2Notes;
+    for (let i = findFirstNoteIndexAtOrAfter(notes, prevTime); i < notes.length; i++) {
+      const n = notes[i];
+      if (n.time > newTime) break;
+      if (!n.autoTriggered && n.time >= prevTime) {
         n.autoTriggered = true;
         n.satisfied = true;
         const vel = getVoicedVelocity(n.midi, n.velocity) * 0.85;
         const dur = Math.max(0.06, n.duration / speed);
         inst.triggerAttackRelease(n.foldedName, dur, Tone.now(), vel);
         spawnKeyParticleBurst(n.midi, 'blue', 8, false);
-      } else if (n.time > newTime) {
-        break;
       }
     }
   }
 
   if (playbackState.backingBandEnabled && backingBandSynth && currentSong.backingBandNotes.length > 0) {
-    for (const n of currentSong.backingBandNotes) {
-      if (!n.autoTriggered && n.time >= prevTime && n.time <= newTime) {
+    const notes = currentSong.backingBandNotes;
+    for (let i = findFirstNoteIndexAtOrAfter(notes, prevTime); i < notes.length; i++) {
+      const n = notes[i];
+      if (n.time > newTime) break;
+      if (!n.autoTriggered && n.time >= prevTime) {
         n.autoTriggered = true;
         const vel = getVoicedVelocity(n.midi, n.velocity) * 0.65;
         const dur = Math.max(0.06, n.duration / speed);
         backingBandSynth.triggerAttackRelease(n.foldedName, dur, Tone.now(), vel);
-      } else if (n.time > newTime) {
-        break;
       }
     }
   }
-
-  syncBackingAudioElement(newTime);
 }
 
 /**
@@ -5401,14 +5529,17 @@ function animationLoop(timestamp) {
         }
       }
 
+      const expireCutoff = effectiveArcadeTime - 0.18;
       for (const n of currentSong.track1Notes) {
-        if (!n.satisfied && n.time < effectiveArcadeTime - 0.18) {
+        if (n.time >= expireCutoff) break;
+        if (!n.satisfied) {
           n.satisfied = true;
           n.lockedInWait = false;
         }
       }
       for (const n of currentSong.track2Notes) {
-        if (!n.satisfied && n.time < effectiveArcadeTime - 0.18) {
+        if (n.time >= expireCutoff) break;
+        if (!n.satisfied) {
           n.satisfied = true;
           n.lockedInWait = false;
         }
@@ -7705,8 +7836,11 @@ function computeKeyGeometry() {
  * Track 1 = Radiant Gold (#ffd700), Track 2 = Eldritch Blue (#00e5ff)
  * Also collects active strike-line notes so the 61-key piano can show guide highlights.
  */
+const reusableStrikeLineGuides = new Map();
+
 function drawFallingSpellHighway(strikeLineY, width, highwayTopY = 0, collectOnly = false) {
-  const strikeLineGuides = new Map(); // midi -> { handTrack, lockedInWait }
+  reusableStrikeLineGuides.clear();
+  const strikeLineGuides = reusableStrikeLineGuides; // midi -> { handTrack, lockedInWait }
   if (!currentSong) return strikeLineGuides;
 
   const laneTopY = Math.max(0, highwayTopY);
@@ -7795,7 +7929,9 @@ function drawFallingSpellHighway(strikeLineY, width, highwayTopY = 0, collectOnl
       ctx.globalAlpha = opacity;
     }
 
-    for (const note of notes) {
+    const startIdx = findFirstNoteIndexAtOrAfter(notes, curTime - 8.0);
+    for (let i = startIdx; i < notes.length; i++) {
+      const note = notes[i];
       const noteEnd = note.time + note.duration;
       if (noteEnd < curTime) continue;
       if (note.time > curTime + visibleTimeWindow) break;
@@ -8081,8 +8217,10 @@ function updateAndDrawStrikeParticles(dt) {
       ctx.rotate(p.rotation);
       ctx.globalAlpha = alpha;
       ctx.fillStyle = p.color;
-      ctx.shadowColor = p.color;
-      ctx.shadowBlur = 10;
+      if (strikeParticles.length <= 48) {
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 10;
+      }
 
       if (p.shape === 'star') {
         // 4-point arcane star
@@ -8145,6 +8283,9 @@ function updateAndDrawStrikeParticles(dt) {
  * Render the Spell Highway backdrop, falling notes, strike line, 61-key piano, and Phase 7 particles
  */
 function renderCanvas() {
+  if (typeof isTavernMenuVisible !== 'undefined' && isTavernMenuVisible && !playbackState.isPlaying) {
+    return;
+  }
   if (stageViewMode === 'karaoke') {
     if (typeof renderKaraokeFrame === 'function') {
       renderKaraokeFrame();
@@ -8313,6 +8454,10 @@ function renderCanvas() {
 
   // 4. Draw 36 White Keys (using pre-allocated cachedKeyGradients)
   const qwertyHighMidi = Math.min(MAX_MIDI, qwertyBaseMidi + 16);
+  const firstWhiteW = whiteKeys[0].width;
+  const whiteQwertyFont = `bold ${Math.max(9, Math.min(11, Math.floor(firstWhiteW * 0.36)))}px "Segoe UI", sans-serif`;
+  const whiteNoteFont = `bold ${Math.max(10, Math.min(13, Math.floor(firstWhiteW * 0.42)))}px "Segoe UI", sans-serif`;
+  ctx.textAlign = 'center';
   for (const key of whiteKeys) {
     const state = activeNotes.get(key.midi);
     const isPressed = Boolean(state);
@@ -8320,8 +8465,8 @@ function renderCanvas() {
     const isInQwertyRange = showQwertyKeyLabels && key.midi >= qwertyBaseMidi && key.midi <= qwertyHighMidi;
     const qwertyChar = isInQwertyRange ? OFFSET_TO_QWERTY_LABEL[key.midi - qwertyBaseMidi] : null;
 
-    ctx.save();
     if (isPressed) {
+      ctx.save();
       ctx.fillStyle = cachedKeyGradients.whitePressed;
       ctx.shadowColor = 'rgba(255, 215, 0, 0.75)';
       ctx.shadowBlur = 16;
@@ -8346,23 +8491,28 @@ function renderCanvas() {
     ctx.lineWidth = guide ? 1.8 : 1;
     ctx.strokeRect(key.x + pad, key.y, key.width - pad * 2, key.height - 2);
 
+    if (isPressed) {
+      ctx.restore();
+      ctx.textAlign = 'center';
+    }
+
     if (qwertyChar) {
       ctx.fillStyle = isPressed || guide ? '#1a1200' : '#8a6d2f';
-      ctx.font = `bold ${Math.max(9, Math.min(11, Math.floor(key.width * 0.36)))}px "Segoe UI", sans-serif`;
-      ctx.textAlign = 'center';
+      ctx.font = whiteQwertyFont;
       ctx.fillText(`[${qwertyChar}]`, key.x + key.width / 2, key.y + key.height - 28);
     }
 
     if (key.midi % 12 === 0 || guide || (showQwertyKeyLabels && key.midi === qwertyBaseMidi)) {
       ctx.fillStyle = isPressed || guide ? '#1a1200' : (showQwertyKeyLabels && key.midi === qwertyBaseMidi ? '#b45309' : '#5e4d3b');
-      ctx.font = `bold ${Math.max(10, Math.min(13, Math.floor(key.width * 0.42)))}px "Segoe UI", sans-serif`;
-      ctx.textAlign = 'center';
+      ctx.font = whiteNoteFont;
       ctx.fillText(key.name, key.x + key.width / 2, key.y + key.height - 12);
     }
-    ctx.restore();
   }
 
   // 5. Draw 25 Black Keys on top (using pre-allocated cachedKeyGradients)
+  const firstBlackW = blackKeys.length > 0 ? blackKeys[0].width : 16;
+  const blackQwertyFont = `bold ${Math.max(8, Math.min(10, Math.floor(firstBlackW * 0.48)))}px "Segoe UI", sans-serif`;
+  ctx.font = blackQwertyFont;
   for (const key of blackKeys) {
     const state = activeNotes.get(key.midi);
     const isPressed = Boolean(state);
@@ -8370,8 +8520,8 @@ function renderCanvas() {
     const isInQwertyRange = showQwertyKeyLabels && key.midi >= qwertyBaseMidi && key.midi <= qwertyHighMidi;
     const qwertyChar = isInQwertyRange ? OFFSET_TO_QWERTY_LABEL[key.midi - qwertyBaseMidi] : null;
 
-    ctx.save();
     if (isPressed) {
+      ctx.save();
       ctx.fillStyle = cachedKeyGradients.blackPressed;
       ctx.shadowColor = 'rgba(255, 215, 0, 0.85)';
       ctx.shadowBlur = 14;
@@ -8389,13 +8539,16 @@ function renderCanvas() {
     ctx.lineWidth = guide ? 1.6 : 1;
     ctx.strokeRect(key.x + 0.5, key.y + 0.5, key.width - 1, key.height - 1);
 
+    if (isPressed) {
+      ctx.restore();
+      ctx.textAlign = 'center';
+      ctx.font = blackQwertyFont;
+    }
+
     if (qwertyChar) {
       ctx.fillStyle = isPressed || guide ? '#1a1200' : '#fde68a';
-      ctx.font = `bold ${Math.max(8, Math.min(10, Math.floor(key.width * 0.48)))}px "Segoe UI", sans-serif`;
-      ctx.textAlign = 'center';
       ctx.fillText(qwertyChar, key.x + key.width / 2, key.y + key.height - 8);
     }
-    ctx.restore();
   }
 
   // 6. Phase 7: Render Strike-Line Shockwaves, Arcane Particle Bursts & Floating XP Runes on top!
@@ -8582,21 +8735,42 @@ function ensureVocalChartForCurrentSong({ forceRebuild = false } = {}) {
   return chart;
 }
 
+let lastKaraokeHudLevel = null;
+let lastKaraokeHudXp = null;
+let lastKaraokeHudAcc = null;
+let lastKaraokeHudListening = null;
+let cachedKaraokeStageWidth = 0;
+let cachedKaraokeStageHeight = 0;
+
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('resize', () => {
+    cachedKaraokeStageWidth = 0;
+    cachedKaraokeStageHeight = 0;
+  });
+}
+
 function updateKaraokeHudStats() {
-  if (karaokeVocalLevelBadge) {
-    karaokeVocalLevelBadge.textContent = `Vocal LVL ${bardProfile.vocalLevel || 1}`;
+  const vLevel = `Vocal LVL ${bardProfile.vocalLevel || 1}`;
+  if (karaokeVocalLevelBadge && lastKaraokeHudLevel !== vLevel) {
+    lastKaraokeHudLevel = vLevel;
+    karaokeVocalLevelBadge.textContent = vLevel;
   }
-  if (karaokeVocalXpReadout) {
-    karaokeVocalXpReadout.textContent = `${(bardProfile.vocalXp || 0).toLocaleString()} Vocal XP`;
+  const vXp = `${(bardProfile.vocalXp || 0).toLocaleString()} Vocal XP`;
+  if (karaokeVocalXpReadout && lastKaraokeHudXp !== vXp) {
+    lastKaraokeHudXp = vXp;
+    karaokeVocalXpReadout.textContent = vXp;
   }
   if (karaokePitchAccuracyEl && spellSingingState.scorer) {
-    const sum = spellSingingState.scorer.getSummary();
-    karaokePitchAccuracyEl.textContent = `${sum.accuracyPct}% Pitch`;
+    const acc = `${spellSingingState.scorer.getSummary().accuracyPct}% Pitch`;
+    if (lastKaraokeHudAcc !== acc) {
+      lastKaraokeHudAcc = acc;
+      karaokePitchAccuracyEl.textContent = acc;
+    }
   }
-  if (btnKaraokeMicToggle) {
-    btnKaraokeMicToggle.textContent = externalInstrumentRig.audioListening
-      ? '⏹ Stop Mic'
-      : '🎤 Enable Mic';
+  const listening = Boolean(externalInstrumentRig.audioListening);
+  if (btnKaraokeMicToggle && lastKaraokeHudListening !== listening) {
+    lastKaraokeHudListening = listening;
+    btnKaraokeMicToggle.textContent = listening ? '⏹ Stop Mic' : '🎤 Enable Mic';
   }
 }
 
@@ -8655,9 +8829,13 @@ function updateKaraokeTeleprompter(songTime) {
 
 function renderKaraokeFrame() {
   if (!vocalHighwayCanvas) return;
-  const rect = vocalHighwayCanvas.parentElement?.getBoundingClientRect();
-  const w = Math.max(320, Math.round(rect?.width || vocalHighwayCanvas.clientWidth || 800));
-  const h = Math.max(200, Math.round(rect?.height || vocalHighwayCanvas.clientHeight || 320));
+  if (cachedKaraokeStageWidth <= 0 || cachedKaraokeStageHeight <= 0) {
+    const rect = vocalHighwayCanvas.parentElement?.getBoundingClientRect();
+    cachedKaraokeStageWidth = Math.max(320, Math.round(rect?.width || vocalHighwayCanvas.clientWidth || 800));
+    cachedKaraokeStageHeight = Math.max(200, Math.round(rect?.height || vocalHighwayCanvas.clientHeight || 320));
+  }
+  const w = cachedKaraokeStageWidth;
+  const h = cachedKaraokeStageHeight;
   const dpr = window.devicePixelRatio || 1;
   if (vocalHighwayCanvas.width !== Math.round(w * dpr) || vocalHighwayCanvas.height !== Math.round(h * dpr)) {
     vocalHighwayCanvas.width = Math.round(w * dpr);
@@ -8695,6 +8873,12 @@ function awardVocalSessionXp() {
     updateKaraokeHudStats();
     showGrimoireToast(
       `🎤 Spell-Singing Complete! +${summary.vocalXpEarned} Vocal XP (${summary.accuracyPct}% Pitch • Vocal LVL ${bardProfile.vocalLevel})`
+    );
+  } else {
+    showGrimoireToast(
+      externalInstrumentRig.audioListening
+        ? '🎤 Spell-Singing Complete! Sing along with the glowing pitch ribbon to earn Vocal XP.'
+        : '🎤 Song Complete! Enable your Mic in Karaoke Mode to score pitch and earn Vocal XP.'
     );
   }
   return summary;
@@ -8829,7 +9013,18 @@ async function startLiveAudioInstrumentInput() {
   }
 }
 
+const audioDrumReleaseTimers = new Map();
+let lastAudioPitchPollMs = 0;
+
+function clearAudioDrumReleaseTimers() {
+  for (const timerId of audioDrumReleaseTimers.values()) {
+    clearTimeout(timerId);
+  }
+  audioDrumReleaseTimers.clear();
+}
+
 function stopLiveAudioInstrumentInput() {
+  clearAudioDrumReleaseTimers();
   if (externalInstrumentRig.activeAudioMidiNote !== null) {
     handleNoteOff(externalInstrumentRig.activeAudioMidiNote);
     externalInstrumentRig.activeAudioMidiNote = null;
@@ -8892,7 +9087,13 @@ function processAudioInstrumentFrame(floatBuffer, sampleRate = 44100) {
       externalInstrumentRig.lastAudioDrumHitMs = nowMs;
       updateLiveTunerReadout(hit.label);
       handleNoteOn(hit.laneMidi, 105, 'audio-drums');
-      setTimeout(() => handleNoteOff(hit.laneMidi), 90);
+      const prevTimer = audioDrumReleaseTimers.get(hit.laneMidi);
+      if (prevTimer) clearTimeout(prevTimer);
+      const laneMidi = hit.laneMidi;
+      audioDrumReleaseTimers.set(laneMidi, setTimeout(() => {
+        audioDrumReleaseTimers.delete(laneMidi);
+        handleNoteOff(laneMidi);
+      }, 90));
       return { type: 'drum', ...hit };
     }
     return null;
@@ -8900,7 +9101,8 @@ function processAudioInstrumentFrame(floatBuffer, sampleRate = 44100) {
 
   // Monophonic Pitch Detection for Vocal Mic (Spell-Singing), Guitar, or Bass Line-In
   const detected = detectPitchFromFloat32Buffer(floatBuffer, sampleRate, {
-    rmsGate: externalInstrumentRig.audioGateThreshold
+    rmsGate: externalInstrumentRig.audioGateThreshold,
+    precomputedRms: rms
   });
 
   // Epic #43 (#126 & #127) & Issue #128: Feed continuous vocal pitch into Spell-Singing scorer in Karaoke mode.
@@ -9011,11 +9213,15 @@ if (btnLyricPasteApply && lyricPasteModal) {
 
 function pollExternalInstrumentFrame() {
   if (externalInstrumentRig.audioListening && externalInstrumentRig.analyserNode && externalInstrumentRig.floatBuffer) {
-    externalInstrumentRig.analyserNode.getFloatTimeDomainData(externalInstrumentRig.floatBuffer);
-    processAudioInstrumentFrame(
-      externalInstrumentRig.floatBuffer,
-      externalInstrumentRig.audioCtx?.sampleRate || 44100
-    );
+    const nowPollMs = performance.now();
+    if (nowPollMs - lastAudioPitchPollMs >= 18) {
+      lastAudioPitchPollMs = nowPollMs;
+      externalInstrumentRig.analyserNode.getFloatTimeDomainData(externalInstrumentRig.floatBuffer);
+      processAudioInstrumentFrame(
+        externalInstrumentRig.floatBuffer,
+        externalInstrumentRig.audioCtx?.sampleRate || 44100
+      );
+    }
   }
 
   if (externalInstrumentRig.sourceMode === 'gamepad' && typeof navigator.getGamepads === 'function') {
@@ -9091,6 +9297,8 @@ if (btnToggleAudioInput) {
 /**
  * Set up Native Web MIDI API (navigator.requestMIDIAccess)
  */
+let midiAccessInstance = null;
+
 async function initWebMIDI() {
   if (!navigator.requestMIDIAccess) {
     setMidiStatus('error', 'Web MIDI API Unsupported');
@@ -9098,11 +9306,13 @@ async function initWebMIDI() {
   }
 
   try {
-    const midiAccess = await navigator.requestMIDIAccess({ sysex: false });
-    bindMidiInputs(midiAccess);
-    midiAccess.onstatechange = () => {
-      bindMidiInputs(midiAccess);
-    };
+    if (!midiAccessInstance) {
+      midiAccessInstance = await navigator.requestMIDIAccess({ sysex: false });
+      midiAccessInstance.onstatechange = () => {
+        bindMidiInputs(midiAccessInstance);
+      };
+    }
+    bindMidiInputs(midiAccessInstance);
   } catch (err) {
     setMidiStatus('error', 'MIDI Access Denied — Mouse/QWERTY Active');
   }

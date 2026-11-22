@@ -471,9 +471,20 @@ function buildFullSongArrangement(rawNotes = [], bpm = 120) {
   }
   const lhNotes = [];
 
+  let winStartIdx = 0;
   for (let wStart = minT; wStart < maxT - 0.05; wStart = Number((wStart + barWindowSec).toFixed(3))) {
     const wEnd = wStart + barWindowSec;
-    const winNotes = normalized.filter((n) => n.time < wEnd && (n.time + n.duration) > wStart);
+    while (winStartIdx < normalized.length && (normalized[winStartIdx].time + normalized[winStartIdx].duration) <= wStart) {
+      winStartIdx++;
+    }
+    const winNotes = [];
+    for (let i = winStartIdx; i < normalized.length; i++) {
+      const n = normalized[i];
+      if (n.time >= wEnd) break;
+      if ((n.time + n.duration) > wStart) {
+        winNotes.push(n);
+      }
+    }
     if (winNotes.length === 0) continue;
 
     const pcWeights = new Array(12).fill(0);

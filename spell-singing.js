@@ -286,7 +286,7 @@ function applyLrcOrLinesToNotes(monoNotes, lines) {
         target.syllabic = 'single';
       }
       for (const mn of matchingNotes) {
-        assignedNoteIndices.add(monoNotes.indexOf(mn));
+        assignedNoteIndices.add(mn.index);
       }
     }
   } else {
@@ -543,7 +543,11 @@ function createVocalSessionScorer(vocalChart, options = {}) {
     const perfectPct = state.totalScoredFrames > 0
       ? Math.round((state.perfectFrames / state.totalScoredFrames) * 100)
       : 0;
-    const completedNotes = (chart.notes || []).filter((n) => n.fillRatio >= 0.45).length;
+    const allNotes = chart.notes || [];
+    let completedNotes = 0;
+    for (let i = 0; i < allNotes.length; i++) {
+      if (allNotes[i].fillRatio >= 0.45) completedNotes++;
+    }
     const vocalXpEarned = Math.max(
       0,
       Math.round(completedNotes * 14 + (accuracyPct >= 85 ? 80 : accuracyPct >= 65 ? 40 : 0) + state.vibratoFrames * 0.5)
@@ -639,7 +643,8 @@ function renderSpellSingingStage(ctx, width, height, {
   const maxVisibleTime = currentTime + ((width - playheadX) / pxPerSec) + 0.5;
 
   for (const n of notes) {
-    if (n.endTime < minVisibleTime || n.time > maxVisibleTime) continue;
+    if (n.time > maxVisibleTime) break;
+    if (n.endTime < minVisibleTime) continue;
     const x = playheadX + (n.time - currentTime) * pxPerSec;
     const w = Math.max(18, n.duration * pxPerSec);
     const yCenter = midiToY(n.midi);
@@ -681,29 +686,43 @@ function renderSpellSingingStage(ctx, width, height, {
     }
   }
 
-  // 5. Real-time Sung Pitch Ribbon Trail (AllKaraoke cents trace style)
+  // 5. Real-time Sung Pitch Ribbon Trail (batched by stroke color to minimize draw calls)
   const trail = scorerState?.pitchTrail || [];
   if (trail.length > 1) {
     ctx.save();
     ctx.lineWidth = 3.5;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+    let activeColor = null;
+    let pathOpen = false;
     for (let i = 1; i < trail.length; i++) {
       const p0 = trail[i - 1];
       const p1 = trail[i];
-      if (p1.time - p0.time > 0.22) continue;
+      if (p1.time - p0.time > 0.22) {
+        if (pathOpen) {
+          ctx.stroke();
+          pathOpen = false;
+        }
+        continue;
+      }
+      const segColor = p1.inTune
+        ? (p1.vibrato ? '#fde047' : '#4ade80')
+        : 'rgba(248, 113, 113, 0.78)';
       const x0 = playheadX + (p0.time - currentTime) * pxPerSec;
       const x1 = playheadX + (p1.time - currentTime) * pxPerSec;
       const y0 = midiToY(p0.displayMidi);
       const y1 = midiToY(p1.displayMidi);
-      ctx.strokeStyle = p1.inTune
-        ? (p1.vibrato ? '#fde047' : '#4ade80')
-        : 'rgba(248, 113, 113, 0.78)';
-      ctx.beginPath();
-      ctx.moveTo(x0, y0);
+      if (!pathOpen || segColor !== activeColor) {
+        if (pathOpen) ctx.stroke();
+        ctx.strokeStyle = segColor;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        activeColor = segColor;
+        pathOpen = true;
+      }
       ctx.lineTo(x1, y1);
-      ctx.stroke();
     }
+    if (pathOpen) ctx.stroke();
     ctx.restore();
   }
 
@@ -719,21 +738,21 @@ function renderSpellSingingStage(ctx, width, height, {
   ctx.lineTo(playheadX, height);
   ctx.stroke();
 
-  // 7. Live Singer Pitch Orb on the Playhead
+  // 7. Live Singer Pitch Orb on the Playhead (2-pass halo avoids expensive Canvas2D shadowBlur)
   const activePitch = scorerState?.activePitch;
   if (activePitch && Number.isFinite(activePitch.displayMidi)) {
     const orbY = Math.max(topPad, Math.min(height - bottomPad, midiToY(activePitch.displayMidi)));
-    ctx.save();
+    ctx.beginPath();
+    ctx.arc(playheadX, orbY, 13, 0, Math.PI * 2);
+    ctx.fillStyle = activePitch.inTune ? 'rgba(74, 222, 128, 0.28)' : 'rgba(248, 113, 113, 0.28)';
+    ctx.fill();
     ctx.beginPath();
     ctx.arc(playheadX, orbY, 8, 0, Math.PI * 2);
     ctx.fillStyle = activePitch.inTune ? '#4ade80' : '#f87171';
-    ctx.shadowColor = activePitch.inTune ? '#4ade80' : '#f87171';
-    ctx.shadowBlur = 14;
     ctx.fill();
     ctx.lineWidth = 2;
     ctx.strokeStyle = '#ffffff';
     ctx.stroke();
-    ctx.restore();
   }
 
   // 8. Phrase Entry Countdown Dots when approaching next phrase (> 0.2s and <= 3.0s away)

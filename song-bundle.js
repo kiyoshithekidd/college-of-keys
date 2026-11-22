@@ -187,9 +187,19 @@ function findSiblingAsset(notesFilePath, exts, excludeSelf = false) {
     const dir = path.dirname(notesFilePath);
     const resolvedSelf = path.resolve(notesFilePath);
     const base = path.basename(notesFilePath).replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
+    const baseLower = base.toLowerCase();
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    const fileMap = new Map();
+    for (const ent of entries) {
+      if (ent.isFile() || ent.isSymbolicLink()) {
+        fileMap.set(ent.name.toLowerCase(), ent.name);
+      }
+    }
     for (const ext of exts) {
-      const candidate = path.join(dir, `${base}${ext}`);
-      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      const targetLower = `${baseLower}${ext.toLowerCase()}`;
+      const actualName = fileMap.get(targetLower);
+      if (actualName) {
+        const candidate = path.join(dir, actualName);
         if (excludeSelf && isSameFilePath(candidate, resolvedSelf)) continue;
         return candidate;
       }
@@ -210,13 +220,24 @@ function findSiblingStemsMap(notesFilePath) {
       path.join(dir, 'stems', base)
     ];
     for (const stemsDir of stemsDirCandidates) {
-      if (!fs.existsSync(stemsDir) || !fs.statSync(stemsDir).isDirectory()) continue;
+      let entries;
+      try {
+        entries = fs.readdirSync(stemsDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      const fileMap = new Map();
+      for (const ent of entries) {
+        if (ent.isFile() || ent.isSymbolicLink()) {
+          fileMap.set(ent.name.toLowerCase(), ent.name);
+        }
+      }
       const found = {};
       for (const stem of STEM_NAMES) {
         for (const ext of BACKING_AUDIO_EXTS) {
-          const candidate = path.join(stemsDir, `${stem}${ext}`);
-          if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-            found[stem] = candidate;
+          const actualName = fileMap.get(`${stem}${ext.toLowerCase()}`);
+          if (actualName) {
+            found[stem] = path.join(stemsDir, actualName);
             break;
           }
         }

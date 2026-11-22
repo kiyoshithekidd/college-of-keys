@@ -446,6 +446,86 @@ async function runUnitTests() {
     assert.ok(out.includes('tempo="112"'), 'BPM override must be injected');
   });
 
+  record('Issues #152-#156 Performance & QA bundles: OMR key shift, Revelry peak mood, YIN precomputedRms & stem readdirSync', () => {
+    const omr = require(path.join(REPO_ROOT, 'omr-confidence.js'));
+    const colleges = require(path.join(REPO_ROOT, 'bard-colleges.js'));
+    const instInput = require(path.join(REPO_ROOT, 'instrument-input.js'));
+    const bundle = require(path.join(REPO_ROOT, 'song-bundle.js'));
+    const fs = require('fs');
+    const os = require('os');
+
+    // #154: OMR key signature shift displays vfKeySpec instead of (?) and suppresses identical repeats
+    const omrReport = omr.analyzeOmrConfidence(
+      {
+        measures: [
+          { index: 0, number: '1', startTicks: 0, endTicks: 1920, startTime: 0, endTime: 2 },
+          { index: 1, number: '2', startTicks: 1920, endTicks: 3840, startTime: 2, endTime: 4 },
+          { index: 2, number: '3', startTicks: 3840, endTicks: 5760, startTime: 4, endTime: 6 }
+        ],
+        keySignatures: [
+          { ticks: 0, fifths: 0, mode: 'major', vfKeySpec: 'C' },
+          { ticks: 1920, fifths: 0, mode: 'major', vfKeySpec: 'C' },
+          { ticks: 3840, fifths: 2, mode: 'major', vfKeySpec: 'D' }
+        ],
+        timeSignatures: [
+          { ticks: 0, timeSignature: [4, 4] },
+          { ticks: 1920, timeSignature: [4, 4] }
+        ]
+      },
+      {
+        tracks: [
+          {
+            notes: [
+              { midi: 60, time: 0.1, duration: 0.5 },
+              { midi: 62, time: 2.1, duration: 0.5 },
+              { midi: 64, time: 4.1, duration: 0.5 }
+            ]
+          }
+        ]
+      }
+    );
+    const keyWarnings = omrReport.flaggedMeasures.flatMap((m) => m.reasons).filter((r) => r.includes('Key signature shift'));
+    assert.strictEqual(keyWarnings.length, 1, 'Identical key signature repeat must not be flagged');
+    assert.ok(keyWarnings[0].includes('(D)'), 'Key signature shift must display actual vfKeySpec (D), not (?)');
+    const meterWarnings = omrReport.flaggedMeasures.flatMap((m) => m.reasons).filter((r) => r.includes('Unexpected meter change'));
+    assert.strictEqual(meterWarnings.length, 0, 'Identical meter repeat must not be flagged');
+
+    // #156: Revelry crowd drill accepts peakCrowdMoodId
+    const revPeak = colleges.evaluateCollegeProgress(
+      { crowdMoodId: 'warming', peakCrowdMoodId: 'rowdy' },
+      { enrolledCollegeId: 'revelry', completedDrills: {}, collegeSongsCompleted: { revelry: 0 } }
+    );
+    assert.ok(revPeak.newlyCompletedDrills.some((d) => d.id === 'revelry-crowd'), 'peakCrowdMoodId rowdy must unlock revelry-crowd');
+
+    // #152: YIN pitch detection works with precomputedRms & reused scratch buffer
+    const sr = 44100;
+    const bufA2 = new Float32Array(2048);
+    let sumSq = 0;
+    for (let i = 0; i < bufA2.length; i++) {
+      const s = 0.5 * Math.sin((2 * Math.PI * 110 * i) / sr);
+      bufA2[i] = s;
+      sumSq += s * s;
+    }
+    const rms = Math.sqrt(sumSq / bufA2.length);
+    const pitchRes = instInput.detectPitchFromFloat32Buffer(bufA2, sr, { precomputedRms: rms });
+    assert.ok(pitchRes && pitchRes.midi === 45 && pitchRes.noteName === 'A2');
+
+    // #155: readdirSync sibling stem discovery
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cok-stems-'));
+    try {
+      const songPath = path.join(tmpDir, 'Ballad.mid');
+      const stemsDir = path.join(tmpDir, 'Ballad_stems');
+      fs.writeFileSync(songPath, '');
+      fs.mkdirSync(stemsDir);
+      fs.writeFileSync(path.join(stemsDir, 'piano.wav'), '');
+      fs.writeFileSync(path.join(stemsDir, 'drums.mp3'), '');
+      const stems = bundle.findSiblingStemsMap(songPath);
+      assert.ok(stems && stems.piano && stems.drums, 'Single-pass readdirSync must discover sibling stems');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   return results;
 }
 

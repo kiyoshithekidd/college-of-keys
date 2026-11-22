@@ -607,26 +607,50 @@ function isPianoPartMeta(partMeta) {
   return false;
 }
 
-function ticksToSeconds(ticks, tempoChanges, ppq) {
+const tempoPrefixCache = new WeakMap();
+
+function getTempoPrefixTable(tempoChanges, ppq) {
+  let cached = tempoPrefixCache.get(tempoChanges);
+  if (cached && cached.ppq === ppq && cached.len === tempoChanges.length) {
+    return cached.entries;
+  }
+  const entries = [];
   let seconds = 0;
   let lastTick = 0;
   let currentBpm = tempoChanges.length > 0 ? tempoChanges[0].bpm : 120;
-
-  for (const tc of tempoChanges) {
-    if (tc.ticks >= ticks) break;
+  for (let i = 0; i < tempoChanges.length; i++) {
+    const tc = tempoChanges[i];
     if (tc.ticks > lastTick) {
-      const deltaBeats = (tc.ticks - lastTick) / ppq;
-      seconds += deltaBeats * (60 / currentBpm);
+      seconds += ((tc.ticks - lastTick) / ppq) * (60 / currentBpm);
       lastTick = tc.ticks;
     }
     currentBpm = tc.bpm;
+    entries.push({ ticks: tc.ticks, bpm: currentBpm, startSec: seconds });
   }
+  tempoPrefixCache.set(tempoChanges, { ppq, len: tempoChanges.length, entries });
+  return entries;
+}
 
-  if (ticks > lastTick) {
-    const deltaBeats = (ticks - lastTick) / ppq;
-    seconds += deltaBeats * (60 / currentBpm);
+function ticksToSeconds(ticks, tempoChanges, ppq) {
+  if (!Array.isArray(tempoChanges) || tempoChanges.length === 0) {
+    return (ticks / ppq) * 0.5;
   }
-  return seconds;
+  const entries = getTempoPrefixTable(tempoChanges, ppq);
+  if (ticks <= entries[0].ticks) {
+    return (ticks / ppq) * (60 / entries[0].bpm);
+  }
+  let lo = 0;
+  let hi = entries.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >>> 1;
+    if (entries[mid].ticks < ticks) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  const seg = entries[lo];
+  return seg.startSec + ((ticks - seg.ticks) / ppq) * (60 / seg.bpm);
 }
 
 function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled Spell.musicxml') {

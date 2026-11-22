@@ -142,6 +142,8 @@ function foldInstrumentMidiForHighway(rawMidi, activeInstrument = 'piano') {
  * @param {object} options
  * @returns {{ freqHz: number, midi: number, midiFloat: number, cents: number, noteName: string, rms: number, clarity: number } | null}
  */
+let scratchYinCmnd = new Float32Array(2048);
+
 function detectPitchFromFloat32Buffer(floatBuffer, sampleRate = 44100, options = {}) {
   if (!floatBuffer || floatBuffer.length < 256 || !Number.isFinite(sampleRate) || sampleRate <= 0) {
     return null;
@@ -153,12 +155,15 @@ function detectPitchFromFloat32Buffer(floatBuffer, sampleRate = 44100, options =
   const minClarity = Number(options.minClarity) || 0.78;
 
   const n = floatBuffer.length;
-  let sumSq = 0;
-  for (let i = 0; i < n; i++) {
-    const s = floatBuffer[i];
-    sumSq += s * s;
+  let rms = Number.isFinite(options.precomputedRms) ? options.precomputedRms : -1;
+  if (rms < 0) {
+    let sumSq = 0;
+    for (let i = 0; i < n; i++) {
+      const s = floatBuffer[i];
+      sumSq += s * s;
+    }
+    rms = Math.sqrt(sumSq / n);
   }
-  const rms = Math.sqrt(sumSq / n);
   if (rms < rmsGate) {
     return null;
   }
@@ -168,8 +173,10 @@ function detectPitchFromFloat32Buffer(floatBuffer, sampleRate = 44100, options =
   if (maxLag <= minLag) return null;
 
   const halfN = Math.floor(n / 2);
-  const diff = new Float32Array(maxLag + 1);
-  const cmnd = new Float32Array(maxLag + 1);
+  if (scratchYinCmnd.length < maxLag + 1) {
+    scratchYinCmnd = new Float32Array(maxLag + 1);
+  }
+  const cmnd = scratchYinCmnd;
   cmnd[0] = 1;
 
   let runningSum = 0;
@@ -179,7 +186,6 @@ function detectPitchFromFloat32Buffer(floatBuffer, sampleRate = 44100, options =
       const delta = floatBuffer[i] - floatBuffer[i + tau];
       d += delta * delta;
     }
-    diff[tau] = d;
     runningSum += d;
     cmnd[tau] = runningSum > 1e-12 ? (d * tau) / runningSum : 1;
   }

@@ -251,7 +251,11 @@ def main():
                 if args.tempo and args.tempo > 0:
                     cmd.extend(['--output-tempo', str(args.tempo)])
 
-                proc = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+                try:
+                    proc = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=180)
+                except subprocess.TimeoutExpired:
+                    warnings.append(f'Page {idx} timed out after 180s during OMR.')
+                    continue
                 expected_xml = img_path.with_suffix('.musicxml')
                 if proc.returncode != 0 or not expected_xml.is_file():
                     err_tail = (proc.stderr or proc.stdout or '').strip().splitlines()[-1:] or ['Unknown OMR failure']
