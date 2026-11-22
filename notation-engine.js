@@ -483,6 +483,8 @@ function estimateKeySignature(notes = []) {
  * Convert a MIDI note number into a VexFlow key string ('c#/4', 'bb/3', 'b#/3')
  * spelled idiomatically for the active key signature.
  */
+const midiToVexKeyCache = new Map();
+
 function midiToVexKey(midi, vfKeySpec = 'C', vfRef = null) {
   const safeMidi = Math.max(0, Math.min(127, Math.round(Number(midi) || 60)));
   const pc = safeMidi % 12;
@@ -492,6 +494,9 @@ function midiToVexKey(midi, vfKeySpec = 'C', vfRef = null) {
   const candidateName = (useFlats ? FLAT_PC_NAMES : SHARP_PC_NAMES)[pc];
 
   if (vfRef && vfRef.KeyManager) {
+    const cacheKey = `${safeKey}:${safeMidi}`;
+    const cached = midiToVexKeyCache.get(cacheKey);
+    if (cached) return cached;
     try {
       const km = new vfRef.KeyManager(safeKey);
       km.reset();
@@ -501,7 +506,9 @@ function midiToVexKey(midi, vfKeySpec = 'C', vfRef = null) {
         // Enharmonic octave boundary adjustment: C -> B# (octave down), B -> Cb (octave up)
         if (pc === 0 && spelled.startsWith('b#')) octave -= 1;
         else if (pc === 11 && spelled.startsWith('cb')) octave += 1;
-        return `${spelled}/${octave}`;
+        const result = `${spelled}/${octave}`;
+        midiToVexKeyCache.set(cacheKey, result);
+        return result;
       }
     } catch {
       // Fallback to direct table below
@@ -1219,10 +1226,14 @@ function buildScoreData(song, options = {}) {
     }
   }
 
-  // Partition hand notes across overlapping measures & solve notation events
-  const collectBarSegments = (handNotes, mStart, mEnd) => {
+  // Partition hand notes across overlapping measures & solve notation events (O(M + N) sliding cursor)
+  const collectBarSegments = (handNotes, cursorObj, mStart, mEnd) => {
+    while (cursorObj.idx < handNotes.length && handNotes[cursorObj.idx].endTicks <= mStart) {
+      cursorObj.idx++;
+    }
     const segs = [];
-    for (const n of handNotes) {
+    for (let i = cursorObj.idx; i < handNotes.length; i++) {
+      const n = handNotes[i];
       if (n.startTicks >= mEnd) break;
       if (n.endTicks <= mStart) continue;
       segs.push({
@@ -1238,9 +1249,11 @@ function buildScoreData(song, options = {}) {
 
   let curX = 0;
   const allQuantErrsMs = [];
+  const rhCursor = { idx: 0 };
+  const lhCursor = { idx: 0 };
   for (const m of measures) {
-    const rhSegs = collectBarSegments(rhPrepared, m.startTicks, m.endTicks);
-    const lhSegs = collectBarSegments(lhPrepared, m.startTicks, m.endTicks);
+    const rhSegs = collectBarSegments(rhPrepared, rhCursor, m.startTicks, m.endTicks);
+    const lhSegs = collectBarSegments(lhPrepared, lhCursor, m.startTicks, m.endTicks);
 
     m.rh = solveMeasureHandEvents(rhSegs, m, 'treble', tempoMap, vfRef);
     m.lh = solveMeasureHandEvents(lhSegs, m, 'bass', tempoMap, vfRef);
@@ -1535,11 +1548,18 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
   };
 
   const invalidateMeasure = (measureIndex) => {
-    const target = String(measureIndex);
-    for (const key of Array.from(tileCache.keys())) {
-      const parts = key.split(':');
-      if (parts.length >= 3 && parts[parts.length - 3] === target) {
-        tileCache.delete(key);
+    const targetNum = Number(measureIndex);
+    const targetStr = String(measureIndex);
+    for (const [key, tileObj] of Array.from(tileCache.entries())) {
+      if (tileObj && Number.isFinite(tileObj.measureIndex)) {
+        if (tileObj.measureIndex === targetNum) {
+          tileCache.delete(key);
+        }
+      } else {
+        const parts = key.split(':');
+        if (parts.length >= 3 && parts[parts.length - 3] === targetStr) {
+          tileCache.delete(key);
+        }
       }
     }
   };
@@ -2395,7 +2415,7 @@ function createNotationRenderer({ vf, parchmentImage = null, createCanvas = null
           const ry = 6.2 * renderScale;
           const ys = ov.ys || [];
           const refs = ov.noteRefs || [];
-          const pulseRatio = 0.55 + 0.45 * Math.sin(performance.now() * 0.01);
+          const pulseRatio = 0.55 + 0.45 * Math.sin(nowMs * 0.01);
 
           ctx.save();
           for (let yIdx = 0; yIdx < ys.length; yIdx++) {

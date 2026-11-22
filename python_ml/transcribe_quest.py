@@ -382,12 +382,19 @@ def build_full_song_arrangement(raw_notes: list, bpm: int = 120) -> list:
     lh_accompaniment = []
 
     w_start = min_t
+    win_start_idx = 0
+    num_cleaned = len(cleaned)
     while w_start < max_t - 0.05:
         w_end = w_start + bar_window_sec
-        win_notes = [
-            n for n in cleaned
-            if (n["start"] < w_end and (n["start"] + n["duration"]) > w_start)
-        ]
+        while win_start_idx < num_cleaned and (cleaned[win_start_idx]["start"] + cleaned[win_start_idx]["duration"]) <= w_start:
+            win_start_idx += 1
+        win_notes = []
+        for idx in range(win_start_idx, num_cleaned):
+            n = cleaned[idx]
+            if n["start"] >= w_end:
+                break
+            if (n["start"] + n["duration"]) > w_start:
+                win_notes.append(n)
         if win_notes:
             # Weight pitch classes (0..11) by duration & lower-register emphasis
             pc_weights = [0.0] * 12
@@ -1461,11 +1468,16 @@ def _write_mono_float_wav(wav_path: Path, samples, sr: int):
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(int(sr))
-        frames = bytearray()
-        for x in samples:
-            clamped = max(-0.98, min(0.98, float(x)))
-            frames.extend(struct.pack("<h", int(clamped * 32767)))
-        wf.writeframes(bytes(frames))
+        try:
+            import numpy as np
+            arr16 = (np.clip(np.asarray(samples, dtype=np.float32), -0.98, 0.98) * 32767.0).astype("<i2")
+            wf.writeframes(arr16.tobytes())
+        except ImportError:
+            import array
+            pcm = array.array("h", (int(max(-0.98, min(0.98, float(x))) * 32767) for x in samples))
+            if sys.byteorder != "little":
+                pcm.byteswap()
+            wf.writeframes(pcm.tobytes())
 
 
 def separate_audio_into_6_stems(source_wav: Path, stems_dir: Path, tmp_dir: Path) -> dict:
@@ -1585,7 +1597,7 @@ def separate_audio_into_6_stems(source_wav: Path, stems_dir: Path, tmp_dir: Path
             log_status("splitting_stems", f"Separating {stem_name} stem ({idx + 1}/6)...", pct)
             y = np.fft.irfft(s_spec, n=n_samples)
             dest = stems_dir / f"{stem_name}.wav"
-            _write_mono_float_wav(dest, y.tolist(), sr)
+            _write_mono_float_wav(dest, y, sr)
             resolved[stem_name] = dest
 
         # Drums stem: high-frequency transient derivative emphasis
@@ -1593,7 +1605,7 @@ def separate_audio_into_6_stems(source_wav: Path, stems_dir: Path, tmp_dir: Path
         diff = np.diff(arr, prepend=arr[0]) * 2.2
         drums_y = np.clip(diff, -0.95, 0.95)
         drums_dest = stems_dir / "drums.wav"
-        _write_mono_float_wav(drums_dest, drums_y.tolist(), sr)
+        _write_mono_float_wav(drums_dest, drums_y, sr)
         resolved["drums"] = drums_dest
         return resolved
     except ImportError:
@@ -1783,9 +1795,12 @@ def convert_audio_to_pcm_wav(input_audio: Path, target_wav: Path) -> bool:
             "s16",
             str(target_wav),
         ]
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if res.returncode == 0 and target_wav.exists():
-            return True
+        try:
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+            if res.returncode == 0 and target_wav.exists():
+                return True
+        except subprocess.TimeoutExpired:
+            pass
 
     if is_valid_pcm_wav:
         if input_audio.resolve() != target_wav.resolve():
@@ -1814,9 +1829,12 @@ def convert_audio_to_stereo_backing_wav(input_audio: Path, target_wav: Path) -> 
             "s16",
             str(target_wav),
         ]
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if res.returncode == 0 and target_wav.exists():
-            return True
+        try:
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+            if res.returncode == 0 and target_wav.exists():
+                return True
+        except subprocess.TimeoutExpired:
+            pass
     return convert_audio_to_pcm_wav(input_audio, target_wav)
 
 

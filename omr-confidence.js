@@ -54,9 +54,12 @@ function analyzeOmrConfidence(metadata = {}, midi = null, extraWarnings = []) {
   if (timeSigs.length > 1) {
     for (let i = 1; i < timeSigs.length; i++) {
       const ts = timeSigs[i];
+      const prevTs = timeSigs[i - 1];
+      const label = Array.isArray(ts.timeSignature) ? ts.timeSignature.join('/') : '?';
+      const prevLabel = Array.isArray(prevTs?.timeSignature) ? prevTs.timeSignature.join('/') : '?';
+      if (label === prevLabel) continue;
       const barIdx = measures.findIndex((m) => ts.ticks >= m.startTicks && ts.ticks < m.endTicks);
       if (barIdx > 0) {
-        const label = Array.isArray(ts.timeSignature) ? ts.timeSignature.join('/') : '?';
         flagMeasure(barIdx, measures[barIdx].number, `Unexpected meter change to ${label}`, 'warn');
       }
     }
@@ -66,9 +69,13 @@ function analyzeOmrConfidence(metadata = {}, midi = null, extraWarnings = []) {
   if (keySigs.length > 1) {
     for (let i = 1; i < keySigs.length; i++) {
       const ks = keySigs[i];
+      const prevKs = keySigs[i - 1];
+      const keyLabel = ks.vfKeySpec || ks.key || '?';
+      const prevKeyLabel = prevKs?.vfKeySpec || prevKs?.key || '?';
+      if (keyLabel === prevKeyLabel) continue;
       const barIdx = measures.findIndex((m) => ks.ticks >= m.startTicks && ks.ticks < m.endTicks);
       if (barIdx > 0) {
-        flagMeasure(barIdx, measures[barIdx].number, `Key signature shift (${ks.key || '?'})`, 'warn');
+        flagMeasure(barIdx, measures[barIdx].number, `Key signature shift (${keyLabel})`, 'warn');
       }
     }
   }

@@ -361,7 +361,7 @@ function createD20TrayRoller(containerEl, { onBounce, onSettled, reducedMotion =
   let elapsedSec = 0;
   let lastFrameMs = performance.now();
 
-  dieBody.addEventListener('collide', (event) => {
+  const onDieCollide = (event) => {
     if (disposed || settled || reducedMotion) return;
     const now = performance.now();
     if (now - lastBounceAtMs < 55) return;
@@ -372,7 +372,8 @@ function createD20TrayRoller(containerEl, { onBounce, onSettled, reducedMotion =
         onBounce(impact);
       }
     }
-  });
+  };
+  dieBody.addEventListener('collide', onDieCollide);
 
   function readTopFaceValue() {
     let bestFace = 0;
@@ -473,9 +474,16 @@ function createD20TrayRoller(containerEl, { onBounce, onSettled, reducedMotion =
       cancelAnimationFrame(rafId);
       rafId = null;
     }
+    if (typeof dieBody.removeEventListener === 'function') {
+      dieBody.removeEventListener('collide', onDieCollide);
+    }
     dieGeo.dispose();
     dieMat.dispose();
     atlasTex.dispose();
+    if (atlasTex.image) {
+      atlasTex.image.width = 0;
+      atlasTex.image.height = 0;
+    }
     feltGeo.dispose();
     feltMat.dispose();
     wallMat.dispose();
