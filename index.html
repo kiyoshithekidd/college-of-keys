@@ -470,12 +470,14 @@
     <section id="spell-scroll-bar">
       <!-- Left: Active Spell Scroll Name, Difficulty Badge & (i) Inspector Popover -->
       <div id="spell-metadata-panel">
-        <div class="spell-title-group">
-          <span class="spell-label">Active Spell</span>
-          <strong id="spell-name-display" title="Currently loaded MIDI spell">None &mdash; Load a .mid or Demo Spell</strong>
-        </div>
+        <div class="spell-meta-main">
+          <div class="spell-title-group">
+            <span class="spell-label">Active Spell</span>
+            <strong id="spell-name-display" title="Currently loaded MIDI spell">None &mdash; Load a .mid or Demo Spell</strong>
+          </div>
 
-        <span id="spell-difficulty-badge" class="difficulty-badge diff-cantrip">Cantrip (1.0x XP)</span>
+          <span id="spell-difficulty-badge" class="difficulty-badge diff-cantrip">Cantrip (1.0x XP)</span>
+        </div>
 
         <div class="popover-anchor">
           <button id="btn-spell-details" class="btn-icon btn-info-pill" aria-expanded="false" title="Inspect MIDI Track Breakdown, NPS, BPM & Testing Shortcuts">

@@ -538,7 +538,7 @@ html, body {
 }
 
 #spell-metadata-panel {
-  flex: 1 1 175px;
+  flex: 1 1 200px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -546,13 +546,23 @@ html, body {
   border: 1px solid rgba(138, 109, 47, 0.45);
   border-radius: 7px;
   padding: 3px 9px;
-  min-width: 175px;
+  min-width: 0;
+  overflow: visible;
+}
+
+.spell-meta-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .spell-title-group {
   display: flex;
   align-items: center;
-  min-width: 90px;
+  min-width: 48px;
   flex: 1 1 auto;
   overflow: hidden;
 }
@@ -3641,39 +3651,56 @@ body.view-mode-notation .grimoire-toast {
 }
 
 /* Issue #55 & #76: Responsive 2-Bar Conservatory Layout down to 1024px Minimum Window Width */
-@media (max-width: 1460px) {
+@media (max-width: 1820px) {
   #spell-scroll-bar {
-    padding: 4px 12px 4px 10px;
-    gap: 6px;
+    flex-wrap: wrap;
+    row-gap: 4px;
+    column-gap: 8px;
+    padding: 4px 12px 5px 10px;
   }
 
   #spell-metadata-panel {
-    min-width: 145px;
+    flex: 1 1 220px;
+    min-width: 160px;
     gap: 5px;
     padding: 3px 7px;
   }
 
-  .spell-title-group {
-    min-width: 68px;
+  .spell-meta-main .difficulty-badge {
+    flex-shrink: 1;
+    min-width: 0;
+    max-width: 145px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .control-group label,
-  #rehearsal-toggle-label,
-  .audio-sync-btn-label {
-    display: none;
+  .highway-routing-controls {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-top: 3px;
+    border-top: 1px solid rgba(138, 109, 47, 0.22);
   }
+}
 
+@media (max-width: 1460px) {
   .control-group {
-    padding: 2px 5px;
+    padding: 2px 6px;
     gap: 4px;
   }
 
   .timeline-slider {
-    width: 72px;
+    width: 80px;
   }
 
   .practice-select {
-    max-width: 155px;
+    max-width: 160px;
+  }
+
+  .instrument-highway-select {
+    max-width: 148px;
   }
 
   .view-mode-btn {
@@ -3737,10 +3764,10 @@ body.view-mode-notation .grimoire-toast {
   /* Bar 2: Active spell, transport & routing controls */
   #spell-metadata-panel {
     gap: 4px;
-    flex: 1 1 115px;
-    min-width: 105px;
+    flex: 1 1 180px;
+    min-width: 140px;
     overflow: visible;
-    padding: 2px 5px;
+    padding: 2px 6px;
   }
 
   .spell-title-group {
@@ -3750,14 +3777,13 @@ body.view-mode-notation .grimoire-toast {
   }
 
   #spell-name-display {
-    max-width: 118px;
-    font-size: 0.72rem;
+    font-size: 0.74rem;
   }
 
   .difficulty-badge {
     padding: 2px 5px;
     font-size: 0.64rem;
-    max-width: 108px;
+    max-width: 118px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3769,16 +3795,12 @@ body.view-mode-notation .grimoire-toast {
     font-size: 0.66rem;
   }
 
-  .audio-sync-btn-label {
-    display: none;
-  }
-
   .transport-group {
-    gap: 3px;
+    gap: 4px;
   }
 
   .transport-group .tavern-btn-cast {
-    min-width: 66px;
+    min-width: 72px;
   }
 
   .timeline-box {
@@ -3786,79 +3808,127 @@ body.view-mode-notation .grimoire-toast {
   }
 
   .timeline-slider {
-    width: 44px;
+    width: 68px;
   }
 
   .time-readout {
-    font-size: 0.65rem;
-  }
-
-  #rehearsal-toggle-label {
-    display: none;
+    font-size: 0.66rem;
   }
 
   .btn-loop-marker,
   .btn-rehearsal-toggle,
   .btn-rehearsal-caret {
-    padding: 2px 4px;
+    padding: 2px 5px;
   }
 
   .view-mode-btn {
     padding: 2px 6px;
-    font-size: 0.66rem;
+    font-size: 0.67rem;
   }
 
   .highway-routing-controls {
-    gap: 3px;
+    gap: 5px;
   }
 
   .control-group {
-    padding: 2px 4px;
+    padding: 2px 5px;
     gap: 3px;
   }
 
-  .control-group label {
-    display: none;
+  .practice-select {
+    max-width: 145px;
+    font-size: 0.68rem;
+    padding: 2px 4px;
   }
 
-  .practice-select {
-    max-width: 102px;
-    font-size: 0.67rem;
-    padding: 2px 3px;
+  .instrument-highway-select {
+    max-width: 138px;
+    font-size: 0.68rem;
+    padding: 2px 4px;
   }
 
   .tempo-select,
   #playback-speed-select {
-    max-width: 50px;
-    font-size: 0.67rem;
-    padding: 2px 2px;
+    max-width: 54px;
+    font-size: 0.68rem;
+    padding: 2px 3px;
   }
 
   .btn-tempo-step {
-    padding: 2px 4px;
-    min-width: 18px;
-    font-size: 0.67rem;
+    padding: 2px 5px;
+    min-width: 19px;
+    font-size: 0.68rem;
   }
 
   .tavern-btn {
-    padding: 3px 5px;
-    font-size: 0.67rem;
+    padding: 3px 6px;
+    font-size: 0.68rem;
   }
 }
 
 @media (max-width: 1120px) {
-  #spell-scroll-bar {
+  /* Protect Bar 1 from clipping at 1024px */
+  #tavern-header {
     padding: 4px 8px 4px 6px;
     gap: 4px;
   }
 
+  .app-title,
+  .arcane-crest {
+    display: none;
+  }
+
+  .header-left-group,
+  .spell-actions,
+  .hud-controls {
+    gap: 3px;
+  }
+
+  #litrpg-hud-card.bard-banner-inline {
+    gap: 5px;
+    padding: 2px 5px;
+  }
+
+  .bard-identity,
+  .bard-title-wrap {
+    min-width: 0;
+    flex-shrink: 1;
+  }
+
+  #hud-bard-title {
+    max-width: 85px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .xp-bar-section {
+    width: 70px;
+    min-width: 60px;
+    flex: 0 1 70px;
+  }
+
+  #midi-status-text {
+    max-width: 72px;
+  }
+
+  #spell-scroll-bar {
+    padding: 4px 8px 5px 6px;
+    gap: 4px;
+  }
+
   #spell-metadata-panel {
-    min-width: 92px;
-    flex: 1 1 92px;
+    min-width: 120px;
+    flex: 1 1 150px;
   }
 
   .difficulty-badge {
-    max-width: 82px;
+    max-width: 96px;
+  }
+
+  .control-group label,
+  .audio-sync-btn-label,
+  #rehearsal-toggle-label {
+    display: none;
   }
 
   .timeline-box {
@@ -3866,16 +3936,20 @@ body.view-mode-notation .grimoire-toast {
   }
 
   .timeline-slider {
-    width: 38px;
+    width: 58px;
   }
 
   .view-mode-btn {
     padding: 2px 5px;
-    font-size: 0.64rem;
+    font-size: 0.65rem;
   }
 
   .practice-select {
-    max-width: 90px;
+    max-width: 132px;
+  }
+
+  .instrument-highway-select {
+    max-width: 128px;
   }
 
   .sync-badge-pill {

@@ -10,6 +10,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.5.2] - 2026-11-23
+
+### Fixed
+- **Top-Bar Cramping, Overlap & Right-Edge Clipping (`index.html`, `styles.css`):**
+  - Wrapped `#spell-name-display` and `#spell-difficulty-badge` inside `.spell-meta-main` (`min-width: 0; overflow: hidden`) so long song titles and difficulty pills truncate cleanly inside their own flex box instead of spilling over `#btn-play-pause` (`Cast Spell`), while keeping `ⓘ Details` and `🎧 Sync` outside so popovers never clip.
+  - Added a responsive 2-row wrap on `#spell-scroll-bar` below `1820px` (Row 2a: Spell Metadata, Transport, View Switch; Row 2b: `Wait`, `Rhythm`, `Highway`, `Practice`, `Band`, `Tempo`) so `#tempo-control-group` and right-side controls never clip off-screen at `1024px`–`1600px`.
+  - Protected Bar 1 (`#tavern-header`) at `<= 1120px` by hiding `.app-title` and `.arcane-crest` and allowing `#hud-bard-title` to truncate cleanly so `⚙ Audio & Keys` stays visible down to `1024px`.
+
+---
+
 ## [1.5.1] - 2026-11-21
 
 ### Changed & Fixed

@@ -27,6 +27,7 @@
 | **v1.4.0** | **Electron `v45.3.4` (`#121`), Full-Song Piano Arrangement (`#123`), 6-Stem AI Play-Along Mixer (`#41`), Multi-Instrument Highways & Plug-In Rig (`#42`), Spell-Singing Karaoke Mode (`#43`, `#124`–`#127`), `npm test` Regression Suite (`#133`) & Full-Codebase Audit Fixes (`#128`–`#143`)** | **Completed** |
 | **v1.5.0** | **Optional Transkun V2 Solo-Piano Engine (`#144`, `#145`), Quest Board Engine & Pipeline Selectors, Demucs 4-Stem + CREPE Vocal Melody & Chroma Harmony Full-Song Pipeline (`#146`) & Clean Piano-Cover Stem Routing** | **Completed** |
 | **v1.5.1** | **Performance & QA Hardening (`#150`–`#156`): Debounced Profile Saves, Idle Tavern Canvas Guard, `O(visible)` Highway Scans, Zero-Alloc YIN DSP, `O(M+N)` VexFlow Partitioning, Single-Pass `readdirSync` Bundles, `O(log T)` MusicXML, Vectorized Python WAV Writer & CSS/GPU Compositor Cleanup** | **Completed** |
+| **v1.5.2** | **Responsive Top-Bar Layout & Overflow Fix: Isolated `.spell-meta-main` Truncation, 2-Row Responsive Wrap on `#spell-scroll-bar` (`<=1820px`), and `1024px` Bar 1 Protection** | **Completed** |
 
 ---
 
@@ -39,7 +40,7 @@
 
 ### 2. 2-Bar Conservatory UI/UX Layout (~82% Stage Height)
 - **Bar 1 (`#tavern-header`):** Branding & Sourcing (`The Grimoire`, `Quest Board`, `Import`, `Demo`), consolidated **`🎭 Career ▾`** menu (`Setlists`, `Colleges`, `Campaign`), inline *Baldur's Gate 3*-style **Bardic Character Banner** (`LVL`, `Bardic Rank`, inline `XP Progress Bar`, `Total XP`, `🏆 Stats`), and compact `MIDI Status` + **`⚙ Audio & Keys`** popover.
-- **Bar 2 (`#spell-scroll-bar`):** Active Spell Title, Difficulty Badge, **`ⓘ Details`** inspector popover (`NPS`, `BPM`, track breakdowns, and testing shortcuts), Primary Transport (`▶ Cast Spell`, `⏮`, scrubber), and Practice Deck.
+- **Bar 2 (`#spell-scroll-bar`):** Active Spell Title, Difficulty Badge, **`ⓘ Details`** inspector popover (`NPS`, `BPM`, track breakdowns, and testing shortcuts), **`🎧 Sync`** calibrator, Primary Transport (`▶ Cast Spell`, `⏮`, scrubber, `A`/`B`/`Loop`), View Switch (`Highway | Split | Score | Karaoke`), and Practice Deck (`Wait`, `Rhythm`, `Highway`, `Practice`, `Band`, `Tempo`) with automatic 2-row responsive wrapping below `1820px` so no controls overlap or clip down to `1024px`.
 - **Zero Note-Lane Occlusion:** Translucent, `pointer-events: none` **Top-Center Highway HUD Pill** keeps live `Spell Chain`, `Multiplier`, and `Wait Mode Target` at eye level without obscuring any keys across `C2–C7`.
 
 ### 3. Rock Band-Style Play-Along & Unified Practice Selector
