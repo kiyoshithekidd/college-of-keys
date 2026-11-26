@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Karaoke Synced Lyrics Pipeline & Apple Music Word Sweep (`#159`):**
+  - Added `lyrics-fetcher.js` with noisy YouTube title cleaning (`cleanSongQueryFromTitle`), LRCLIB `/api/get` & `/api/search` word-level YAML `lyricsfile` (`hasWordSync`) and line-level `syncedLyrics` fetching (`±5s` duration matching), enhanced `<mm:ss.xx>` word-tag LRC parsing (`parseEnhancedLrcText`), and sibling `.lrc` persistence.
+  - Added a 3-tier automatic synced lyrics cascade in `python_ml/transcribe_quest.py` (**Tier 1**: LRCLIB word/line sync; **Tier 2**: `yt-dlp` `.json3` word-timed and `.vtt` WebVTT captions; **Tier 3**: optional local `faster-whisper` word-timestamped ASR on isolated `vocals.wav`).
+  - Added in-app 1-click **`🔍 Fetch Lyrics`** (`#btn-karaoke-fetch-lyrics`), **Lyric Timing Sync** popover (`#karaoke-lyrics-sync-popover` with `-0.5s`/`-0.1s`/`+0.1s`/`+0.5s`, `⚡ Align to First Vocal` via `computeAutoAlignLyricsOffset()`, and `↺ Reset`), intra-word Radiant Gold fill sweep (`--word-fill-pct`), screen-reader-safe per-phrase `#karaoke-sr-announcer`, and zero Solfège clutter on melisma notes when real lyrics exist.
+- **Let's Sing / Lips Simplified & Sliding Vocal Pitch Highway (`#160`):**
+  - Upgraded `Stem: Vocals` extraction in `python_ml/transcribe_quest.py` (`transcribe_separated_stems_for_highways()` → `extract_vocal_melody_crepe(..., fold_to_rh_piano=False, median_smooth_ms=170)`) with 170 ms sliding median vibrato smoothing in true vocal register (`E2`–`C6`), legato micro-gap merging, and a smoothed monophonic DSP fallback.
+  - Added client-side `simplifyVocalNotesForSinging()` in `spell-singing.js` (harmonic octave spike clamping, `<140ms` `±1`-semitone vibrato absorption, `<95ms` breath-gap merging, and `slideToNext` detection), cubic Bezier S-curve portamento glide ribbons (`ctx.bezierCurveTo`), interpolated glide pitch scoring (`isGlideBridge`) that preserves combo, non-overlapping lyric labels, and Warm Tavern Obsidian / Eldritch Blue / Radiant Gold stage styling.
+- **Apple Music Sing-Style Vocal & Harmony Control (`#161`):**
+  - Added `vocal-harmony-dsp.js` providing per-song `vocalMix` (`leadVolume` defaulting to `25% Guide Vocal`, `harmoniesEnabled: true`), `computeVocalMixMatrixGains()`, and a real-time Web Audio **Stereo Mid/Side Matrix** (`createMidSideVocalProcessor()` with explicit 2-channel speakers upmix and suspended `AudioContext` resume guard).
+  - Updated `python_ml/transcribe_quest.py` to feed 44.1 kHz **stereo** WAV into `separate_audio_into_6_stems()` across both full transcription and `--audio-only --split-stems` paths, plus optional `audio-separator` (`UVR-MDX-NET-Karaoke_2.onnx`) Lead/Backing vocal splitting (`vocals_lead.wav` + `vocals_backing.wav`) persisted via `song-bundle.js`.
+  - Added synchronized Lead Vocal fader + `✨ Harm` controls in `#spell-singing-stage`, Bar 2's contextual `#btn-vocal-mix-bar` on the `🎤 Vocals` Highway, and `#audio-sync-popover` (`0% Mute` / `25% Guide` / `100% Full`), plus `tests/karaoke-and-lyrics.test.js` and new Electron DOM assertions in `tests/regression.test.js`.
+
+### Fixed
+- **Top-Bar Sync Pill & Settings Text Pill `.btn-icon` Overflow (`#158`):**
+  - Overrode `.btn-icon`'s fixed `20×20px` box on `.btn-audio-sync`, `.capo-step-btn`, and `#qwerty-pill .btn-icon` in `styles.css` (`width: auto; white-space: nowrap; flex-shrink: 0`) so `🎧 Sync 6-Stem • +0.00s` never spills onto neighboring controls across `1024px`–`1920px+`.
+
 ---
 
 ## [1.5.2] - 2026-11-23
