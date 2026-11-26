@@ -618,7 +618,12 @@ html, body {
 }
 
 .btn-audio-sync {
-  padding: 3px 8px;
+  width: auto;
+  height: 21px;
+  padding: 0 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
   gap: 5px;
   font-size: 0.72rem;
   font-weight: 700;
@@ -1165,6 +1170,14 @@ html, body {
 #qwerty-pill strong {
   color: var(--radiant-gold);
   font-family: 'Consolas', monospace;
+}
+
+#qwerty-pill .btn-icon {
+  width: auto;
+  height: 20px;
+  padding: 0 6px;
+  white-space: nowrap;
+  font-size: 0.68rem;
 }
 
 /* ============================================================================
@@ -5729,9 +5742,12 @@ body.view-mode-notation .grimoire-toast {
 }
 
 .capo-step-btn {
+  width: auto;
+  height: 22px;
   font-size: 0.7rem;
-  padding: 2px 6px;
+  padding: 0 6px;
   min-width: unset;
+  white-space: nowrap;
 }
 
 .capo-value-readout {
