@@ -78,10 +78,20 @@ function computeAutoAlignLyricsOffset(vocalNotes = [], rawLrcLines = []) {
  */
 function simplifyVocalNotesForSinging(monoNotes = []) {
   if (!Array.isArray(monoNotes) || monoNotes.length <= 1) {
-    return Array.isArray(monoNotes) ? monoNotes.map((n) => ({ ...n, slideToNext: false })) : [];
+    return Array.isArray(monoNotes)
+      ? monoNotes.map((n) => {
+          const dur = Math.max(0.08, Number(n.duration) || 0.25);
+          const endTime = Number.isFinite(Number(n.endTime)) ? Number(n.endTime) : Number(n.time) + dur;
+          return { ...n, duration: dur, endTime, slideToNext: false };
+        })
+      : [];
   }
 
-  const working = monoNotes.map((n) => ({ ...n, slideToNext: false }));
+  const working = monoNotes.map((n) => {
+    const dur = Math.max(0.08, Number(n.duration) || 0.25);
+    const endTime = Number.isFinite(Number(n.endTime)) ? Number(n.endTime) : Number(n.time) + dur;
+    return { ...n, duration: dur, endTime, slideToNext: false };
+  });
 
   // 1. Clamp brief isolated octave harmonic jumps (e.g., 12-semitone overtone blips)
   for (let i = 1; i < working.length - 1; i++) {

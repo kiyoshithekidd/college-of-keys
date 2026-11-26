@@ -1063,8 +1063,8 @@ def extract_vocal_melody_crepe(vocals_wav: Path, fold_to_rh_piano: bool = True, 
                         decoder=torchcrepe.decode.viterbi,
                         return_periodicity=True,
                     )
-                    periodicity = torchcrepe.filter.median(periodicity, 5)
-                    pitch = torchcrepe.filter.median(pitch, min(19, max(3, smooth_frames)))
+                    periodicity = torchcrepe.filter.median(periodicity, 3)
+                    pitch = torchcrepe.filter.median(pitch, 3)
 
                     f0_np = pitch.squeeze(0).detach().cpu().numpy()
                     per_np = periodicity.squeeze(0).detach().cpu().numpy()
@@ -1883,10 +1883,10 @@ def try_split_lead_and_backing_vocals(vocals_wav: Path, stems_dir: Path, tmp_dir
             if not p.exists():
                 continue
             low = p.name.lower()
-            if "vocal" in low and "no_vocal" not in low and "instrumental" not in low:
-                lead_src = p
-            elif "instrumental" in low or "no_vocal" in low or "backing" in low:
+            if "instrumental" in low or "no_vocal" in low or "backing" in low:
                 backing_src = p
+            elif "vocal" in low:
+                lead_src = p
         if lead_src and backing_src:
             lead_dest = stems_dir / "vocals_lead.wav"
             backing_dest = stems_dir / "vocals_backing.wav"
@@ -1972,10 +1972,19 @@ def _convert_lrclib_yaml_to_lrc(yaml_text: str):
             continue
         indent = len(raw) - len(raw.lstrip(" "))
         trimmed = raw.strip()
-        if re.match(r"^-\s+startTime\s*:", trimmed, re.I) and indent <= 4:
+        line_item_m = re.match(r"^-\s+(startTime|endTime|text|words)\s*:(.*)$", trimmed, re.I)
+        if line_item_m and indent <= 4:
             _commit_line()
-            cur_line = {"startTime": _parse_num(trimmed.split(":", 1)[1]), "words": [], "text": ""}
+            cur_line = {"startTime": None, "words": [], "text": ""}
             in_words = False
+            k_low = line_item_m.group(1).lower()
+            v_str = line_item_m.group(2)
+            if k_low == "starttime":
+                cur_line["startTime"] = _parse_num(v_str)
+            elif k_low == "text":
+                cur_line["text"] = _unquote(v_str)
+            elif k_low == "words":
+                in_words = True
             continue
         if cur_line is None:
             continue

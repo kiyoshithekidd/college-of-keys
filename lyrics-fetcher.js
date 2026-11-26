@@ -126,15 +126,17 @@ function convertLrclibLyricsfileToEnhancedLrc(yamlText) {
     const indent = raw.match(/^(\s*)/)[1].length;
     const trimmed = raw.trim();
 
-    if (/^-\s+startTime\s*:/i.test(trimmed) && indent <= 4) {
+    if (/^-\s+(startTime|endTime|text|words)\s*:/i.test(trimmed) && indent <= 4) {
       commitLine();
-      currentLine = {
-        startTime: parseNum(trimmed.split(':').slice(1).join(':')),
-        endTime: null,
-        words: [],
-        text: ''
-      };
+      currentLine = { startTime: null, endTime: null, words: [], text: '' };
       inWords = false;
+      const keyMatch = trimmed.match(/^-\s+(startTime|endTime|text|words)\s*:(.*)$/i);
+      const keyName = keyMatch[1].toLowerCase();
+      const valStr = keyMatch[2];
+      if (keyName === 'starttime') currentLine.startTime = parseNum(valStr);
+      else if (keyName === 'endtime') currentLine.endTime = parseNum(valStr);
+      else if (keyName === 'text') currentLine.text = unquote(valStr);
+      else if (keyName === 'words') inWords = true;
       continue;
     }
 
@@ -254,6 +256,12 @@ function parseEnhancedLrcText(rawText, offsetSec = 0) {
     let cleanText = body;
     if (wordMatches.length > 0) {
       words = [];
+      const leadingText = body.slice(0, wordMatches[0].startIdx).trim();
+      if (leadingText) {
+        const lineStart = times.length > 0 ? Math.max(0, times[0] + totalShift) : Math.max(0, wordMatches[0].time + totalShift);
+        const leadEnd = Math.max(lineStart + 0.08, wordMatches[0].time + totalShift);
+        words.push({ text: leadingText, startTime: lineStart, endTime: leadEnd });
+      }
       for (let i = 0; i < wordMatches.length; i++) {
         const cur = wordMatches[i];
         const next = wordMatches[i + 1];
@@ -333,8 +341,15 @@ function httpGetJson(urlStr, timeoutMs = 8000, redirectsLeft = 2) {
           return resolve(null);
         }
         let body = '';
+        let totalBytes = 0;
+        const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
         res.setEncoding('utf8');
         res.on('data', (chunk) => {
+          totalBytes += Buffer.byteLength(chunk, 'utf8');
+          if (totalBytes > MAX_RESPONSE_BYTES) {
+            req.destroy();
+            return;
+          }
           body += chunk;
         });
         res.on('end', () => {
@@ -422,10 +437,10 @@ async function fetchLrclibLyrics({ title = '', artist = '', durationSec = 0, tim
   // 2. Search `/api/search` to also inspect word-synced `lyricsfile` candidates
   if (candidates.length === 0 || !candidates[0].hasWordSync) {
     const searchUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(query)}`;
-    let results = await httpGetJson(searchUrl, timeoutMs);
+    let results = await httpGetJson(searchUrl, timeoutMs).catch(() => null);
     if ((!Array.isArray(results) || results.length === 0) && effectiveArtist && effectiveTrack) {
       const trackUrl = `https://lrclib.net/api/search?track_name=${encodeURIComponent(effectiveTrack)}&artist_name=${encodeURIComponent(effectiveArtist)}`;
-      results = await httpGetJson(trackUrl, timeoutMs);
+      results = await httpGetJson(trackUrl, timeoutMs).catch(() => null);
     }
     if (Array.isArray(results)) {
       candidates.push(...results);

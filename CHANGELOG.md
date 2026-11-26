@@ -24,6 +24,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - **Top-Bar Sync Pill & Settings Text Pill `.btn-icon` Overflow (`#158`):**
   - Overrode `.btn-icon`'s fixed `20×20px` box on `.btn-audio-sync`, `.capo-step-btn`, and `#qwerty-pill .btn-icon` in `styles.css` (`width: auto; white-space: nowrap; flex-shrink: 0`) so `🎧 Sync 6-Stem • +0.00s` never spills onto neighboring controls across `1024px`–`1920px+`.
+- **Karaoke Suite Peer Review & QA Audit Hardening (`#166`):**
+  - Fixed `ReferenceError: shouldPlay is not defined` in `syncBackingAudioElement()` on multi-stem songs, disconnected `midSideVocalProcessor` on song switch in `parseMidiBuffer()`, guarded stale-song `.lrc` overwrites & `bardProfile` sync in 1-click Fetch Lyrics, disabled `#btn-vocal-mix-bar` on MIDI-only songs, handled discrete `vocals_lead`/`vocals_backing` without `vocals.wav`, preserved leading text before `<mm:ss.xx>` tags and arbitrary YAML key order in `lyrics-fetcher.js` / `transcribe_quest.py`, fixed UVR `backing` filename priority and CREPE double median smoothing, cached teleprompter DOM refs with dirty-checked `--word-fill-pct`, and restored `grimoire_bundles.json` after `npm test`.
 
 ---
 

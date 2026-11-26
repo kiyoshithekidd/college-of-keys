@@ -70,6 +70,24 @@ lines:
   assert.equal(parsed[0].words.length, 3);
   assert.equal(parsed[0].words[1].text, 'would');
   assert.equal(parsed[0].words[1].startTime, 12.0);
+
+  // Issue #166: Leading text before first <mm:ss.xx> tag and out-of-order YAML line keys
+  const leadingParsed = parseEnhancedLrcText('[00:10.00] Hello <00:10.50> world');
+  assert.equal(leadingParsed[0].text, 'Hello world');
+  assert.equal(leadingParsed[0].words.length, 2);
+  assert.equal(leadingParsed[0].words[0].text, 'Hello');
+  assert.equal(leadingParsed[0].words[0].startTime, 10.0);
+
+  const reorderedYaml = `
+lines:
+  - text: "All of me"
+    startTime: 5000
+    words:
+      - text: "All"
+        startTime: 5000
+`;
+  const reorderedLrc = convertLrclibLyricsfileToEnhancedLrc(reorderedYaml);
+  assert.ok(reorderedLrc && reorderedLrc.includes('[00:05.00] <00:05.00> All'));
 });
 
 test('Issue #159: selectBestLrclibCandidate prefers word-sync & ±5s duration match', () => {
