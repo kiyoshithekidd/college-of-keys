@@ -1,18 +1,18 @@
 /**
- * Epic #43 (Phases #125, #126, #127): Spell-Singing (Vocals / Karaoke / Let's Sing Mode)
+ * Epic #43 (Phases #125, #126, #127) + Issues #159 & #160:
+ * Spell-Singing (Vocals / Karaoke / Let's Sing & Xbox Lips Mode)
  *
- * Inspired by open-source karaoke architectures (AllKaraoke, Performous, TunePerfect, UltraStar):
- * - Phase 2 (#125): Timed MusicXML <lyric> alignment, sibling .lrc parsing, custom lyric paste,
- *   and melodic syllable fallback (solfege / note names / phonetic guide) grouped into phrases.
- * - Phase 3 (#126): Horizontal scrolling Vocal Pitch Highway canvas renderer with dynamic phrase
- *   auto-zoom, target melody capsules, progressive gold fill, live sung pitch cents ribbon,
- *   and 2-line karaoke lyric teleprompter view model.
- * - Phase 4 (#127): Octave-agnostic (mod 12) vocal pitch distance & cents scoring, 100ms singing
- *   break forgiveness, vibrato detection, and separate Vocal XP calculation.
+ * - #159: Enhanced word-level LRC (`<mm:ss.xx> word`) & line-level LRC parsing, per-song
+ *   `lyricsOffsetSec` shifting, Auto-Align Lyrics to First Vocal Note, zero Solfège clutter
+ *   when real lyrics exist, and Apple Music Sing word-sweep phrase model.
+ * - #160: `simplifyVocalNotesForSinging()` vibrato/micro-gap smoothing, cubic Bezier
+ *   pitch-slide ("portamento") connector ribbons, interpolated slide pitch scoring, and
+ *   Warm Tavern Obsidian / Eldritch Blue / Radiant Gold visual cohesion.
  */
 
 const fs = require('fs');
 const path = require('path');
+const { parseEnhancedLrcText } = require('./lyrics-fetcher');
 
 const SINGING_BREAK_TOLERANCE_SEC = 0.1;
 const SOLFEGE_NAMES = ['Do', 'Di', 'Re', 'Ri', 'Mi', 'Fa', 'Fi', 'Sol', 'Si', 'La', 'Li', 'Ti'];
@@ -25,53 +25,11 @@ function vocalMidiToNoteName(midi) {
 }
 
 /**
- * Parse standard .lrc timestamped lyrics (`[mm:ss.xx] Line text`) into sorted lines.
- * Also supports plain-text pasted lyrics (one phrase per line) by returning `time: null`.
+ * Parse standard `.lrc` (`[mm:ss.xx] Line`) OR enhanced word-synced `.lrc`
+ * (`[mm:ss.xx] <mm:ss.xx> word ...`), with optional `offsetSec` shift.
  */
-function parseLrcText(rawText) {
-  if (!rawText || typeof rawText !== 'string') return [];
-  const lines = rawText.split(/\r?\n/);
-  const parsed = [];
-  const tagRe = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
-
-  for (const rawLine of lines) {
-    const trimmed = rawLine.trim();
-    if (!trimmed) continue;
-    // Skip LRC metadata tags like [ar:Artist], [ti:Title], [al:Album]
-    if (/^\[(ar|ti|al|by|offset|re|ve):/i.test(trimmed)) continue;
-
-    const times = [];
-    let match;
-    tagRe.lastIndex = 0;
-    while ((match = tagRe.exec(trimmed)) !== null) {
-      const mins = parseInt(match[1], 10) || 0;
-      const secs = parseInt(match[2], 10) || 0;
-      const fracStr = match[3] || '0';
-      const frac = fracStr.length === 3
-        ? parseInt(fracStr, 10) / 1000
-        : fracStr.length === 2
-          ? parseInt(fracStr, 10) / 100
-          : parseInt(fracStr, 10) / 10;
-      times.push(mins * 60 + secs + frac);
-    }
-
-    const cleanText = trimmed.replace(tagRe, '').trim();
-    if (!cleanText) continue;
-
-    if (times.length > 0) {
-      for (const t of times) {
-        parsed.push({ time: t, text: cleanText });
-      }
-    } else {
-      parsed.push({ time: null, text: cleanText });
-    }
-  }
-
-  const hasTimestamps = parsed.some((p) => Number.isFinite(p.time));
-  if (hasTimestamps) {
-    return parsed.filter((p) => Number.isFinite(p.time)).sort((a, b) => a.time - b.time);
-  }
-  return parsed;
+function parseLrcText(rawText, offsetSec = 0) {
+  return parseEnhancedLrcText(rawText, offsetSec);
 }
 
 /**
@@ -89,6 +47,132 @@ function findSiblingLrcPath(songFilePath) {
     return null;
   }
   return null;
+}
+
+/**
+ * Issue #159: Compute suggested `lyricsOffsetSec` to snap the first timed lyric line
+ * onto the first vocal melody note (fixes YouTube Music Video intro skits/silence).
+ */
+function computeAutoAlignLyricsOffset(vocalNotes = [], rawLrcLines = []) {
+  if (!Array.isArray(vocalNotes) || vocalNotes.length === 0) return 0;
+  if (!Array.isArray(rawLrcLines) || rawLrcLines.length === 0) return 0;
+
+  const sortedNotes = vocalNotes
+    .filter((n) => n && Number.isFinite(Number(n.time)))
+    .sort((a, b) => Number(a.time) - Number(b.time));
+  const firstTimedLyric = rawLrcLines.find((l) => l && Number.isFinite(Number(l.time)));
+  if (sortedNotes.length === 0 || !firstTimedLyric) return 0;
+
+  const delta = Number(sortedNotes[0].time) - Number(firstTimedLyric.time);
+  const clamped = Math.max(-30, Math.min(30, delta));
+  return Math.round(clamped * 100) / 100;
+}
+
+/**
+ * Issue #160: Simplify raw transcribed vocal notes into smooth Let's Sing / Lips capsules:
+ * - Clamp isolated harmonic octave spikes (e.g. +12/-12 brief overtones)
+ * - Absorb ±1 semitone vibrato flickers (< 140ms) into the sustained parent note
+ * - Merge adjacent same-pitch capsules separated by < 95ms consonant/breath gaps
+ * - Prune tiny isolated unvoiced blips (< 90ms)
+ * - Flag smooth legato pitch slides (`slideToNext: true`) for Bezier glide ribbons
+ */
+function simplifyVocalNotesForSinging(monoNotes = []) {
+  if (!Array.isArray(monoNotes) || monoNotes.length <= 1) {
+    return Array.isArray(monoNotes)
+      ? monoNotes.map((n) => {
+          const dur = Math.max(0.08, Number(n.duration) || 0.25);
+          const endTime = Number.isFinite(Number(n.endTime)) ? Number(n.endTime) : Number(n.time) + dur;
+          return { ...n, duration: dur, endTime, slideToNext: false };
+        })
+      : [];
+  }
+
+  const working = monoNotes.map((n) => {
+    const dur = Math.max(0.08, Number(n.duration) || 0.25);
+    const endTime = Number.isFinite(Number(n.endTime)) ? Number(n.endTime) : Number(n.time) + dur;
+    return { ...n, duration: dur, endTime, slideToNext: false };
+  });
+
+  // 1. Clamp brief isolated octave harmonic jumps (e.g., 12-semitone overtone blips)
+  for (let i = 1; i < working.length - 1; i++) {
+    const prev = working[i - 1];
+    const cur = working[i];
+    const next = working[i + 1];
+    const diffPrev = cur.midi - prev.midi;
+    if (Math.abs(diffPrev) >= 10 && cur.duration < 0.24 && Math.abs(next.midi - prev.midi) <= 5) {
+      const shifted = diffPrev > 0 ? cur.midi - 12 : cur.midi + 12;
+      if (Math.abs(shifted - prev.midi) < Math.abs(diffPrev)) {
+        cur.midi = shifted;
+      }
+    }
+  }
+
+  // 2. Absorb ±1 semitone vibrato wobbles and merge tiny same-pitch gaps
+  const merged = [];
+  for (let i = 0; i < working.length; i++) {
+    const cur = working[i];
+    const prev = merged[merged.length - 1];
+    if (!prev) {
+      merged.push(cur);
+      continue;
+    }
+
+    const gap = cur.time - prev.endTime;
+    const pitchDiff = Math.abs(cur.midi - prev.midi);
+
+    // Same pitch with tiny consonant/breath gap <= 95ms -> merge into one smooth capsule
+    if (pitchDiff === 0 && gap <= 0.095) {
+      prev.endTime = Math.max(prev.endTime, cur.endTime);
+      prev.duration = prev.endTime - prev.time;
+      continue;
+    }
+
+    // ±1 semitone brief vibrato bounce (< 140ms) returning to parent or trailing a long note
+    const next = working[i + 1];
+    const returnsToPrev = next && Math.abs(next.midi - prev.midi) === 0 && (next.time - cur.endTime) <= 0.1;
+    if (pitchDiff === 1 && gap <= 0.07 && cur.duration < 0.14 && (returnsToPrev || prev.duration >= 0.28)) {
+      prev.endTime = Math.max(prev.endTime, cur.endTime);
+      prev.duration = prev.endTime - prev.time;
+      continue;
+    }
+
+    merged.push(cur);
+  }
+
+  // 3. Drop isolated sub-90ms noise blips (only if plenty of notes remain)
+  let cleaned = merged;
+  if (merged.length > 6) {
+    cleaned = merged.filter((n, idx) => {
+      if (n.duration >= 0.09) return true;
+      const prev = idx > 0 ? merged[idx - 1] : null;
+      const next = idx < merged.length - 1 ? merged[idx + 1] : null;
+      const closeToPrev = prev && (n.time - prev.endTime) <= 0.14;
+      const closeToNext = next && (next.time - n.endTime) <= 0.14;
+      return Boolean(closeToPrev || closeToNext);
+    });
+    if (cleaned.length === 0) cleaned = merged;
+  }
+
+  // 4. Re-index and mark smooth legato pitch slides (`slideToNext`)
+  for (let i = 0; i < cleaned.length; i++) {
+    const cur = cleaned[i];
+    cur.index = i;
+    cur.isGolden = i > 0 && i % 11 === 0;
+    const next = i < cleaned.length - 1 ? cleaned[i + 1] : null;
+    if (next) {
+      if (cur.endTime > next.time) {
+        cur.endTime = Math.max(cur.time + 0.08, next.time - 0.01);
+        cur.duration = cur.endTime - cur.time;
+      }
+      const gap = next.time - cur.endTime;
+      const deltaMidi = Math.abs(next.midi - cur.midi);
+      cur.slideToNext = gap >= -0.02 && gap <= 0.14 && deltaMidi >= 1 && deltaMidi <= 7;
+    } else {
+      cur.slideToNext = false;
+    }
+  }
+
+  return cleaned;
 }
 
 /**
@@ -112,19 +196,54 @@ function formatPhraseText(notes) {
 }
 
 /**
+ * Build timed word tokens for a phrase line (using native word-sync when present, or
+ * smooth character-weighted linear interpolation across the phrase duration for Apple Music Sing sweep).
+ */
+function buildWordsForLrcLine(line, nextLineTime) {
+  if (Array.isArray(line.words) && line.words.length > 0) {
+    return line.words.map((w) => ({
+      text: w.text,
+      startTime: w.startTime,
+      endTime: Math.max(w.startTime + 0.08, w.endTime)
+    }));
+  }
+  const rawWords = String(line.text || '').split(/\s+/).filter(Boolean);
+  if (rawWords.length === 0) return [];
+  const start = Number.isFinite(line.time) ? line.time : 0;
+  const rawEnd = Number.isFinite(line.endTime)
+    ? line.endTime
+    : Number.isFinite(nextLineTime)
+      ? nextLineTime
+      : start + Math.max(1.5, rawWords.length * 0.42);
+  const span = Math.max(0.4, Math.min(8.0, rawEnd - start));
+  const totalChars = rawWords.reduce((acc, w) => acc + Math.max(2, w.length), 0);
+
+  let cursor = start;
+  return rawWords.map((word) => {
+    const weight = Math.max(2, word.length) / Math.max(1, totalChars);
+    const dur = Math.max(0.1, span * weight);
+    const out = { text: word, startTime: cursor, endTime: cursor + dur };
+    cursor += dur;
+    return out;
+  });
+}
+
+/**
  * Build a complete Vocal Chart (notes + phrases) for Spell-Singing Karaoke Mode.
  * Priority for lyrics:
  *  1. Custom pasted lyrics / LRC text (`customLyricsText`)
  *  2. MusicXML `<lyric>` tokens (`musicXmlLyrics`)
  *  3. Sibling `.lrc` lines (`lrcLines`)
- *  4. Melodic Syllable Guide fallback (`solfege` / `note-name` / `la`)
+ *  4. Melodic Syllable Guide fallback (`solfege` / `note-name` / `la`) — ONLY when no real lyrics exist
  */
 function buildVocalChart({
   vocalNotes = [],
   musicXmlLyrics = [],
   lrcLines = [],
   customLyricsText = '',
-  fallbackMode = 'solfege'
+  lyricsOffsetSec = 0,
+  fallbackMode = 'solfege',
+  simplifyVocalTrack = true
 } = {}) {
   const sortedNotes = (Array.isArray(vocalNotes) ? vocalNotes : [])
     .filter((n) => n && Number.isFinite(n.time) && Number.isFinite(n.midi))
@@ -132,11 +251,12 @@ function buildVocalChart({
       id: n.id || `vocal_${idx}`,
       index: idx,
       time: Math.max(0, Number(n.time)),
-      duration: Math.max(0.1, Number(n.duration) || 0.25),
-      endTime: Math.max(0, Number(n.time)) + Math.max(0.1, Number(n.duration) || 0.25),
+      duration: Math.max(0.08, Number(n.duration) || 0.25),
+      endTime: Math.max(0, Number(n.time)) + Math.max(0.08, Number(n.duration) || 0.25),
       midi: Math.round(Number(n.midi)),
       lyric: '',
       syllabic: 'single',
+      slideToNext: false,
       hitFrames: 0,
       totalFrames: 0,
       fillRatio: 0,
@@ -145,7 +265,7 @@ function buildVocalChart({
     .sort((a, b) => a.time - b.time || a.midi - b.midi);
 
   // Deduplicate simultaneous vocal harmony notes (keep top melody pitch per onset)
-  const monoNotes = [];
+  let monoNotes = [];
   for (const n of sortedNotes) {
     const prev = monoNotes[monoNotes.length - 1];
     if (prev && Math.abs(n.time - prev.time) < 0.04) {
@@ -160,23 +280,56 @@ function buildVocalChart({
     }
     monoNotes.push(n);
   }
-  monoNotes.forEach((n, idx) => {
-    n.index = idx;
-  });
 
+  if (simplifyVocalTrack && monoNotes.length > 1) {
+    monoNotes = simplifyVocalNotesForSinging(monoNotes);
+  } else {
+    monoNotes.forEach((n, idx) => {
+      n.index = idx;
+    });
+  }
+
+  const shiftSec = Number.isFinite(Number(lyricsOffsetSec)) ? Number(lyricsOffsetSec) : 0;
   let lyricSource = 'fallback';
-  const customParsed = customLyricsText ? parseLrcText(customLyricsText) : [];
-  const activeLrc = customParsed.length > 0 ? customParsed : (Array.isArray(lrcLines) ? lrcLines : []);
+  let hasWordSync = false;
+
+  const customParsed = customLyricsText ? parseLrcText(customLyricsText, shiftSec) : [];
+  const shiftedLrcLines = Array.isArray(lrcLines)
+    ? lrcLines.map((l) => {
+        if (!l) return l;
+        if (!Number.isFinite(l.time)) return { ...l };
+        const shiftedWords = Array.isArray(l.words)
+          ? l.words.map((w) => ({
+              ...w,
+              startTime: Math.max(0, w.startTime + shiftSec),
+              endTime: Math.max(0.08, w.endTime + shiftSec)
+            }))
+          : null;
+        return {
+          ...l,
+          time: Math.max(0, l.time + shiftSec),
+          endTime: Number.isFinite(l.endTime) ? Math.max(0.3, l.endTime + shiftSec) : undefined,
+          words: shiftedWords
+        };
+      })
+    : [];
+
+  let timedLrcSourceLines = null;
 
   if (customParsed.length > 0) {
     lyricSource = 'custom-lyrics';
+    hasWordSync = customParsed.some((l) => Array.isArray(l.words) && l.words.length > 0);
     applyLrcOrLinesToNotes(monoNotes, customParsed);
+    if (customParsed.some((l) => Number.isFinite(l.time))) {
+      timedLrcSourceLines = customParsed;
+    }
   } else if (Array.isArray(musicXmlLyrics) && musicXmlLyrics.length > 0) {
     lyricSource = 'musicxml';
+    hasWordSync = true;
     const sortedXml = musicXmlLyrics.slice().sort((a, b) => a.time - b.time);
     for (const ev of sortedXml) {
       let bestNote = null;
-      let bestDist = 0.22;
+      let bestDist = 0.24;
       for (const n of monoNotes) {
         const d = Math.abs(n.time - ev.time);
         if (d < bestDist && !n.lyric) {
@@ -189,71 +342,130 @@ function buildVocalChart({
         bestNote.syllabic = ev.syllabic || 'single';
       }
     }
-  } else if (activeLrc.length > 0) {
-    lyricSource = 'lrc';
-    applyLrcOrLinesToNotes(monoNotes, activeLrc);
+  } else if (shiftedLrcLines.length > 0) {
+    hasWordSync = shiftedLrcLines.some((l) => Array.isArray(l.words) && l.words.length > 0);
+    lyricSource = hasWordSync ? 'lrclib-word' : 'lrc';
+    applyLrcOrLinesToNotes(monoNotes, shiftedLrcLines);
+    if (shiftedLrcLines.some((l) => Number.isFinite(l.time))) {
+      timedLrcSourceLines = shiftedLrcLines;
+    }
   }
 
-  // Fill any unlabelled notes with melodic syllable guide so every capsule has a clear cue
-  for (const n of monoNotes) {
-    if (!n.lyric) {
-      if (fallbackMode === 'note-name') {
-        n.lyric = vocalMidiToNoteName(n.midi);
-      } else if (fallbackMode === 'la') {
-        n.lyric = 'La';
-      } else {
-        n.lyric = SOLFEGE_NAMES[((n.midi % 12) + 12) % 12];
+  // Issue #159: ONLY fill Solfège fallback when NO real lyrics exist!
+  // When real lyrics exist, leave melisma/passing notes blank so "Sol/Fi/Ri" never clutters real songs.
+  if (lyricSource === 'fallback') {
+    for (const n of monoNotes) {
+      if (!n.lyric) {
+        if (fallbackMode === 'note-name') {
+          n.lyric = vocalMidiToNoteName(n.midi);
+        } else if (fallbackMode === 'la') {
+          n.lyric = 'La';
+        } else {
+          n.lyric = SOLFEGE_NAMES[((n.midi % 12) + 12) % 12];
+        }
+        n.syllabic = 'single';
       }
-      n.syllabic = 'single';
     }
   }
 
-  // Group into singable Karaoke Phrases (split on gaps > 1.1s, sentence endings, or 10 notes)
+  // Build Karaoke Phrases:
+  // When timed LRC lines exist, drive phrases directly from the timed lyric lines (Apple Music / Spotify style)
+  // so every real lyric line is complete and smoothly word-swept even across vocal rests/melismas.
   const phrases = [];
-  let currentPhraseNotes = [];
-
-  const flushPhrase = () => {
-    if (currentPhraseNotes.length === 0) return;
-    let minMidi = Infinity;
-    let maxMidi = -Infinity;
-    for (const n of currentPhraseNotes) {
-      if (n.midi < minMidi) minMidi = n.midi;
-      if (n.midi > maxMidi) maxMidi = n.midi;
+  if (timedLrcSourceLines && timedLrcSourceLines.length > 0) {
+    for (let i = 0; i < timedLrcSourceLines.length; i++) {
+      const line = timedLrcSourceLines[i];
+      const next = timedLrcSourceLines[i + 1];
+      const startTime = Number.isFinite(line.time) ? line.time : 0;
+      const endTime = Number.isFinite(line.endTime)
+        ? line.endTime
+        : next && Number.isFinite(next.time)
+          ? Math.max(startTime + 0.4, next.time - 0.05)
+          : startTime + 4.0;
+      const phraseNotes = monoNotes.filter((n) => n.time >= startTime - 0.15 && n.time < endTime);
+      let minMidi = Infinity;
+      let maxMidi = -Infinity;
+      for (const n of phraseNotes) {
+        if (n.midi < minMidi) minMidi = n.midi;
+        if (n.midi > maxMidi) maxMidi = n.midi;
+      }
+      if (!Number.isFinite(minMidi)) {
+        minMidi = 58;
+        maxMidi = 72;
+      }
+      const words = buildWordsForLrcLine(line, next ? next.time : undefined);
+      phrases.push({
+        index: phrases.length,
+        startTime,
+        endTime,
+        notes: phraseNotes,
+        words,
+        text: line.text,
+        minMidi,
+        maxMidi
+      });
     }
-    phrases.push({
-      index: phrases.length,
-      startTime: currentPhraseNotes[0].time,
-      endTime: currentPhraseNotes[currentPhraseNotes.length - 1].endTime,
-      notes: currentPhraseNotes,
-      text: formatPhraseText(currentPhraseNotes),
-      minMidi,
-      maxMidi
-    });
-    currentPhraseNotes = [];
-  };
+  } else {
+    // Group note-driven phrases (MusicXML or Solfège fallback)
+    let currentPhraseNotes = [];
+    const flushPhrase = () => {
+      if (currentPhraseNotes.length === 0) return;
+      let minMidi = Infinity;
+      let maxMidi = -Infinity;
+      for (const n of currentPhraseNotes) {
+        if (n.midi < minMidi) minMidi = n.midi;
+        if (n.midi > maxMidi) maxMidi = n.midi;
+      }
+      const words = currentPhraseNotes
+        .filter((n) => n.lyric)
+        .map((n, idx, arr) => {
+          const prev = idx > 0 ? arr[idx - 1] : null;
+          const prevContinues = prev && (prev.syllabic === 'begin' || prev.syllabic === 'middle');
+          return {
+            text: n.lyric,
+            startTime: n.time,
+            endTime: n.endTime,
+            noLeadingSpace: Boolean(prevContinues)
+          };
+        });
+      phrases.push({
+        index: phrases.length,
+        startTime: currentPhraseNotes[0].time,
+        endTime: currentPhraseNotes[currentPhraseNotes.length - 1].endTime,
+        notes: currentPhraseNotes,
+        words,
+        text: formatPhraseText(currentPhraseNotes),
+        minMidi,
+        maxMidi
+      });
+      currentPhraseNotes = [];
+    };
 
-  for (let i = 0; i < monoNotes.length; i++) {
-    const n = monoNotes[i];
-    const prev = currentPhraseNotes[currentPhraseNotes.length - 1];
-    const gap = prev ? n.time - prev.endTime : 0;
-    const prevEndedSentence = prev && /[.!?]$/.test(prev.lyric || '');
-    const forceBreak =
-      prev &&
-      (gap >= 1.15 ||
-        (prevEndedSentence && currentPhraseNotes.length >= 3) ||
-        (currentPhraseNotes.length >= 10 && prev.syllabic !== 'begin' && prev.syllabic !== 'middle'));
+    for (let i = 0; i < monoNotes.length; i++) {
+      const n = monoNotes[i];
+      const prev = currentPhraseNotes[currentPhraseNotes.length - 1];
+      const gap = prev ? n.time - prev.endTime : 0;
+      const prevEndedSentence = prev && /[.!?]$/.test(prev.lyric || '');
+      const forceBreak =
+        prev &&
+        (gap >= 1.15 ||
+          (prevEndedSentence && currentPhraseNotes.length >= 3) ||
+          (currentPhraseNotes.length >= 10 && prev.syllabic !== 'begin' && prev.syllabic !== 'middle'));
 
-    if (forceBreak) {
-      flushPhrase();
+      if (forceBreak) {
+        flushPhrase();
+      }
+      currentPhraseNotes.push(n);
     }
-    currentPhraseNotes.push(n);
+    flushPhrase();
   }
-  flushPhrase();
 
   return {
     notes: monoNotes,
     phrases,
     lyricSource,
+    hasWordSync,
+    lyricsOffsetSec: shiftSec,
     totalDuration: monoNotes.length > 0 ? monoNotes[monoNotes.length - 1].endTime : 0
   };
 }
@@ -269,10 +481,32 @@ function applyLrcOrLinesToNotes(monoNotes, lines) {
       const nextLine = lines[li + 1];
       const startSec = line.time;
       const endSec = nextLine ? nextLine.time : Infinity;
-      const words = line.text.split(/\s+/).filter(Boolean);
       const startMargin = li === 0 ? 0.15 : 0.05;
-      const matchingNotes = monoNotes.filter((n, idx) =>
-        !assignedNoteIndices.has(idx) && n.time >= startSec - startMargin && n.time < endSec - 0.05
+
+      // If word-level timestamps exist, map each word to its closest note onset
+      if (Array.isArray(line.words) && line.words.length > 0) {
+        for (const w of line.words) {
+          let bestNote = null;
+          let bestDist = 0.28;
+          for (const n of monoNotes) {
+            const d = Math.abs(n.time - w.startTime);
+            if (d < bestDist && !n.lyric) {
+              bestDist = d;
+              bestNote = n;
+            }
+          }
+          if (bestNote) {
+            bestNote.lyric = w.text;
+            bestNote.syllabic = 'single';
+            assignedNoteIndices.add(bestNote.index);
+          }
+        }
+        continue;
+      }
+
+      const words = line.text.split(/\s+/).filter(Boolean);
+      const matchingNotes = monoNotes.filter(
+        (n, idx) => !assignedNoteIndices.has(idx) && n.time >= startSec - startMargin && n.time < endSec - 0.05
       );
       if (matchingNotes.length === 0 || words.length === 0) continue;
 
@@ -316,7 +550,6 @@ function calcVocalPitchDistance(sungMidiFloat, targetMidi, { octaveAgnostic = tr
 
   let diffSemitones;
   if (octaveAgnostic) {
-    // Wrap difference smoothly into [-6, +6) semitones regardless of octave
     diffSemitones = ((((sungMidiFloat - targetMidi) % 12) + 18) % 12) - 6;
   } else {
     diffSemitones = sungMidiFloat - targetMidi;
@@ -384,14 +617,14 @@ function detectVocalVibrato(samples = []) {
 }
 
 /**
- * Stateful Vocal Performance Scorer & Pitch Trail Recorder (#126 & #127).
+ * Stateful Vocal Performance Scorer & Pitch Trail Recorder (#126, #127, #160).
  */
 function createVocalSessionScorer(vocalChart, options = {}) {
   const chart = vocalChart || { notes: [], phrases: [] };
   const state = {
     octaveAgnostic: options.octaveAgnostic !== false,
     toleranceSemitones: Number(options.toleranceSemitones) || 1.0,
-    pitchTrail: [], // { time, midiFloat, displayMidi, inTune, tier, centsDelta }
+    pitchTrail: [],
     activePitch: null,
     lastInTuneTime: -999,
     totalScoredFrames: 0,
@@ -424,9 +657,25 @@ function createVocalSessionScorer(vocalChart, options = {}) {
   }
 
   function findTargetNoteAtTime(songTime) {
-    for (const n of chart.notes || []) {
-      if (songTime >= n.time - 0.06 && songTime <= n.endTime + 0.06) {
+    const notes = chart.notes || [];
+    for (let i = 0; i < notes.length; i++) {
+      const n = notes[i];
+      const endMargin = n.slideToNext ? 0 : 0.06;
+      const startMargin = i > 0 && notes[i - 1].slideToNext ? 0 : 0.06;
+      if (songTime >= n.time - startMargin && songTime <= n.endTime + endMargin) {
         return n;
+      }
+      // Issue #160: Smoothly interpolate pitch target across legato slide ribbons
+      if (n.slideToNext && i + 1 < notes.length) {
+        const next = notes[i + 1];
+        if (songTime > n.endTime && songTime < next.time) {
+          const frac = Math.max(0, Math.min(1, (songTime - n.endTime) / Math.max(0.01, next.time - n.endTime)));
+          return {
+            ...next,
+            midi: n.midi + (next.midi - n.midi) * frac,
+            isGlideBridge: true
+          };
+        }
       }
     }
     return null;
@@ -448,7 +697,6 @@ function createVocalSessionScorer(vocalChart, options = {}) {
   }
 
   function recordFrame(songTime, detectedPitch, { scoringActive = true } = {}) {
-    // Issue #128 & #135: Trim future pitchTrail / recentInTuneSamples and reset lastInTuneTime on backward scrub
     while (state.pitchTrail.length > 0 && state.pitchTrail[state.pitchTrail.length - 1].time > songTime) {
       state.pitchTrail.pop();
     }
@@ -463,18 +711,18 @@ function createVocalSessionScorer(vocalChart, options = {}) {
     }
 
     const targetNote = findTargetNoteAtTime(songTime);
-    if (scoringActive && targetNote) {
-      targetNote.totalFrames += 1;
+    const scoreableRealNote = targetNote && !targetNote.isGlideBridge ? targetNote : null;
+    if (scoringActive && scoreableRealNote) {
+      scoreableRealNote.totalFrames += 1;
       state.totalScoredFrames += 1;
     }
 
     if (!detectedPitch || !Number.isFinite(detectedPitch.midiFloat)) {
       state.activePitch = null;
-      // Forgive tiny breathing gaps <= 100ms while actively playing (only forward in time)
       const sinceInTune = songTime - state.lastInTuneTime;
-      if (scoringActive && targetNote && sinceInTune >= 0 && sinceInTune <= SINGING_BREAK_TOLERANCE_SEC) {
-        targetNote.hitFrames += 0.5;
-        targetNote.fillRatio = Math.min(1, targetNote.hitFrames / Math.max(1, targetNote.totalFrames));
+      if (scoringActive && scoreableRealNote && sinceInTune >= 0 && sinceInTune <= SINGING_BREAK_TOLERANCE_SEC) {
+        scoreableRealNote.hitFrames += 0.5;
+        scoreableRealNote.fillRatio = Math.min(1, scoreableRealNote.hitFrames / Math.max(1, scoreableRealNote.totalFrames));
       }
       return { targetNote, inTune: false, tier: 'off', vibrato: false };
     }
@@ -487,7 +735,6 @@ function createVocalSessionScorer(vocalChart, options = {}) {
         octaveAgnostic: state.octaveAgnostic,
         toleranceSemitones: state.toleranceSemitones
       });
-      // Display singer's pitch shifted into the target note's octave when octaveAgnostic is on
       displayMidi = state.octaveAgnostic
         ? targetNote.midi + dist.semitoneDelta
         : detectedPitch.midiFloat;
@@ -496,21 +743,25 @@ function createVocalSessionScorer(vocalChart, options = {}) {
     let vibrato = false;
     if (scoringActive && targetNote && dist.inTune) {
       state.lastInTuneTime = songTime;
-      state.inTuneFrames += 1;
-      if (dist.tier === 'perfect') state.perfectFrames += 1;
-      targetNote.hitFrames += 1;
-      targetNote.fillRatio = Math.min(1, targetNote.hitFrames / Math.max(1, targetNote.totalFrames));
+      if (scoreableRealNote) {
+        state.inTuneFrames += 1;
+        if (dist.tier === 'perfect') state.perfectFrames += 1;
+        scoreableRealNote.hitFrames += 1;
+        scoreableRealNote.fillRatio = Math.min(1, scoreableRealNote.hitFrames / Math.max(1, scoreableRealNote.totalFrames));
+      }
 
       state.recentInTuneSamples.push({ time: songTime, centsDelta: dist.centsDelta });
       if (state.recentInTuneSamples.length > 24) state.recentInTuneSamples.shift();
       vibrato = detectVocalVibrato(state.recentInTuneSamples);
-      if (vibrato) state.vibratoFrames += 1;
+      if (vibrato && scoreableRealNote) state.vibratoFrames += 1;
 
       state.vocalCombo += 1;
       if (state.vocalCombo > state.maxVocalCombo) state.maxVocalCombo = state.vocalCombo;
-      const tierPts = dist.tier === 'perfect' ? 12 : dist.tier === 'great' ? 9 : 6;
-      state.vocalScorePoints += tierPts + (targetNote.isGolden ? 6 : 0) + (vibrato ? 4 : 0);
-    } else if (scoringActive && targetNote) {
+      if (scoreableRealNote) {
+        const tierPts = dist.tier === 'perfect' ? 12 : dist.tier === 'great' ? 9 : 6;
+        state.vocalScorePoints += tierPts + (scoreableRealNote.isGolden ? 6 : 0) + (vibrato ? 4 : 0);
+      }
+    } else if (scoringActive && scoreableRealNote) {
       state.vocalCombo = 0;
     }
 
@@ -526,7 +777,6 @@ function createVocalSessionScorer(vocalChart, options = {}) {
     state.activePitch = point;
     if (scoringActive) {
       state.pitchTrail.push(point);
-      // Keep last 8 seconds of pitch trail
       const cutoff = songTime - 8.0;
       while (state.pitchTrail.length > 0 && state.pitchTrail[0].time < cutoff) {
         state.pitchTrail.shift();
@@ -559,7 +809,7 @@ function createVocalSessionScorer(vocalChart, options = {}) {
       completedNotes,
       totalNotes: (chart.notes || []).length,
       vocalScorePoints: state.vocalScorePoints,
-      maxVocalCombo: state.maxVocalCombo,
+      maxVocalCombo: state.vocalCombo > state.maxVocalCombo ? state.vocalCombo : state.maxVocalCombo,
       vibratoFrames: state.vibratoFrames,
       vocalXpEarned
     };
@@ -577,7 +827,8 @@ function createVocalSessionScorer(vocalChart, options = {}) {
 }
 
 /**
- * Issue #126: Render the Horizontal Scrolling Vocal Pitch Highway (AllKaraoke / Performous style).
+ * Issue #126 & #160: Render the Horizontal Scrolling Vocal Pitch Highway
+ * (Let's Sing / Xbox Lips style with Warm Tavern Obsidian backdrop & Bezier slide ribbons).
  */
 function renderSpellSingingStage(ctx, width, height, {
   vocalChart,
@@ -587,11 +838,11 @@ function renderSpellSingingStage(ctx, width, height, {
 } = {}) {
   if (!ctx || width <= 0 || height <= 0) return;
 
-  // 1. Atmospheric Arcane Karaoke Backdrop
+  // 1. Warm Tavern Obsidian & Deep Velvet Stage Backdrop
   const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
-  bgGrad.addColorStop(0, '#0a0f1f');
-  bgGrad.addColorStop(0.5, '#121833');
-  bgGrad.addColorStop(1, '#0b1022');
+  bgGrad.addColorStop(0, '#120d0a');
+  bgGrad.addColorStop(0.5, '#1a1216');
+  bgGrad.addColorStop(1, '#0c0907');
   ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, width, height);
 
@@ -600,7 +851,7 @@ function renderSpellSingingStage(ctx, width, height, {
   const playheadX = Math.round(width * 0.28);
 
   // 2. Dynamic Phrase Auto-Zoom (frame active/upcoming phrase pitch range)
-  let activePhrase = phrases.find((p) => currentTime <= p.endTime + 0.5) || phrases[phrases.length - 1] || null;
+  const activePhrase = phrases.find((p) => currentTime <= p.endTime + 0.5) || phrases[phrases.length - 1] || null;
   let minMidi = activePhrase ? activePhrase.minMidi - 3 : 55;
   let maxMidi = activePhrase ? activePhrase.maxMidi + 3 : 75;
   if (maxMidi - minMidi < 14) {
@@ -617,76 +868,111 @@ function renderSpellSingingStage(ctx, width, height, {
     return topPad + usableH * (1 - norm);
   };
   const semitoneH = usableH / Math.max(1, maxMidi - minMidi);
-  const barHeight = Math.max(14, Math.min(26, semitoneH * 0.85));
+  const barHeight = Math.max(14, Math.min(26, semitoneH * 0.86));
 
-  // 3. Subtle horizontal staff / pitch guide lanes
+  // 3. Subtle horizontal pitch guide lanes
   ctx.lineWidth = 1;
   ctx.font = '11px system-ui, -apple-system, sans-serif';
   ctx.textAlign = 'left';
   for (let m = Math.ceil(minMidi); m <= Math.floor(maxMidi); m++) {
     const y = midiToY(m);
     const isC = ((m % 12) + 12) % 12 === 0;
-    ctx.strokeStyle = isC ? 'rgba(212, 175, 55, 0.22)' : 'rgba(148, 163, 184, 0.08)';
+    ctx.strokeStyle = isC ? 'rgba(212, 175, 55, 0.24)' : 'rgba(244, 235, 217, 0.06)';
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(width, y);
     ctx.stroke();
 
     if (isC || m % 4 === 0) {
-      ctx.fillStyle = isC ? 'rgba(250, 204, 21, 0.65)' : 'rgba(148, 163, 184, 0.42)';
+      ctx.fillStyle = isC ? 'rgba(255, 215, 0, 0.68)' : 'rgba(186, 171, 147, 0.42)';
       ctx.fillText(vocalMidiToNoteName(m), 8, y + 4);
     }
   }
 
-  // 4. Target Vocal Melody Capsules scrolling right-to-left
   const minVisibleTime = currentTime - (playheadX / pxPerSec) - 0.5;
   const maxVisibleTime = currentTime + ((width - playheadX) / pxPerSec) + 0.5;
 
-  for (const n of notes) {
+  // 4a. Issue #160: Draw smooth cubic Bezier Pitch-Slide ("Portamento") Connector Ribbons
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (let i = 0; i < notes.length - 1; i++) {
+    const n = notes[i];
+    if (!n.slideToNext) continue;
+    const next = notes[i + 1];
+    if (n.time > maxVisibleTime) break;
+    if (next.endTime < minVisibleTime) continue;
+
+    const x1 = playheadX + (n.endTime - currentTime) * pxPerSec;
+    const x2 = playheadX + (next.time - currentTime) * pxPerSec;
+    const y1 = midiToY(n.midi);
+    const y2 = midiToY(next.midi);
+    const cx = (x1 + x2) * 0.5;
+
+    ctx.beginPath();
+    ctx.moveTo(x1 - 2, y1);
+    ctx.bezierCurveTo(cx, y1, cx, y2, x2 + 2, y2);
+    ctx.lineWidth = Math.max(6, barHeight * 0.52);
+    ctx.strokeStyle = n.isGolden || next.isGolden
+      ? 'rgba(255, 215, 0, 0.20)'
+      : 'rgba(0, 229, 255, 0.18)';
+    ctx.stroke();
+
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = n.isGolden || next.isGolden
+      ? 'rgba(255, 215, 0, 0.55)'
+      : 'rgba(0, 229, 255, 0.45)';
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 4b. Target Vocal Melody Capsules scrolling right-to-left
+  let lastLabelRightX = -Infinity;
+  for (let i = 0; i < notes.length; i++) {
+    const n = notes[i];
     if (n.time > maxVisibleTime) break;
     if (n.endTime < minVisibleTime) continue;
     const x = playheadX + (n.time - currentTime) * pxPerSec;
     const w = Math.max(18, n.duration * pxPerSec);
     const yCenter = midiToY(n.midi);
     const yTop = yCenter - barHeight / 2;
-    const radius = Math.min(barHeight / 2, w / 2, 10);
+    const radius = Math.min(barHeight / 2, w / 2, 11);
 
-    // Base capsule
     ctx.save();
     drawRoundedRectPath(ctx, x, yTop, w, barHeight, radius);
-    ctx.fillStyle = n.isGolden ? 'rgba(234, 179, 8, 0.26)' : 'rgba(56, 189, 248, 0.24)';
+    ctx.fillStyle = n.isGolden ? 'rgba(255, 215, 0, 0.24)' : 'rgba(0, 229, 255, 0.20)';
     ctx.fill();
     ctx.lineWidth = n.isGolden ? 2 : 1.5;
-    ctx.strokeStyle = n.isGolden ? '#facc15' : '#38bdf8';
+    ctx.strokeStyle = n.isGolden ? '#ffd700' : '#00e5ff';
     ctx.stroke();
 
-    // Progressive sung fill inside capsule
     if (n.fillRatio > 0.02) {
       ctx.clip();
       const fillW = w * Math.min(1, n.fillRatio);
       const fillGrad = ctx.createLinearGradient(x, yTop, x + fillW, yTop);
       if (n.isGolden) {
-        fillGrad.addColorStop(0, 'rgba(250, 204, 21, 0.85)');
-        fillGrad.addColorStop(1, 'rgba(253, 224, 71, 0.95)');
+        fillGrad.addColorStop(0, 'rgba(255, 215, 0, 0.85)');
+        fillGrad.addColorStop(1, 'rgba(254, 240, 138, 0.96)');
       } else {
-        fillGrad.addColorStop(0, 'rgba(34, 197, 94, 0.78)');
-        fillGrad.addColorStop(1, 'rgba(56, 189, 248, 0.92)');
+        fillGrad.addColorStop(0, 'rgba(54, 211, 153, 0.82)');
+        fillGrad.addColorStop(1, 'rgba(0, 229, 255, 0.94)');
       }
       ctx.fillStyle = fillGrad;
       ctx.fillRect(x, yTop, fillW, barHeight);
     }
     ctx.restore();
 
-    // Syllable cue printed beneath each vocal capsule
-    if (n.lyric) {
+    // Non-overlapping lyric cue printed beneath vocal capsule
+    if (n.lyric && x > lastLabelRightX + 6) {
       ctx.font = '600 12px system-ui, -apple-system, sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillStyle = currentTime >= n.time && currentTime <= n.endTime ? '#fde047' : '#e2e8f0';
+      const labelW = ctx.measureText(n.lyric).width;
+      ctx.fillStyle = currentTime >= n.time && currentTime <= n.endTime ? '#ffd700' : '#f4ebd9';
       ctx.fillText(n.lyric, x + 3, yTop + barHeight + 15);
+      lastLabelRightX = x + 3 + labelW;
     }
   }
 
-  // 5. Real-time Sung Pitch Ribbon Trail (batched by stroke color to minimize draw calls)
+  // 5. Real-time Sung Pitch Ribbon Trail
   const trail = scorerState?.pitchTrail || [];
   if (trail.length > 1) {
     ctx.save();
@@ -706,8 +992,8 @@ function renderSpellSingingStage(ctx, width, height, {
         continue;
       }
       const segColor = p1.inTune
-        ? (p1.vibrato ? '#fde047' : '#4ade80')
-        : 'rgba(248, 113, 113, 0.78)';
+        ? (p1.vibrato ? '#ffd700' : '#36d399')
+        : 'rgba(248, 113, 113, 0.82)';
       const x0 = playheadX + (p0.time - currentTime) * pxPerSec;
       const x1 = playheadX + (p1.time - currentTime) * pxPerSec;
       const y0 = midiToY(p0.displayMidi);
@@ -728,9 +1014,9 @@ function renderSpellSingingStage(ctx, width, height, {
 
   // 6. Glowing Vertical Sing Playhead Line
   const headGrad = ctx.createLinearGradient(0, 0, 0, height);
-  headGrad.addColorStop(0, 'rgba(250, 204, 21, 0.15)');
-  headGrad.addColorStop(0.5, 'rgba(250, 204, 21, 0.95)');
-  headGrad.addColorStop(1, 'rgba(250, 204, 21, 0.15)');
+  headGrad.addColorStop(0, 'rgba(255, 215, 0, 0.15)');
+  headGrad.addColorStop(0.5, 'rgba(255, 215, 0, 0.95)');
+  headGrad.addColorStop(1, 'rgba(255, 215, 0, 0.15)');
   ctx.strokeStyle = headGrad;
   ctx.lineWidth = 2.5;
   ctx.beginPath();
@@ -738,24 +1024,24 @@ function renderSpellSingingStage(ctx, width, height, {
   ctx.lineTo(playheadX, height);
   ctx.stroke();
 
-  // 7. Live Singer Pitch Orb on the Playhead (2-pass halo avoids expensive Canvas2D shadowBlur)
+  // 7. Live Singer Pitch Orb on the Playhead
   const activePitch = scorerState?.activePitch;
   if (activePitch && Number.isFinite(activePitch.displayMidi)) {
     const orbY = Math.max(topPad, Math.min(height - bottomPad, midiToY(activePitch.displayMidi)));
     ctx.beginPath();
     ctx.arc(playheadX, orbY, 13, 0, Math.PI * 2);
-    ctx.fillStyle = activePitch.inTune ? 'rgba(74, 222, 128, 0.28)' : 'rgba(248, 113, 113, 0.28)';
+    ctx.fillStyle = activePitch.inTune ? 'rgba(54, 211, 153, 0.28)' : 'rgba(248, 113, 113, 0.28)';
     ctx.fill();
     ctx.beginPath();
     ctx.arc(playheadX, orbY, 8, 0, Math.PI * 2);
-    ctx.fillStyle = activePitch.inTune ? '#4ade80' : '#f87171';
+    ctx.fillStyle = activePitch.inTune ? '#36d399' : '#f87171';
     ctx.fill();
     ctx.lineWidth = 2;
     ctx.strokeStyle = '#ffffff';
     ctx.stroke();
   }
 
-  // 8. Phrase Entry Countdown Dots when approaching next phrase (> 0.2s and <= 3.0s away)
+  // 8. Phrase Entry Countdown Dots
   if (activePhrase && currentTime < activePhrase.startTime) {
     const leadSec = activePhrase.startTime - currentTime;
     if (leadSec > 0.15 && leadSec <= 3.0) {
@@ -763,7 +1049,7 @@ function renderSpellSingingStage(ctx, width, height, {
       ctx.save();
       ctx.font = '700 13px system-ui, -apple-system, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillStyle = '#facc15';
+      ctx.fillStyle = '#ffd700';
       ctx.fillText(`Sing in ${dotsRemaining}...`, playheadX, 20);
       ctx.restore();
     }
@@ -789,6 +1075,8 @@ module.exports = {
   vocalMidiToNoteName,
   parseLrcText,
   findSiblingLrcPath,
+  computeAutoAlignLyricsOffset,
+  simplifyVocalNotesForSinging,
   buildVocalChart,
   calcVocalPitchDistance,
   detectVocalVibrato,

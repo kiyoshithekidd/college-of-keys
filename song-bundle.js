@@ -9,11 +9,16 @@
 
 const fs = require('fs');
 const path = require('path');
+const {
+  normalizeVocalMix,
+  clampLyricsOffsetSec
+} = require('./vocal-harmony-dsp');
 
 const BUNDLE_STORE_FILENAME = 'grimoire_bundles.json';
 const BACKING_AUDIO_EXTS = ['.wav', '.mp3', '.ogg', '.m4a', '.flac'];
 const SHEET_REF_EXTS = ['.musicxml', '.mxl', '.xml', '.pdf'];
 const STEM_NAMES = ['piano', 'drums', 'bass', 'vocals', 'guitar', 'other'];
+const OPTIONAL_VOCAL_SUBSTEMS = ['vocals_lead', 'vocals_backing'];
 
 const MIN_OFFSET_SEC = -30.0;
 const MAX_OFFSET_SEC = 30.0;
@@ -233,7 +238,7 @@ function findSiblingStemsMap(notesFilePath) {
         }
       }
       const found = {};
-      for (const stem of STEM_NAMES) {
+      for (const stem of [...STEM_NAMES, ...OPTIONAL_VOCAL_SUBSTEMS]) {
         for (const ext of BACKING_AUDIO_EXTS) {
           const actualName = fileMap.get(`${stem}${ext.toLowerCase()}`);
           if (actualName) {
@@ -363,7 +368,7 @@ function resolveBundleForSong({
   let stems = null;
   if (!audioUnlinked) {
     const resolvedStems = {};
-    for (const stemName of STEM_NAMES) {
+    for (const stemName of [...STEM_NAMES, ...OPTIONAL_VOCAL_SUBSTEMS]) {
       for (const src of orderedSources) {
         const rawStemPath = src.rec?.stems?.[stemName];
         const existingStemPath = pickExistingPath(rawStemPath, src.dir);
@@ -413,6 +418,10 @@ function resolveBundleForSong({
   const transposeSemitones = clampTransposeSemitones(
     record?.transposeSemitones ?? fallbackRecord?.transposeSemitones ?? 0
   );
+  const vocalMix = normalizeVocalMix(record?.vocalMix ?? fallbackRecord?.vocalMix);
+  const lyricsOffsetSec = clampLyricsOffsetSec(
+    record?.lyricsOffsetSec ?? fallbackRecord?.lyricsOffsetSec ?? 0
+  );
 
   const youtubeUrlRaw = hasOwn(record, 'youtubeUrl') ? record.youtubeUrl : fallbackRecord?.youtubeUrl;
   const spotifyUrlRaw = hasOwn(record, 'spotifyUrl') ? record.spotifyUrl : fallbackRecord?.spotifyUrl;
@@ -439,6 +448,8 @@ function resolveBundleForSong({
     audioTempoRatio,
     midiCleanupEnabled,
     transposeSemitones,
+    vocalMix,
+    lyricsOffsetSec,
     sidecarPath: sidecarPath && fs.existsSync(sidecarPath) ? sidecarPath : null,
     hasCustomBundle: Boolean(
       sheetMusicPath ||
@@ -451,7 +462,8 @@ function resolveBundleForSong({
       Math.abs(audioOffsetSec) > 0.0001 ||
       Math.abs(audioTempoRatio - 1.0) > 0.0001 ||
       typeof midiCleanupEnabled === 'boolean' ||
-      transposeSemitones !== 0
+      transposeSemitones !== 0 ||
+      Math.abs(lyricsOffsetSec) > 0.001
     )
   };
 }
@@ -517,7 +529,7 @@ function saveBundleRecord({
   if (record.stems !== undefined) {
     if (record.stems && typeof record.stems === 'object') {
       const portableMap = {};
-      for (const stemName of STEM_NAMES) {
+      for (const stemName of [...STEM_NAMES, ...OPTIONAL_VOCAL_SUBSTEMS]) {
         if (record.stems[stemName]) {
           portableMap[stemName] = toPortablePath(record.stems[stemName], baseDir);
         }
@@ -569,6 +581,12 @@ function saveBundleRecord({
     transposeSemitones: clampTransposeSemitones(
       record.transposeSemitones !== undefined ? record.transposeSemitones : (existing.transposeSemitones ?? 0)
     ),
+    vocalMix: record.vocalMix !== undefined
+      ? normalizeVocalMix(record.vocalMix)
+      : (existing.vocalMix ? normalizeVocalMix(existing.vocalMix) : undefined),
+    lyricsOffsetSec: clampLyricsOffsetSec(
+      record.lyricsOffsetSec !== undefined ? record.lyricsOffsetSec : (existing.lyricsOffsetSec ?? 0)
+    ),
     updatedAt: new Date().toISOString()
   };
 
@@ -586,7 +604,7 @@ function saveBundleRecord({
       let sidecarStems = null;
       if (nextEntry.stems && typeof nextEntry.stems === 'object') {
         sidecarStems = {};
-        for (const stemName of STEM_NAMES) {
+        for (const stemName of [...STEM_NAMES, ...OPTIONAL_VOCAL_SUBSTEMS]) {
           if (nextEntry.stems[stemName]) {
             sidecarStems[stemName] = toPortablePath(fromPortablePath(nextEntry.stems[stemName], baseDir), sidecarDir);
           }
@@ -604,6 +622,8 @@ function saveBundleRecord({
           : null,
         stems: sidecarStems,
         stemMix: nextEntry.stemMix,
+        vocalMix: nextEntry.vocalMix,
+        lyricsOffsetSec: nextEntry.lyricsOffsetSec,
         audioUnlinked: nextEntry.audioUnlinked,
         sheetUnlinked: nextEntry.sheetUnlinked,
         youtubeUrl: nextEntry.youtubeUrl,
@@ -753,6 +773,7 @@ module.exports = {
   BACKING_AUDIO_EXTS,
   SHEET_REF_EXTS,
   STEM_NAMES,
+  OPTIONAL_VOCAL_SUBSTEMS,
   createDefaultStemMix,
   normalizeStemMix,
   isStemAudibleInMix,

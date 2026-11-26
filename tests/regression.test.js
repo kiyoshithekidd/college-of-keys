@@ -530,6 +530,21 @@ async function runUnitTests() {
 }
 
 app.whenReady().then(async () => {
+  const bundleStorePath = path.join(REPO_ROOT, 'grimoire_bundles.json');
+  const hadBundleStoreBefore = fs.existsSync(bundleStorePath);
+  const prevBundleStoreContent = hadBundleStoreBefore ? fs.readFileSync(bundleStorePath, 'utf8') : null;
+  const cleanupBundleStore = () => {
+    try {
+      if (hadBundleStoreBefore) {
+        fs.writeFileSync(bundleStorePath, prevBundleStoreContent, 'utf8');
+      } else if (fs.existsSync(bundleStorePath)) {
+        fs.unlinkSync(bundleStorePath);
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+  };
+
   const unitResults = await runUnitTests();
   const rendererErrors = [];
 
@@ -651,8 +666,86 @@ app.whenReady().then(async () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
       checks.escapeClosesCampaign = campaignModal.classList.contains('hidden');
 
+      // #158: .btn-audio-sync reserves its full pill width (> 40px) instead of overflowing a 20px .btn-icon box
+      const syncAnchor = document.getElementById('audio-sync-anchor');
+      const wasAnchorHidden = syncAnchor.classList.contains('hidden');
+      syncAnchor.classList.remove('hidden');
+      const syncBtnRect = document.getElementById('btn-audio-sync').getBoundingClientRect();
+      checks.audioSyncPillAutoWidth = syncBtnRect.width > 45 && Math.round(syncBtnRect.height) >= 20;
+      if (wasAnchorHidden) syncAnchor.classList.add('hidden');
+
+      // #159 & #160: Custom timed LRC word sweep (--word-fill-pct), ARIA announcer, Lyric Sync popover & Escape close
+      setExternalInstrumentSourceMode('vocal-mic');
+      spellSingingState.customLyricsBySongId[currentSong.songId] = '[00:00.20] <00:00.20> Sing <00:00.60> brave <00:01.00> bard';
+      ensureVocalChartForCurrentSong({ forceRebuild: true });
+      playbackState.currentTime = 0.4;
+      renderKaraokeFrame();
+      const activeWordSpan = document.querySelector('#karaoke-lyrics-current .karaoke-syl.active');
+      checks.karaokeWordSweepActive = Boolean(
+        activeWordSpan &&
+        activeWordSpan.style.getPropertyValue('--word-fill-pct').endsWith('%') &&
+        document.getElementById('karaoke-sr-announcer')?.textContent.includes('Sing brave bard')
+      );
+      document.getElementById('btn-karaoke-lyrics-sync').click();
+      checks.lyricsSyncPopoverOpens = !document.getElementById('karaoke-lyrics-sync-popover').classList.contains('hidden');
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      checks.escapeClosesLyricsSync = document.getElementById('karaoke-lyrics-sync-popover').classList.contains('hidden');
+      delete spellSingingState.customLyricsBySongId[currentSong.songId];
+      ensureVocalChartForCurrentSong({ forceRebuild: true });
+
+      // #161 & #166: Vocal Lead Highway swaps Bar 2 Practice dropdown for #btn-vocal-mix-bar (disabled on MIDI-only songs),
+      // syncs Lead/Harmony state, handles discrete vocals_lead/vocals_backing without vocals.wav, and runs syncBackingAudioElement cleanly!
       setExternalInstrumentSourceMode('midi-piano');
-      checks.restoredHighway = stageViewMode === 'highway';
+      assignSongTracksAndDifficulty('instrument-vocals');
+      checks.vocalHighwaySwapsPracticeForVocalMix = Boolean(
+        document.getElementById('practice-hand-control-group').classList.contains('hidden') &&
+        !document.getElementById('btn-vocal-mix-bar').classList.contains('hidden') &&
+        document.getElementById('btn-vocal-mix-bar').disabled === true
+      );
+      updateCurrentSongVocalMix({ leadVolume: 0.4, harmoniesEnabled: false });
+      checks.vocalMixControlsSynced = Boolean(
+        document.getElementById('karaoke-lead-vocal-readout').textContent === '40%' &&
+        document.getElementById('vocal-mix-bar-pct').textContent === '40%' &&
+        document.getElementById('vocal-mix-bar-harm').textContent === 'Harm OFF'
+      );
+
+      // Exercise multi-stem syncBackingAudioElement + discrete vocals_lead/vocals_backing without combined vocals.wav (#166)
+      const prevStems = currentSong.stems;
+      const prevStemEls = currentSong.stemAudioEls;
+      const makeMockAudio = () => ({
+        muted: false,
+        volume: 1,
+        paused: true,
+        currentTime: 0,
+        duration: 10,
+        playbackRate: 1,
+        preservesPitch: true,
+        webkitPreservesPitch: true,
+        play: () => Promise.resolve(),
+        pause: () => {}
+      });
+      currentSong.stems = { vocals_lead: 'lead.wav', vocals_backing: 'back.wav' };
+      currentSong.stemAudioEls = { vocals_lead: makeMockAudio(), vocals_backing: makeMockAudio() };
+      applyCurrentStemMixToAudioElements();
+      checks.discreteVocalStemsWithoutCombinedWork = Boolean(
+        currentSong.stemAudioEls.vocals_lead.muted === false &&
+        currentSong.stemAudioEls.vocals_backing.muted === true
+      );
+      let multiStemSyncOk = false;
+      try {
+        playbackState.isPlaying = true;
+        syncBackingAudioElement(1.0);
+        multiStemSyncOk = true;
+      } finally {
+        playbackState.isPlaying = false;
+        currentSong.stems = prevStems;
+        currentSong.stemAudioEls = prevStemEls;
+      }
+      checks.multiStemSyncNoReferenceError = multiStemSyncOk;
+
+      updateCurrentSongVocalMix({ leadVolume: 0.25, harmoniesEnabled: true });
+      assignSongTracksAndDifficulty('auto-piano');
+      checks.restoredHighway = stageViewMode === 'highway' && !document.getElementById('practice-hand-control-group').classList.contains('hidden');
 
       return checks;
     })();
@@ -670,6 +763,11 @@ app.whenReady().then(async () => {
 
   const failedUnits = unitResults.filter((u) => !u.ok);
   const allDomTrue = Object.entries(domChecks).every(([k, v]) => (k === 'pianoKeyCount' ? v === 61 : v === true));
+
+  // Issue #166: Restore grimoire_bundles.json if created solely by the test run so git status stays clean
+  if (typeof cleanupBundleStore === 'function') {
+    cleanupBundleStore();
+  }
 
   app.exit(failedUnits.length === 0 && allDomTrue && rendererErrors.length === 0 ? 0 : 1);
 }).catch((err) => {

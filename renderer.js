@@ -77,6 +77,7 @@ const {
 const {
   BUNDLE_STORE_FILENAME,
   STEM_NAMES,
+  OPTIONAL_VOCAL_SUBSTEMS,
   createDefaultStemMix,
   normalizeStemMix,
   isStemAudibleInMix,
@@ -109,11 +110,22 @@ const {
 const {
   parseLrcText,
   findSiblingLrcPath,
+  computeAutoAlignLyricsOffset,
   buildVocalChart,
   calcVocalPitchDistance,
   createVocalSessionScorer,
   renderSpellSingingStage
 } = require('./spell-singing');
+const {
+  fetchLrclibLyrics,
+  saveLrcNextToSong
+} = require('./lyrics-fetcher');
+const {
+  normalizeVocalMix,
+  clampLyricsOffsetSec,
+  computeVocalMixMatrixGains,
+  createMidSideVocalProcessor
+} = require('./vocal-harmony-dsp');
 
 const MIN_MIDI = 36; // C2
 const MAX_MIDI = 96; // C7
@@ -1378,6 +1390,14 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
       // Ignore audio cleanup errors
     }
   }
+  if (currentSong?.midSideVocalProcessor) {
+    try {
+      currentSong.midSideVocalProcessor.disconnect();
+    } catch {
+      // Ignore Web Audio teardown errors
+    }
+    currentSong.midSideVocalProcessor = null;
+  }
   if (currentSong?.stemAudioEls) {
     for (const stEl of Object.values(currentSong.stemAudioEls)) {
       if (!stEl) continue;
@@ -1428,13 +1448,15 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     }
   }
 
-  // Issue #41: Load 6-stem audio elements if separated stems exist for this song bundle
+  // Issue #41 & #161: Load 6-stem audio elements (+ optional vocals_lead / vocals_backing AI sub-stems)
   const stems = bundle.stems && typeof bundle.stems === 'object' ? { ...bundle.stems } : null;
   const stemMix = normalizeStemMix(bundle.stemMix);
+  const vocalMix = normalizeVocalMix(bundle.vocalMix);
+  const lyricsOffsetSec = clampLyricsOffsetSec(bundle.lyricsOffsetSec ?? 0);
   const stemAudioEls = {};
   if (stems) {
     const initialVol = getBackingAudioVolumeFromSlider();
-    for (const stemName of STEM_NAMES) {
+    for (const stemName of [...STEM_NAMES, ...OPTIONAL_VOCAL_SUBSTEMS]) {
       const stemPath = stems[stemName];
       if (!stemPath || !fs.existsSync(stemPath)) continue;
       try {
@@ -1443,7 +1465,10 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
         stEl.preservesPitch = true;
         stEl.webkitPreservesPitch = true;
         stEl.volume = initialVol;
-        stEl.muted = !isStemAudibleInMix(stemName, stemMix, playbackState.backingBandEnabled);
+        const isVocalSub = OPTIONAL_VOCAL_SUBSTEMS.includes(stemName);
+        stEl.muted = isVocalSub
+          ? !isStemAudibleInMix('vocals', stemMix, playbackState.backingBandEnabled)
+          : !isStemAudibleInMix(stemName, stemMix, playbackState.backingBandEnabled);
         stEl.addEventListener('error', () => {
           if (stEl._disposed) return;
         });
@@ -1504,6 +1529,9 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     backingAudioEl,
     stems: Object.keys(stemAudioEls).length > 0 ? stems : null,
     stemMix,
+    vocalMix,
+    lyricsOffsetSec,
+    midSideVocalProcessor: null,
     stemAudioEls,
     sheetMusicPath: bundle.sheetMusicPath || null,
     youtubeUrl: bundle.youtubeUrl || null,
@@ -1724,13 +1752,13 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano', { autoSyncStemMute =
     }
   }
 
-  // Issue #42: When switching Instrument Highway on a multi-stem bundle, auto-mute the chosen instrument's stem
-  // so the player performs that instrument live over the remaining real audio stems!
+  // Issue #42 & #161: When switching Instrument Highway on a multi-stem bundle, auto-mute the chosen instrument's stem
+  // (except 'vocals', where Lead Vocal % & Harmonies ON/OFF provide granular Apple Music Sing control).
   if (autoSyncStemMute && currentSong.stems && currentSong.stemMix) {
     const nextMix = {};
     for (const stName of STEM_NAMES) {
       nextMix[stName] = {
-        muted: stName === activeInstrumentId,
+        muted: stName === activeInstrumentId && activeInstrumentId !== 'vocals',
         solo: false
       };
     }
@@ -1744,6 +1772,9 @@ function assignSongTracksAndDifficulty(mode = 'auto-piano', { autoSyncStemMute =
     if (typeof updateAudioSyncUI === 'function') {
       updateAudioSyncUI();
     }
+  }
+  if (typeof syncVocalMixUI === 'function') {
+    syncVocalMixUI();
   }
 
   const cleanupEnabled = isEffectiveMidiCleanupEnabled(currentSong);
@@ -1940,6 +1971,12 @@ function setStageViewMode(mode, { announceToast = false } = {}) {
     if (typeof updateKaraokeHudStats === 'function') {
       updateKaraokeHudStats();
     }
+  }
+  if (typeof applyCurrentStemMixToAudioElements === 'function') {
+    applyCurrentStemMixToAudioElements();
+  }
+  if (typeof syncVocalMixUI === 'function') {
+    syncVocalMixUI();
   }
 
   updateNotationQualityBanner();
@@ -4500,6 +4537,8 @@ function persistCurrentSongCalibration() {
         backingAudioPath: currentSong.backingAudioPath || undefined,
         stems: currentSong.stems || undefined,
         stemMix: currentSong.stemMix || undefined,
+        vocalMix: currentSong.vocalMix || undefined,
+        lyricsOffsetSec: clampLyricsOffsetSec(currentSong.lyricsOffsetSec ?? 0),
         youtubeUrl: currentSong.youtubeUrl || undefined,
         spotifyUrl: currentSong.spotifyUrl || undefined,
         audioOffsetSec: currentSong.audioOffsetSec ?? 0,
@@ -4557,9 +4596,65 @@ function applyCurrentStemMixToAudioElements() {
   if (!currentSong?.stemAudioEls) return;
   const mix = normalizeStemMix(currentSong.stemMix);
   currentSong.stemMix = mix;
+  const vMix = normalizeVocalMix(currentSong.vocalMix);
+  currentSong.vocalMix = vMix;
   const vol = getBackingAudioVolumeFromSlider();
+
+  const hasDiscreteVocalStems = Boolean(
+    currentSong.stemAudioEls.vocals_lead && currentSong.stemAudioEls.vocals_backing
+  );
+  const isVocalModeActive = stageViewMode === 'karaoke' || currentSong.activeHighwayInstrument === 'vocals';
+  const vocalStemAudible = isStemAudibleInMix('vocals', mix, playbackState.backingBandEnabled);
+
   for (const stemName of STEM_NAMES) {
     const stEl = currentSong.stemAudioEls[stemName];
+
+    if (stemName === 'vocals') {
+      if (hasDiscreteVocalStems) {
+        // Discrete AI Lead + Backing stems drive the voice; mute combined vocals.wav if present
+        if (stEl) stEl.muted = true;
+        const gains = computeVocalMixMatrixGains({
+          leadVolume: isVocalModeActive ? vMix.leadVolume : 1.0,
+          harmoniesEnabled: isVocalModeActive ? vMix.harmoniesEnabled : true,
+          masterVolume: vol,
+          backingBandEnabled: playbackState.backingBandEnabled,
+          vocalStemAudible
+        });
+        const leadEl = currentSong.stemAudioEls.vocals_lead;
+        const backEl = currentSong.stemAudioEls.vocals_backing;
+        leadEl.volume = gains.discreteLeadGain;
+        leadEl.muted = !vocalStemAudible || gains.discreteLeadGain <= 0.001;
+        backEl.volume = gains.discreteBackingGain;
+        backEl.muted = !vocalStemAudible || gains.discreteBackingGain <= 0.001;
+        continue;
+      }
+      if (!stEl) continue;
+
+      // Single stereo vocals.wav stem: apply Lead Vocal % & Harmonies ON/OFF via Stereo Mid/Side Matrix
+      const effectiveLead = isVocalModeActive ? vMix.leadVolume : 1.0;
+      const effectiveHarm = isVocalModeActive ? vMix.harmoniesEnabled : true;
+      const gains = computeVocalMixMatrixGains({
+        leadVolume: effectiveLead,
+        harmoniesEnabled: effectiveHarm,
+        masterVolume: vol,
+        backingBandEnabled: playbackState.backingBandEnabled,
+        vocalStemAudible
+      });
+      const needsMatrix = isVocalModeActive && (effectiveLead < 0.99 || !effectiveHarm);
+      if (needsMatrix && !currentSong.midSideVocalProcessor && typeof Tone !== 'undefined' && Tone.context?.rawContext) {
+        currentSong.midSideVocalProcessor = createMidSideVocalProcessor(Tone.context.rawContext, stEl);
+      }
+      if (currentSong.midSideVocalProcessor) {
+        stEl.volume = 1.0;
+        stEl.muted = !vocalStemAudible || (gains.midGain <= 0.001 && gains.sideGain <= 0.001);
+        currentSong.midSideVocalProcessor.updateGains(gains.midGain, gains.sideGain);
+      } else {
+        stEl.volume = gains.discreteLeadGain;
+        stEl.muted = !vocalStemAudible || gains.discreteLeadGain <= 0.001;
+      }
+      continue;
+    }
+
     if (!stEl) continue;
     stEl.volume = vol;
     stEl.muted = !isStemAudibleInMix(stemName, mix, playbackState.backingBandEnabled);
@@ -4708,6 +4803,9 @@ function updateAudioSyncUI(customHint = null) {
   }
 
   renderStemMixerUI();
+  if (typeof syncVocalMixUI === 'function') {
+    syncVocalMixUI();
+  }
 
   const off = clampAudioOffsetSec(currentSong.audioOffsetSec || 0);
   const ratio = clampAudioTempoRatio(currentSong.audioTempoRatio ?? 1.0);
@@ -5019,9 +5117,47 @@ function syncBackingAudioElement(currentTime = playbackState.currentTime) {
       currentSong.backingAudioEl.pause();
     }
     const mix = currentSong.stemMix || normalizeStemMix(null);
+    const vMix = normalizeVocalMix(currentSong.vocalMix);
+    const hasDiscreteVocalStems = Boolean(
+      currentSong.stemAudioEls.vocals_lead && currentSong.stemAudioEls.vocals_backing
+    );
+    const isVocalModeActive = stageViewMode === 'karaoke' || currentSong.activeHighwayInstrument === 'vocals';
+    const vocalStemAudible = isStemAudibleInMix('vocals', mix, playbackState.backingBandEnabled);
+    const vocalGains = computeVocalMixMatrixGains({
+      leadVolume: isVocalModeActive ? vMix.leadVolume : 1.0,
+      harmoniesEnabled: isVocalModeActive ? vMix.harmoniesEnabled : true,
+      masterVolume: 1.0,
+      backingBandEnabled: playbackState.backingBandEnabled,
+      vocalStemAudible
+    });
+
+    const stemsPlaying =
+      playbackState.isPlaying &&
+      playbackState.backingBandEnabled &&
+      !playbackState.isWaitingForStrike &&
+      !mapped.isBeforeAudioStart &&
+      currentTime < currentSong.duration;
+
+    if (stemsPlaying && currentSong.midSideVocalProcessor && typeof currentSong.midSideVocalProcessor.resumeContext === 'function') {
+      currentSong.midSideVocalProcessor.resumeContext();
+    }
+
     for (const [stemName, stEl] of stemEntries) {
-      const audible = isStemAudibleInMix(stemName, mix, playbackState.backingBandEnabled);
-      syncSingleAudioEl(stEl, false, !audible);
+      let forceMute = false;
+      if (stemName === 'vocals') {
+        if (hasDiscreteVocalStems) {
+          forceMute = true;
+        } else {
+          forceMute = !vocalStemAudible || (vocalGains.midGain <= 0.001 && vocalGains.sideGain <= 0.001);
+        }
+      } else if (stemName === 'vocals_lead') {
+        forceMute = !vocalStemAudible || vocalGains.discreteLeadGain <= 0.001;
+      } else if (stemName === 'vocals_backing') {
+        forceMute = !vocalStemAudible || vocalGains.discreteBackingGain <= 0.001;
+      } else {
+        forceMute = !isStemAudibleInMix(stemName, mix, playbackState.backingBandEnabled);
+      }
+      syncSingleAudioEl(stEl, false, forceMute);
     }
   } else if (currentSong.backingAudioEl) {
     syncSingleAudioEl(currentSong.backingAudioEl, false, false);
@@ -7245,6 +7381,14 @@ function unloadCurrentSongToEmptyState() {
       // Ignore audio cleanup errors
     }
   }
+  if (currentSong?.midSideVocalProcessor) {
+    try {
+      currentSong.midSideVocalProcessor.disconnect();
+    } catch {
+      // Ignore Web Audio teardown errors
+    }
+    currentSong.midSideVocalProcessor = null;
+  }
   if (currentSong?.stemAudioEls) {
     for (const stEl of Object.values(currentSong.stemAudioEls)) {
       if (!stEl) continue;
@@ -8642,12 +8786,14 @@ const btnLyricPasteApply = document.getElementById('btn-lyric-paste-apply');
 const spellSingingState = {
   songId: null,
   vocalChart: null,
+  rawLrcLines: [],
   scorer: null,
   customLyricsBySongId: (bardProfile && bardProfile.customLyricsBySongId && typeof bardProfile.customLyricsBySongId === 'object')
     ? { ...bardProfile.customLyricsBySongId }
     : {},
   octaveAgnostic: true,
   lastTeleprompterKey: '',
+  lastAnnouncedPhraseIdx: -1,
   micGuardReport: { micCount: 0, headphonesDetected: false, noMicWarning: false, bleedWarning: false }
 };
 
@@ -8722,16 +8868,23 @@ function ensureVocalChartForCurrentSong({ forceRebuild = false } = {}) {
     musicXmlLyrics,
     lrcLines,
     customLyricsText,
-    fallbackMode: 'solfege'
+    lyricsOffsetSec: currentSong.lyricsOffsetSec || 0,
+    fallbackMode: 'solfege',
+    simplifyVocalTrack: true
   });
 
   spellSingingState.songId = currentSong.songId;
   spellSingingState.vocalChart = chart;
+  spellSingingState.rawLrcLines = lrcLines;
   spellSingingState.scorer = createVocalSessionScorer(chart, {
     octaveAgnostic: spellSingingState.octaveAgnostic
   });
   spellSingingState.lastTeleprompterKey = '';
+  spellSingingState.lastAnnouncedPhraseIdx = -1;
   updateKaraokeHudStats();
+  if (typeof syncVocalMixUI === 'function') {
+    syncVocalMixUI();
+  }
   return chart;
 }
 
@@ -8774,9 +8927,30 @@ function updateKaraokeHudStats() {
   }
 }
 
+const karaokeLyricSourcePillEl = document.getElementById('karaoke-lyric-source-pill');
+const karaokeSrAnnouncerEl = document.getElementById('karaoke-sr-announcer');
+
 function updateKaraokeTeleprompter(songTime) {
   if (!karaokeLyricsCurrentEl || !karaokeLyricsNextEl || !spellSingingState.scorer) return;
   const chart = spellSingingState.vocalChart;
+  const sourcePill = karaokeLyricSourcePillEl;
+  const srAnnouncer = karaokeSrAnnouncerEl;
+
+  if (sourcePill && chart) {
+    const srcLabels = {
+      'lrclib-word': 'Word-Synced • LRCLIB',
+      'lrc': 'Line-Synced • .LRC',
+      'musicxml': 'Score Lyrics • MusicXML',
+      'custom-lyrics': chart.hasWordSync ? 'Word-Synced • Custom' : 'Custom Lyrics',
+      'fallback': 'Melodic Guide • Click Fetch Lyrics'
+    };
+    const nextLabel = srcLabels[chart.lyricSource] || '';
+    if (sourcePill.textContent !== nextLabel) {
+      sourcePill.textContent = nextLabel;
+      sourcePill.classList.toggle('hidden', !nextLabel);
+    }
+  }
+
   if (!chart || !chart.phrases || chart.phrases.length === 0) {
     karaokeLyricsCurrentEl.textContent = 'Load a song with melody or lyrics to begin Spell-Singing…';
     karaokeLyricsNextEl.textContent = '';
@@ -8793,38 +8967,58 @@ function updateKaraokeTeleprompter(songTime) {
     return;
   }
 
-  // Build progressive syllable highlight key to avoid redundant DOM rebuilds
-  let activeNoteIdx = -1;
-  let sungCount = 0;
-  for (let i = 0; i < curPhrase.notes.length; i++) {
-    const n = curPhrase.notes[i];
-    if (songTime > n.endTime) {
-      sungCount++;
-    } else if (songTime >= n.time && songTime <= n.endTime) {
-      activeNoteIdx = i;
+  if (srAnnouncer && spellSingingState.lastAnnouncedPhraseIdx !== currentIdx) {
+    spellSingingState.lastAnnouncedPhraseIdx = currentIdx;
+    srAnnouncer.textContent = curPhrase.text || '';
+  }
+
+  const words = Array.isArray(curPhrase.words) && curPhrase.words.length > 0
+    ? curPhrase.words
+    : curPhrase.notes.map((n, idx, arr) => {
+        const prev = idx > 0 ? arr[idx - 1] : null;
+        const prevCont = prev && (prev.syllabic === 'begin' || prev.syllabic === 'middle');
+        return { text: n.lyric || '', startTime: n.time, endTime: n.endTime, noLeadingSpace: Boolean(prevCont) };
+      });
+
+  // Rebuild phrase spans only when phrase index changes
+  const phraseKey = `${currentIdx}:${nextIdx}:${words.length}`;
+  if (spellSingingState.lastTeleprompterKey !== phraseKey) {
+    spellSingingState.lastTeleprompterKey = phraseKey;
+    karaokeLyricsCurrentEl.innerHTML = '';
+    words.forEach((w, idx) => {
+      const span = document.createElement('span');
+      span.className = 'karaoke-syl';
+      const prefix = idx > 0 && !w.noLeadingSpace ? ' ' : '';
+      span.textContent = `${prefix}${w.text || ''}`;
+      karaokeLyricsCurrentEl.appendChild(span);
+    });
+    karaokeLyricsNextEl.textContent = nextPhrase ? nextPhrase.text : '✨ Final phrase — finish strong!';
+  }
+
+  // Smooth Apple Music Sing intra-word gold gradient fill sweep (dirty-checked to avoid paused style churn)
+  const spans = karaokeLyricsCurrentEl.children;
+  for (let i = 0; i < words.length && i < spans.length; i++) {
+    const w = words[i];
+    const span = spans[i];
+    if (songTime > w.endTime) {
+      if (!span.classList.contains('sung')) {
+        span.classList.remove('active');
+        span.classList.add('sung');
+        delete span.dataset.fillPct;
+      }
+    } else if (songTime >= w.startTime) {
+      const pctStr = `${Math.max(0, Math.min(100, Math.round(((songTime - w.startTime) / Math.max(0.05, w.endTime - w.startTime)) * 100)))}%`;
+      span.classList.remove('sung');
+      if (!span.classList.contains('active')) span.classList.add('active');
+      if (span.dataset.fillPct !== pctStr) {
+        span.dataset.fillPct = pctStr;
+        span.style.setProperty('--word-fill-pct', pctStr);
+      }
+    } else if (span.classList.contains('active') || span.classList.contains('sung')) {
+      span.classList.remove('active', 'sung');
+      delete span.dataset.fillPct;
     }
   }
-  const renderKey = `${currentIdx}:${sungCount}:${activeNoteIdx}:${nextIdx}`;
-  if (renderKey === spellSingingState.lastTeleprompterKey) return;
-  spellSingingState.lastTeleprompterKey = renderKey;
-
-  karaokeLyricsCurrentEl.innerHTML = '';
-  curPhrase.notes.forEach((n, idx) => {
-    const span = document.createElement('span');
-    span.className = 'karaoke-syl';
-    if (idx === activeNoteIdx) {
-      span.classList.add('active');
-    } else if (songTime > n.endTime) {
-      span.classList.add('sung');
-    }
-    const prev = idx > 0 ? curPhrase.notes[idx - 1] : null;
-    const prevContinues = prev && (prev.syllabic === 'begin' || prev.syllabic === 'middle');
-    const prefix = idx > 0 && !prevContinues ? ' ' : '';
-    span.textContent = `${prefix}${n.lyric || ''}`;
-    karaokeLyricsCurrentEl.appendChild(span);
-  });
-
-  karaokeLyricsNextEl.textContent = nextPhrase ? nextPhrase.text : '✨ Final phrase — finish strong!';
 }
 
 function renderKaraokeFrame() {
@@ -9211,6 +9405,303 @@ if (btnLyricPasteApply && lyricPasteModal) {
   });
 }
 
+// ============================================================================
+// ISSUES #159 & #161: AUTO-FETCH LYRICS, LYRIC TIMING SYNC & VOCAL MIX CONTROLS
+// ============================================================================
+
+function syncVocalMixUI() {
+  const vMix = normalizeVocalMix(currentSong?.vocalMix);
+  const pct = Math.round(vMix.leadVolume * 100);
+  const harmOn = Boolean(vMix.harmoniesEnabled);
+  const pctLabel = pct === 0 ? 'Mute' : `${pct}%`;
+  const longPctLabel = pct === 0 ? '0% Mute' : pct === 25 ? '25% Guide' : `${pct}%`;
+
+  const karaokeSlider = document.getElementById('karaoke-lead-vocal-slider');
+  const karaokeReadout = document.getElementById('karaoke-lead-vocal-readout');
+  const karaokeMuteBtn = document.getElementById('btn-karaoke-lead-mute');
+  const karaokeHarmBtn = document.getElementById('btn-karaoke-harmonies-toggle');
+  const vocalMixPopSection = document.getElementById('vocal-mix-popover-section');
+  const syncSlider = document.getElementById('sync-lead-vocal-slider');
+  const syncReadout = document.getElementById('sync-lead-vocal-readout');
+  const syncHarmBtn = document.getElementById('btn-sync-harmonies-toggle');
+  const syncModeHint = document.getElementById('sync-vocal-mode-hint');
+  const practiceHandGroup = document.getElementById('practice-hand-control-group');
+  const vocalMixBarBtn = document.getElementById('btn-vocal-mix-bar');
+  const vocalMixBarPct = document.getElementById('vocal-mix-bar-pct');
+  const vocalMixBarHarm = document.getElementById('vocal-mix-bar-harm');
+
+  if (karaokeSlider) {
+    karaokeSlider.value = String(pct);
+    karaokeSlider.setAttribute('aria-valuetext', longPctLabel);
+  }
+  if (karaokeReadout) karaokeReadout.textContent = pctLabel;
+  if (karaokeHarmBtn) {
+    karaokeHarmBtn.classList.toggle('active', harmOn);
+    karaokeHarmBtn.setAttribute('aria-pressed', harmOn ? 'true' : 'false');
+    karaokeHarmBtn.textContent = harmOn ? '✨ Harm' : '🔇 Harm';
+  }
+  if (syncSlider) {
+    syncSlider.value = String(pct);
+    syncSlider.setAttribute('aria-valuetext', longPctLabel);
+  }
+  if (syncReadout) syncReadout.textContent = longPctLabel;
+  if (syncHarmBtn) {
+    syncHarmBtn.classList.toggle('active', harmOn);
+    syncHarmBtn.setAttribute('aria-pressed', harmOn ? 'true' : 'false');
+    syncHarmBtn.textContent = harmOn ? '✨ Harmonies: ON' : '🔇 Harmonies: OFF';
+  }
+
+  const hasDiscrete = Boolean(currentSong?.stemAudioEls?.vocals_lead && currentSong?.stemAudioEls?.vocals_backing);
+  const hasVocalsStem = Boolean(currentSong?.stemAudioEls?.vocals);
+  const hasVocalAudioControl = hasDiscrete || hasVocalsStem;
+  const isVocalContext = stageViewMode === 'karaoke' || currentSong?.activeHighwayInstrument === 'vocals';
+
+  if (vocalMixPopSection) {
+    vocalMixPopSection.classList.toggle('hidden', !hasVocalAudioControl && !isVocalContext);
+  }
+  for (const ctrl of [
+    karaokeSlider,
+    karaokeMuteBtn,
+    karaokeHarmBtn,
+    syncSlider,
+    syncHarmBtn,
+    document.getElementById('btn-vocal-preset-mute'),
+    document.getElementById('btn-vocal-preset-guide'),
+    document.getElementById('btn-vocal-preset-full')
+  ]) {
+    if (ctrl) ctrl.disabled = !hasVocalAudioControl;
+  }
+  if (karaokeSlider) {
+    karaokeSlider.title = hasVocalAudioControl
+      ? 'Lead Vocal Guide Volume (0% Mute to 100% Full)'
+      : 'Import with 6-Stem Separation to adjust Lead Vocal volume';
+  }
+  if (syncModeHint) {
+    syncModeHint.textContent = hasDiscrete
+      ? 'Studio AI Lead + Backing Harmony stems active.'
+      : hasVocalsStem
+        ? 'Stereo Mid/Side Matrix active on vocals stem.'
+        : 'Import with 6-Stem Separation to isolate Lead & Harmony vocals.';
+  }
+
+  // Bar 2: swap piano-only RH/LH Practice dropdown for compact Vocal Mix pill when Vocal Lead Highway is active
+  const isVocalHighway = currentSong?.activeHighwayInstrument === 'vocals';
+  if (practiceHandGroup) practiceHandGroup.classList.toggle('hidden', isVocalHighway);
+  if (vocalMixBarBtn) {
+    vocalMixBarBtn.classList.toggle('hidden', !isVocalHighway);
+    vocalMixBarBtn.disabled = !hasVocalAudioControl;
+    vocalMixBarBtn.title = hasVocalAudioControl
+      ? 'Adjust Lead Vocal Guide Volume & Backing Harmonies'
+      : 'Import with 6-Stem Separation to adjust Lead Vocal & Harmonies';
+  }
+  if (vocalMixBarPct) vocalMixBarPct.textContent = pctLabel;
+  if (vocalMixBarHarm) vocalMixBarHarm.textContent = harmOn ? 'Harm ON' : 'Harm OFF';
+
+  // Lyric timing offset readouts
+  const lyOff = clampLyricsOffsetSec(currentSong?.lyricsOffsetSec ?? 0);
+  const lyStr = `${lyOff >= 0 ? '+' : ''}${lyOff.toFixed(1)}s`;
+  const lyStrLong = `${lyOff >= 0 ? '+' : ''}${lyOff.toFixed(2)}s`;
+  const badgeEl = document.getElementById('karaoke-lyrics-offset-badge');
+  const popReadout = document.getElementById('lyrics-sync-offset-readout');
+  if (badgeEl) badgeEl.textContent = lyStr;
+  if (popReadout) popReadout.textContent = lyStrLong;
+}
+
+function updateCurrentSongVocalMix(patch = {}) {
+  if (!currentSong) return;
+  const cur = normalizeVocalMix(currentSong.vocalMix);
+  currentSong.vocalMix = normalizeVocalMix({ ...cur, ...patch });
+  applyCurrentStemMixToAudioElements();
+  persistCurrentSongCalibration();
+  syncVocalMixUI();
+}
+
+function updateCurrentSongLyricsOffset(nextOffsetSec) {
+  if (!currentSong) return;
+  currentSong.lyricsOffsetSec = clampLyricsOffsetSec(nextOffsetSec);
+  persistCurrentSongCalibration();
+  ensureVocalChartForCurrentSong({ forceRebuild: true });
+  renderKaraokeFrame();
+  syncVocalMixUI();
+}
+
+const karaokeLeadSliderEl = document.getElementById('karaoke-lead-vocal-slider');
+const syncLeadSliderEl = document.getElementById('sync-lead-vocal-slider');
+const btnKaraokeLeadMute = document.getElementById('btn-karaoke-lead-mute');
+const btnKaraokeHarmoniesToggle = document.getElementById('btn-karaoke-harmonies-toggle');
+const btnSyncHarmoniesToggle = document.getElementById('btn-sync-harmonies-toggle');
+const btnVocalPresetMute = document.getElementById('btn-vocal-preset-mute');
+const btnVocalPresetGuide = document.getElementById('btn-vocal-preset-guide');
+const btnVocalPresetFull = document.getElementById('btn-vocal-preset-full');
+const btnVocalMixBar = document.getElementById('btn-vocal-mix-bar');
+
+if (karaokeLeadSliderEl) {
+  karaokeLeadSliderEl.addEventListener('input', (e) => {
+    updateCurrentSongVocalMix({ leadVolume: Number(e.target.value) / 100 });
+  });
+}
+if (syncLeadSliderEl) {
+  syncLeadSliderEl.addEventListener('input', (e) => {
+    updateCurrentSongVocalMix({ leadVolume: Number(e.target.value) / 100 });
+  });
+}
+if (btnKaraokeLeadMute) {
+  btnKaraokeLeadMute.addEventListener('click', () => {
+    const cur = normalizeVocalMix(currentSong?.vocalMix);
+    updateCurrentSongVocalMix({ leadVolume: cur.leadVolume > 0.01 ? 0 : 0.25 });
+  });
+}
+if (btnKaraokeHarmoniesToggle) {
+  btnKaraokeHarmoniesToggle.addEventListener('click', () => {
+    const cur = normalizeVocalMix(currentSong?.vocalMix);
+    updateCurrentSongVocalMix({ harmoniesEnabled: !cur.harmoniesEnabled });
+  });
+}
+if (btnSyncHarmoniesToggle) {
+  btnSyncHarmoniesToggle.addEventListener('click', () => {
+    const cur = normalizeVocalMix(currentSong?.vocalMix);
+    updateCurrentSongVocalMix({ harmoniesEnabled: !cur.harmoniesEnabled });
+  });
+}
+if (btnVocalPresetMute) btnVocalPresetMute.addEventListener('click', () => updateCurrentSongVocalMix({ leadVolume: 0 }));
+if (btnVocalPresetGuide) btnVocalPresetGuide.addEventListener('click', () => updateCurrentSongVocalMix({ leadVolume: 0.25 }));
+if (btnVocalPresetFull) btnVocalPresetFull.addEventListener('click', () => updateCurrentSongVocalMix({ leadVolume: 1.0 }));
+if (btnVocalMixBar) {
+  btnVocalMixBar.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (btnVocalMixBar.disabled) return;
+    if (audioSyncPopover) {
+      const opening = audioSyncPopover.classList.contains('hidden');
+      closeAllConservatoryPopovers();
+      if (opening) {
+        if (audioSyncAnchor) audioSyncAnchor.classList.remove('hidden');
+        audioSyncPopover.classList.remove('hidden');
+        if (btnAudioSync) {
+          btnAudioSync.setAttribute('aria-expanded', 'true');
+          btnAudioSync.classList.add('active');
+        }
+        if (typeof updateAudioSyncUI === 'function') updateAudioSyncUI();
+        syncVocalMixUI();
+      }
+    }
+  });
+}
+
+// 1-Click Auto-Fetch Synced Lyrics from LRCLIB (#159, hardened #166)
+const btnKaraokeFetchLyrics = document.getElementById('btn-karaoke-fetch-lyrics');
+if (btnKaraokeFetchLyrics) {
+  btnKaraokeFetchLyrics.addEventListener('click', async () => {
+    if (!currentSong) {
+      showGrimoireToast('Load a song first before fetching lyrics.');
+      return;
+    }
+    const targetSongId = currentSong.songId;
+    const targetFilePath = currentSong.filePath;
+    const targetTitle = currentSong.title || currentSong.fileName || '';
+    const targetDuration = currentSong.duration || 0;
+
+    const origText = btnKaraokeFetchLyrics.textContent;
+    btnKaraokeFetchLyrics.disabled = true;
+    btnKaraokeFetchLyrics.setAttribute('aria-busy', 'true');
+    btnKaraokeFetchLyrics.textContent = '⏳ Fetching…';
+    try {
+      const res = await fetchLrclibLyrics({
+        title: targetTitle,
+        durationSec: targetDuration
+      });
+      // Bail out if user switched songs while LRCLIB request was in flight
+      if (!currentSong || currentSong.songId !== targetSongId) {
+        return;
+      }
+      if (!res || !res.lrcText) {
+        showGrimoireToast('No synced lyrics found on LRCLIB — try 📝 .LRC to paste lyrics manually.');
+        return;
+      }
+      const savedPath = saveLrcNextToSong(targetFilePath, res.lrcText);
+      if (!savedPath) {
+        spellSingingState.customLyricsBySongId[targetSongId] = res.lrcText;
+      } else {
+        delete spellSingingState.customLyricsBySongId[targetSongId];
+      }
+      bardProfile.customLyricsBySongId = { ...spellSingingState.customLyricsBySongId };
+      saveBardProfile();
+      ensureVocalChartForCurrentSong({ forceRebuild: true });
+      renderKaraokeFrame();
+      const kind = res.hasWordSync ? 'word-synced' : 'line-synced';
+      showGrimoireToast(`🎤 Loaded ${kind} lyrics for "${res.matchedTitle}" from LRCLIB!`);
+    } catch {
+      if (currentSong && currentSong.songId === targetSongId) {
+        showGrimoireToast('Could not reach LRCLIB — check internet connection or paste .LRC manually.');
+      }
+    } finally {
+      btnKaraokeFetchLyrics.disabled = false;
+      btnKaraokeFetchLyrics.setAttribute('aria-busy', 'false');
+      btnKaraokeFetchLyrics.textContent = origText;
+    }
+  });
+}
+
+// Lyric Timing Sync Popover & Auto-Align to First Vocal (#159)
+const btnKaraokeLyricsSync = document.getElementById('btn-karaoke-lyrics-sync');
+const karaokeLyricsSyncPopover = document.getElementById('karaoke-lyrics-sync-popover');
+const btnCloseLyricsSync = document.getElementById('btn-close-lyrics-sync');
+if (btnKaraokeLyricsSync && karaokeLyricsSyncPopover) {
+  btnKaraokeLyricsSync.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const opening = karaokeLyricsSyncPopover.classList.contains('hidden');
+    closeAllConservatoryPopovers();
+    if (opening) {
+      karaokeLyricsSyncPopover.classList.remove('hidden');
+      btnKaraokeLyricsSync.setAttribute('aria-expanded', 'true');
+      btnKaraokeLyricsSync.classList.add('active');
+      syncVocalMixUI();
+    }
+  });
+}
+if (btnCloseLyricsSync && karaokeLyricsSyncPopover) {
+  btnCloseLyricsSync.addEventListener('click', () => {
+    karaokeLyricsSyncPopover.classList.add('hidden');
+    if (btnKaraokeLyricsSync) {
+      btnKaraokeLyricsSync.setAttribute('aria-expanded', 'false');
+      btnKaraokeLyricsSync.classList.remove('active');
+      btnKaraokeLyricsSync.focus();
+    }
+  });
+}
+const bindLyricsStep = (id, delta) => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.addEventListener('click', () => {
+      updateCurrentSongLyricsOffset((currentSong?.lyricsOffsetSec || 0) + delta);
+    });
+  }
+};
+bindLyricsStep('btn-lyrics-offset-m500', -0.5);
+bindLyricsStep('btn-lyrics-offset-m100', -0.1);
+bindLyricsStep('btn-lyrics-offset-p100', 0.1);
+bindLyricsStep('btn-lyrics-offset-p500', 0.5);
+
+const btnLyricsOffsetReset = document.getElementById('btn-lyrics-offset-reset');
+if (btnLyricsOffsetReset) {
+  btnLyricsOffsetReset.addEventListener('click', () => updateCurrentSongLyricsOffset(0));
+}
+const btnLyricsAutoAlign = document.getElementById('btn-lyrics-auto-align');
+if (btnLyricsAutoAlign) {
+  btnLyricsAutoAlign.addEventListener('click', () => {
+    if (!currentSong || !spellSingingState.vocalChart) return;
+    const rawLrc = spellSingingState.rawLrcLines || [];
+    const customText = spellSingingState.customLyricsBySongId[currentSong.songId] || '';
+    const unshiftedLines = customText ? parseLrcText(customText, 0) : rawLrc;
+    if (!unshiftedLines.some((l) => l && Number.isFinite(l.time))) {
+      showGrimoireToast('Fetch or paste timestamped .LRC lyrics first before auto-aligning.');
+      return;
+    }
+    const nextOff = computeAutoAlignLyricsOffset(spellSingingState.vocalChart.notes, unshiftedLines);
+    updateCurrentSongLyricsOffset(nextOff);
+    showGrimoireToast(`⚡ Aligned lyrics to first vocal note (${nextOff >= 0 ? '+' : ''}${nextOff.toFixed(2)}s)!`);
+  });
+}
+
 function pollExternalInstrumentFrame() {
   if (externalInstrumentRig.audioListening && externalInstrumentRig.analyserNode && externalInstrumentRig.floatBuffer) {
     const nowPollMs = performance.now();
@@ -9507,7 +9998,8 @@ function closeAllConservatoryPopovers({ returnFocus = false } = {}) {
     [spellDetailsPopover, btnSpellDetails],
     [rehearsalPopover, btnRehearsalPopover],
     [audioSyncPopover, btnAudioSync],
-    [careerPopover, btnCareerPopover]
+    [careerPopover, btnCareerPopover],
+    [karaokeLyricsSyncPopover, btnKaraokeLyricsSync]
   ];
   let anyWasOpen = false;
   let focusTarget = null;
@@ -9830,9 +10322,7 @@ masterVolumeSlider.addEventListener('input', (e) => {
     currentSong.backingAudioEl.volume = backingVol;
   }
   if (currentSong?.stemAudioEls) {
-    for (const stEl of Object.values(currentSong.stemAudioEls)) {
-      if (stEl) stEl.volume = backingVol;
-    }
+    applyCurrentStemMixToAudioElements();
   }
   if (audioAuditionEl) {
     audioAuditionEl.volume = backingVol;
@@ -10725,7 +11215,16 @@ document.addEventListener('click', (e) => {
     !audioSyncPopover.classList.contains('hidden') &&
     !audioSyncPopover.contains(target) &&
     !(btnAudioSync && btnAudioSync.contains(target)) &&
-    !(btnSettingsOpenSync && btnSettingsOpenSync.contains(target))
+    !(btnSettingsOpenSync && btnSettingsOpenSync.contains(target)) &&
+    !(btnVocalMixBar && btnVocalMixBar.contains(target))
+  ) {
+    closeAllConservatoryPopovers();
+  }
+  if (
+    karaokeLyricsSyncPopover &&
+    !karaokeLyricsSyncPopover.classList.contains('hidden') &&
+    !karaokeLyricsSyncPopover.contains(target) &&
+    !(btnKaraokeLyricsSync && btnKaraokeLyricsSync.contains(target))
   ) {
     closeAllConservatoryPopovers();
   }

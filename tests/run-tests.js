@@ -1,14 +1,24 @@
 #!/usr/bin/env node
 /**
- * Cross-platform launcher for the College of Keys regression test suite (Issue #133).
- * Runs headless Electron under xvfb-run on Linux when DISPLAY is unset, or invokes Electron directly.
+ * Cross-platform launcher for the College of Keys regression test suite (Issues #133, #158-#161).
+ * 1. Runs Node unit tests (`tests/karaoke-and-lyrics.test.js`).
+ * 2. Runs headless Electron unit + BrowserWindow DOM tests (`tests/regression.test.js`) under xvfb-run on Linux when DISPLAY is unset.
  */
 const { spawnSync } = require('child_process');
 const path = require('path');
 
 const repoRoot = path.resolve(__dirname, '..');
+const nodeUnitTest = path.join(__dirname, 'karaoke-and-lyrics.test.js');
 const testEntry = path.join(__dirname, 'regression.test.js');
 const electronBin = require('electron');
+
+const nodeRes = spawnSync(process.execPath, ['--test', nodeUnitTest], {
+  cwd: repoRoot,
+  stdio: 'inherit'
+});
+if (nodeRes.status !== 0) {
+  process.exit(typeof nodeRes.status === 'number' ? nodeRes.status : 1);
+}
 
 const isHeadlessLinux = process.platform === 'linux' && !process.env.DISPLAY;
 

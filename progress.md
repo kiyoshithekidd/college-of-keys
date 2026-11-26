@@ -21,11 +21,16 @@ Last Updated: 2026-11-18
 - **Full-Codebase Bug Hunt — Bundle A (Live Gameplay, Input & UI Stability):** `#135`, `#136`, `#137`, `#142`, `#143`
 - **Full-Codebase Bug Hunt — Bundle B (Sheet Music, Notation & Song Data):** `#134` (VexFlow 5 dotted rests, transposed MusicXML per-measure key specs, `scoreId` transpose key, `invalidateMeasure` matching & lookahead alpha cache), `#140` (volta pass reset, multi-`direction-type` metronome, durationless whole-measure rests & multi-part sync, first-part concert key signature & staff `>= 3` preservation), `#141` (leading-`..` portable paths, cleared bundle field preservation, case-insensitive/songId key migration, finite MIDI folding, loop-based `minT`/`maxT` & accurate `chosenPlayableIndices`)
 - **Full-Codebase Bug Hunt — Bundle C (Python ML Pipelines — Transcription & OMR):** `#138` (Demucs `Popen` UTF-8 decoding & `finally` process cleanup, removal of 180s/240s audio truncation caps, full-mix fallback when isolated piano stem yields 0 notes, and strict `--no-backing` guard), `#139` (OMR top-level error reporting, resilient multi-page `ET.parse` stitching, `pypdfium2` resource cleanup, UTF-8 `subprocess.run`, `$1`/`$&`-safe XML title overrides, and renderer OMR playback pause, `error`/stale-`close` guards, Tavern hide & `beforeunload` child cleanup)
+- **Multi-Engine AI Transcription & Demucs + CREPE Full-Song Pipeline (`v1.5.0`–`v1.5.2`):** `#144`, `#145`, `#146`, `#150`–`#156`, responsive 2-row Bar 2 layout, and `#158` (`.btn-audio-sync` & text pill `.btn-icon` width/nowrap fix)
+- **Karaoke Suite Upgrade (Synced Lyrics, Sliding Vocal Highway & Vocal/Harmony Mix):** `#159` (`lyrics-fetcher.js` LRCLIB word/line sync, 3-tier Python `.lrc` cascade with LRCLIB + `.json3`/`.vtt` YouTube captions + optional `faster-whisper`, 1-click `🔍 Fetch Lyrics`, Lyric Timing Sync / Auto-Align & Apple Music word sweep), `#160` (`CREPE`/`pYIN` 170ms vibrato median smoothing in true vocal register, `simplifyVocalNotesForSinging()`, cubic Bezier glide ribbons & Warm Tavern stage palette), and `#161` (`vocal-harmony-dsp.js` Lead Vocal fader defaulting to 25% Guide, Keep Harmonies toggle, Web Audio Stereo Mid/Side matrix & optional UVR AI `vocals_lead`/`vocals_backing` split)
 
 ---
 
-## Remaining Open Backlog (1 Major Port)
+## Remaining Open Backlog
 
-1. **#23 — `[Backlog] Mobile iOS Port (iPad Mini)`** (`persona: returning-adult`)
+1. **#162 — `[Backlog] Grimoire Hall of Legends: Personal Records Board (Best Accuracy & Biggest XP)`** (`persona: gamer-bard`)
+2. **#163 — `[Backlog] Grimoire Audio Preview: 30-Second Listen Before You Load`** (`persona: returning-adult`, `persona: casual-player`)
+3. **#164 — `[Backlog] Fail State: Crowd Warning and Boo-Off (Tavern Crowd Meter Refinement)`** (`persona: rock-band`)
+4. **#23 — `[Backlog] Mobile iOS Port (iPad Mini)`** (`persona: returning-adult`)
 
 

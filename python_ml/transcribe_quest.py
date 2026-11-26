@@ -787,6 +787,110 @@ def separate_audio_into_4_stems_demucs(source_wav: Path, tmp_dir: Path):
     return None
 
 
+def _median_smooth_voiced_midi(midi_floats, voiced_mask, window_frames: int = 17):
+    """
+    Issue #160: Apply a vocal-specific sliding median filter (default 17 frames = 170ms at 10ms hop)
+    over voiced F0 frames so natural 5–7 Hz vocal vibrato smooths into steady Let's Sing pitch bars
+    without blurring across unvoiced breath gaps.
+    """
+    n = min(len(midi_floats), len(voiced_mask))
+    if n == 0 or window_frames <= 1:
+        return list(midi_floats[:n])
+    half = max(1, window_frames // 2)
+    out = [float("nan")] * n
+    for i in range(n):
+        if not bool(voiced_mask[i]):
+            continue
+        vals = []
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        for j in range(lo, hi):
+            if bool(voiced_mask[j]):
+                v = float(midi_floats[j])
+                if math.isfinite(v):
+                    vals.append(v)
+        if vals:
+            vals.sort()
+            mid = len(vals) // 2
+            out[i] = vals[mid] if len(vals) % 2 == 1 else 0.5 * (vals[mid - 1] + vals[mid])
+    return out
+
+
+def _postprocess_vocal_highway_notes(notes: list, fold_to_rh_piano: bool = False) -> list:
+    """
+    Issue #160: Clamp brief harmonic octave spikes, absorb ±1-semitone vibrato flickers,
+    and merge <95ms consonant/breath micro-gaps on matching pitches.
+    """
+    if not notes:
+        return []
+    low_bound = 60 if fold_to_rh_piano else 40   # E2=40..C6=84 true vocal range vs C4=60..C6=84 RH piano
+    high_bound = 84
+
+    working = []
+    prev_pitch = 67 if fold_to_rh_piano else None
+    for raw in notes:
+        p = int(raw["midi"])
+        while p < low_bound:
+            p += 12
+        while p > high_bound:
+            p -= 12
+        if prev_pitch is not None and abs(p - prev_pitch) >= 10:
+            if p - 12 >= low_bound and abs((p - 12) - prev_pitch) < abs(p - prev_pitch):
+                p -= 12
+            elif p + 12 <= high_bound and abs((p + 12) - prev_pitch) < abs(p - prev_pitch):
+                p += 12
+        seg = dict(raw)
+        seg["midi"] = p
+        seg["start"] = round(float(seg["start"]), 3)
+        seg["duration"] = round(max(0.08, float(seg["duration"])), 3)
+        working.append(seg)
+        prev_pitch = p
+
+    # Clamp isolated 1-note octave harmonic blips (<240ms) surrounded by stable neighbors
+    for i in range(1, len(working) - 1):
+        prv = working[i - 1]
+        cur = working[i]
+        nxt = working[i + 1]
+        diff = cur["midi"] - prv["midi"]
+        if abs(diff) >= 10 and cur["duration"] < 0.24 and abs(nxt["midi"] - prv["midi"]) <= 5:
+            shifted = cur["midi"] - 12 if diff > 0 else cur["midi"] + 12
+            if low_bound <= shifted <= high_bound and abs(shifted - prv["midi"]) < abs(diff):
+                cur["midi"] = shifted
+
+    # Merge tiny same-pitch gaps (<=95ms) and brief ±1-semitone vibrato wobbles (<140ms)
+    merged = []
+    for i, cur in enumerate(working):
+        if not merged:
+            merged.append(cur)
+            continue
+        prv = merged[-1]
+        prv_end = prv["start"] + prv["duration"]
+        gap = cur["start"] - prv_end
+        p_diff = abs(cur["midi"] - prv["midi"])
+
+        if p_diff == 0 and gap <= 0.095:
+            new_end = max(prv_end, cur["start"] + cur["duration"])
+            prv["duration"] = round(min(3.6, new_end - prv["start"]), 3)
+            continue
+
+        nxt = working[i + 1] if i + 1 < len(working) else None
+        returns_to_prv = (
+            nxt is not None
+            and nxt["midi"] == prv["midi"]
+            and (nxt["start"] - (cur["start"] + cur["duration"])) <= 0.10
+        )
+        if p_diff == 1 and gap <= 0.07 and cur["duration"] < 0.14 and (returns_to_prv or prv["duration"] >= 0.28):
+            new_end = max(prv_end, cur["start"] + cur["duration"])
+            prv["duration"] = round(min(3.6, new_end - prv["start"]), 3)
+            continue
+
+        if prv["start"] + prv["duration"] > cur["start"] - 0.015:
+            prv["duration"] = round(max(0.08, cur["start"] - prv["start"] - 0.015), 3)
+        merged.append(cur)
+
+    return merged
+
+
 def _segment_f0_track_to_melody_notes(
     times,
     midi_floats,
@@ -794,15 +898,25 @@ def _segment_f0_track_to_melody_notes(
     rms_values,
     min_hold_frames: int = 4,
     min_dur_sec: float = 0.10,
+    fold_to_rh_piano: bool = True,
+    median_smooth_frames: int = 17,
 ) -> list:
     """
-    Convert a frame-wise pitch contour (10ms hop) into clean monophonic Right-Hand piano notes
-    using hysteresis note segmentation (`min_hold_frames` consecutive frames on a new semitone
-    before switching, preventing vibrato flicker) and comfortable RH range folding (60..84).
+    Convert a frame-wise pitch contour (10ms hop) into clean monophonic melody notes using:
+    - Vocal vibrato median smoothing (`median_smooth_frames=17` -> 170ms window, Issue #160)
+    - Hysteresis note segmentation (`min_hold_frames` consecutive frames before switching)
+    - Either comfortable RH piano range folding (`60..84` when `fold_to_rh_piano=True`, Issue #146)
+      or true vocal register preservation (`40..84` when `fold_to_rh_piano=False`, Issue #160).
     """
     n_frames = min(len(times), len(midi_floats), len(voiced_mask), len(rms_values))
     if n_frames == 0:
         return []
+
+    smoothed_midi = (
+        _median_smooth_voiced_midi(midi_floats, voiced_mask, median_smooth_frames)
+        if median_smooth_frames > 1
+        else midi_floats
+    )
 
     raw_segments = []
     cur_pitch = None
@@ -814,6 +928,8 @@ def _segment_f0_track_to_melody_notes(
     cand_count = 0
     cand_start = 0.0
 
+    max_note_dur = 2.4 if fold_to_rh_piano else 3.6
+
     def flush_current(end_t):
         nonlocal cur_pitch, cur_start, cur_rms_sum, cur_count
         if cur_pitch is not None and cur_count > 0:
@@ -824,7 +940,7 @@ def _segment_f0_track_to_melody_notes(
                 raw_segments.append({
                     "midi": int(cur_pitch),
                     "start": round(float(cur_start), 3),
-                    "duration": round(min(2.4, dur), 3),
+                    "duration": round(min(max_note_dur, dur), 3),
                     "velocity": vel,
                     "hand": "rh",
                 })
@@ -836,7 +952,7 @@ def _segment_f0_track_to_melody_notes(
     for i in range(n_frames):
         t = float(times[i])
         voiced = bool(voiced_mask[i])
-        mf = float(midi_floats[i]) if voiced and math.isfinite(float(midi_floats[i])) else None
+        mf = float(smoothed_midi[i]) if voiced and math.isfinite(float(smoothed_midi[i])) else None
         rms = float(rms_values[i])
 
         if not voiced or mf is None:
@@ -888,130 +1004,141 @@ def _segment_f0_track_to_melody_notes(
         hop = (float(times[-1]) - float(times[0])) / max(1, n_frames - 1) if n_frames > 1 else 0.01
         flush_current(float(times[n_frames - 1]) + hop)
 
-    # Fold into comfortable Right-Hand piano range (C4=60 .. C6=84) and trim overlaps
-    rh_notes = []
-    prev_pitch = 67
-    for seg in raw_segments:
-        p = seg["midi"]
-        while p < 60:
-            p += 12
-        while p > 84:
-            p -= 12
-        # Smooth sudden octave jumps when an octave neighbor stays inside 60..84
-        if abs(p - prev_pitch) >= 10:
-            if p - 12 >= 60 and abs((p - 12) - prev_pitch) < abs(p - prev_pitch):
-                p -= 12
-            elif p + 12 <= 84 and abs((p + 12) - prev_pitch) < abs(p - prev_pitch):
-                p += 12
-        if rh_notes:
-            prev_n = rh_notes[-1]
-            max_prev_dur = round(max(0.08, seg["start"] - prev_n["start"] - 0.015), 3)
-            if prev_n["duration"] > max_prev_dur:
-                prev_n["duration"] = max_prev_dur
-        seg["midi"] = p
-        rh_notes.append(seg)
-        prev_pitch = p
-
-    return rh_notes
+    return _postprocess_vocal_highway_notes(raw_segments, fold_to_rh_piano=fold_to_rh_piano)
 
 
-def extract_vocal_melody_crepe(vocals_wav: Path):
+def extract_vocal_melody_crepe(vocals_wav: Path, fold_to_rh_piano: bool = True, median_smooth_ms: int = 170):
     """
-    Issue #146: Extract a clean monophonic Right-Hand melody from an isolated `vocals.wav` stem.
-    1. Prefers `torchcrepe` (CREPE pitch tracker with Viterbi decoding + periodicity gating).
+    Issue #146 & #160: Extract a clean monophonic vocal contour from an isolated `vocals.wav` stem.
+    1. Prefers `torchcrepe` (CREPE pitch tracker with Viterbi decoding + periodicity gating + 170ms median filter).
     2. Falls back to `librosa.pyin` when `torchcrepe` is not installed.
-    Returns `(rh_notes, tracker_name)` or `([], None)`.
+    3. Falls back to smoothed monophonic DSP contour extraction when `librosa` is unavailable.
+    Returns `(vocal_notes, tracker_name)` or `([], None)`.
     """
+    smooth_frames = max(1, int(round(max(0, int(median_smooth_ms)) / 10.0)) | 1) if median_smooth_ms > 10 else 1
+
     try:
         import numpy as np
         import librosa
+        has_librosa = True
     except Exception:
-        return [], None
+        has_librosa = False
 
-    sr_target = 16000
-    hop_length = 160  # 10ms hop at 16 kHz
+    if has_librosa:
+        sr_target = 16000
+        hop_length = 160  # 10ms hop at 16 kHz
+        try:
+            y, _ = librosa.load(str(vocals_wav), sr=sr_target, mono=True)
+        except Exception:
+            y = []
+
+        if len(y) >= hop_length * 4:
+            rms_frames = librosa.feature.rms(y=y, frame_length=1024, hop_length=hop_length)[0]
+            peak_rms = float(np.max(rms_frames)) if len(rms_frames) > 0 else 0.0
+            if peak_rms >= 1e-4:
+                rms_gate = max(0.008, peak_rms * 0.10)
+
+                # 1. Primary: torchcrepe (CREPE + Viterbi + vocal median smoothing)
+                try:
+                    import torch
+                    import torchcrepe
+
+                    device = "cuda" if torch.cuda.is_available() else "cpu"
+                    model_size = "full" if device == "cuda" else "tiny"
+                    log_status(
+                        "transcribing",
+                        f"Tracking vocal lead melody with CREPE ({model_size}, {device.upper()})...",
+                        62,
+                    )
+                    audio_tensor = torch.tensor(y, dtype=torch.float32).unsqueeze(0)
+                    pitch, periodicity = torchcrepe.predict(
+                        audio_tensor,
+                        sr_target,
+                        hop_length=hop_length,
+                        fmin=80.0,
+                        fmax=1000.0,
+                        model=model_size,
+                        batch_size=512 if device == "cuda" else 256,
+                        device=device,
+                        decoder=torchcrepe.decode.viterbi,
+                        return_periodicity=True,
+                    )
+                    periodicity = torchcrepe.filter.median(periodicity, 3)
+                    pitch = torchcrepe.filter.median(pitch, 3)
+
+                    f0_np = pitch.squeeze(0).detach().cpu().numpy()
+                    per_np = periodicity.squeeze(0).detach().cpu().numpy()
+                    n = min(len(f0_np), len(per_np), len(rms_frames))
+                    times = np.arange(n, dtype=np.float32) * (hop_length / float(sr_target))
+                    voiced = (per_np[:n] >= 0.25) & (rms_frames[:n] >= rms_gate) & (f0_np[:n] > 0)
+                    midi_floats = np.where(voiced, 69.0 + 12.0 * np.log2(np.maximum(1.0, f0_np[:n]) / 440.0), np.nan)
+
+                    rh_notes = _segment_f0_track_to_melody_notes(
+                        times,
+                        midi_floats,
+                        voiced,
+                        rms_frames[:n],
+                        min_hold_frames=5,
+                        min_dur_sec=0.10,
+                        fold_to_rh_piano=fold_to_rh_piano,
+                        median_smooth_frames=smooth_frames,
+                    )
+                    if rh_notes:
+                        return rh_notes, "crepe"
+                except Exception:
+                    pass
+
+                # 2. Secondary: librosa.pyin on the isolated vocal stem
+                try:
+                    log_status("transcribing", "Tracking vocal lead melody with pYIN on isolated vocals stem...", 62)
+                    f0, voiced_flag, voiced_prob = librosa.pyin(
+                        y,
+                        fmin=80.0,
+                        fmax=1000.0,
+                        sr=sr_target,
+                        frame_length=1024,
+                        hop_length=hop_length,
+                    )
+                    n = min(len(f0), len(voiced_flag), len(rms_frames))
+                    times = np.arange(n, dtype=np.float32) * (hop_length / float(sr_target))
+                    voiced = (
+                        np.asarray(voiced_flag[:n], dtype=bool)
+                        & (~np.isnan(f0[:n]))
+                        & (rms_frames[:n] >= rms_gate)
+                        & (np.nan_to_num(voiced_prob[:n], nan=0.0) >= 0.25)
+                    )
+                    midi_floats = np.where(
+                        voiced,
+                        69.0 + 12.0 * np.log2(np.maximum(1.0, np.nan_to_num(f0[:n], nan=440.0)) / 440.0),
+                        np.nan,
+                    )
+                    rh_notes = _segment_f0_track_to_melody_notes(
+                        times,
+                        midi_floats,
+                        voiced,
+                        rms_frames[:n],
+                        min_hold_frames=5,
+                        min_dur_sec=0.10,
+                        fold_to_rh_piano=fold_to_rh_piano,
+                        median_smooth_frames=smooth_frames,
+                    )
+                    if rh_notes:
+                        return rh_notes, "pyin"
+                except Exception:
+                    pass
+
+    # 3. Smoothed monophonic DSP fallback when torchcrepe/librosa are unavailable
     try:
-        y, _ = librosa.load(str(vocals_wav), sr=sr_target, mono=True)
-    except Exception:
-        return [], None
-
-    if len(y) < hop_length * 4:
-        return [], None
-
-    rms_frames = librosa.feature.rms(y=y, frame_length=1024, hop_length=hop_length)[0]
-    peak_rms = float(np.max(rms_frames)) if len(rms_frames) > 0 else 0.0
-    if peak_rms < 1e-4:
-        return [], None
-    rms_gate = max(0.008, peak_rms * 0.10)
-
-    # 1. Primary: torchcrepe (CREPE + Viterbi)
-    try:
-        import torch
-        import torchcrepe
-
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        model_size = "full" if device == "cuda" else "tiny"
-        log_status(
-            "transcribing",
-            f"Tracking vocal lead melody with CREPE ({model_size}, {device.upper()})...",
-            62,
+        dsp_notes, _ = extract_notes_from_wav_dsp(
+            Path(vocals_wav),
+            pitch_min=60 if fold_to_rh_piano else 43,
+            pitch_max=84,
+            max_polyphony=1,
         )
-        audio_tensor = torch.tensor(y, dtype=torch.float32).unsqueeze(0)
-        pitch, periodicity = torchcrepe.predict(
-            audio_tensor,
-            sr_target,
-            hop_length=hop_length,
-            fmin=80.0,
-            fmax=1000.0,
-            model=model_size,
-            batch_size=512 if device == "cuda" else 256,
-            device=device,
-            decoder=torchcrepe.decode.viterbi,
-            return_periodicity=True,
-        )
-        periodicity = torchcrepe.filter.median(periodicity, 3)
-        pitch = torchcrepe.filter.mean(pitch, 3)
-
-        f0_np = pitch.squeeze(0).detach().cpu().numpy()
-        per_np = periodicity.squeeze(0).detach().cpu().numpy()
-        n = min(len(f0_np), len(per_np), len(rms_frames))
-        times = np.arange(n, dtype=np.float32) * (hop_length / float(sr_target))
-        voiced = (per_np[:n] >= 0.25) & (rms_frames[:n] >= rms_gate) & (f0_np[:n] > 0)
-        midi_floats = np.where(voiced, 69.0 + 12.0 * np.log2(np.maximum(1.0, f0_np[:n]) / 440.0), np.nan)
-
-        rh_notes = _segment_f0_track_to_melody_notes(
-            times, midi_floats, voiced, rms_frames[:n], min_hold_frames=4, min_dur_sec=0.10
-        )
-        if rh_notes:
-            return rh_notes, "crepe"
-    except Exception:
-        pass
-
-    # 2. Fallback: librosa.pyin on the isolated vocal stem
-    try:
-        log_status("transcribing", "Tracking vocal lead melody with pYIN on isolated vocals stem...", 62)
-        f0, voiced_flag, voiced_prob = librosa.pyin(
-            y,
-            fmin=80.0,
-            fmax=1000.0,
-            sr=sr_target,
-            frame_length=1024,
-            hop_length=hop_length,
-        )
-        n = min(len(f0), len(voiced_flag), len(rms_frames))
-        times = np.arange(n, dtype=np.float32) * (hop_length / float(sr_target))
-        voiced = (
-            np.asarray(voiced_flag[:n], dtype=bool)
-            & (~np.isnan(f0[:n]))
-            & (rms_frames[:n] >= rms_gate)
-            & (np.nan_to_num(voiced_prob[:n], nan=0.0) >= 0.25)
-        )
-        midi_floats = np.where(voiced, 69.0 + 12.0 * np.log2(np.maximum(1.0, np.nan_to_num(f0[:n], nan=440.0)) / 440.0), np.nan)
-        rh_notes = _segment_f0_track_to_melody_notes(
-            times, midi_floats, voiced, rms_frames[:n], min_hold_frames=4, min_dur_sec=0.10
-        )
-        if rh_notes:
-            return rh_notes, "pyin"
+        if dsp_notes:
+            smoothed_dsp = _postprocess_vocal_highway_notes(dsp_notes, fold_to_rh_piano=fold_to_rh_piano)
+            if smoothed_dsp:
+                return smoothed_dsp, "smoothed-dsp"
     except Exception:
         pass
 
@@ -1679,6 +1806,18 @@ def transcribe_separated_stems_for_highways(stems_map: dict) -> dict:
         if not wav_p or not Path(wav_p).exists():
             continue
         try:
+            # Issue #160: Use CREPE / pYIN vocal contour tracker (170ms median vibrato smooth, true vocal register)
+            if stem_name == "vocals":
+                lead_or_vocals = stems_map.get("vocals_lead") or wav_p
+                vocal_crepe_notes, _ = extract_vocal_melody_crepe(
+                    Path(lead_or_vocals),
+                    fold_to_rh_piano=False,
+                    median_smooth_ms=170,
+                )
+                if vocal_crepe_notes:
+                    stem_tracks["vocals"] = vocal_crepe_notes
+                    continue
+
             notes, _ = extract_notes_from_wav_dsp(Path(wav_p), pitch_min=p_min, pitch_max=p_max, max_polyphony=poly)
             if stem_name == "drums" and notes:
                 # Quantize drum stem transients onto GM-friendly drum kit pitches (36 Kick, 38 Snare, 42 Hat, 45 Tom)
@@ -1706,6 +1845,470 @@ def transcribe_separated_stems_for_highways(stems_map: dict) -> dict:
             pass
 
     return stem_tracks
+
+
+# ============================================================================
+# ISSUE #161: OPTIONAL AI LEAD VOCAL VS. BACKING HARMONY SPLIT (audio-separator)
+# ============================================================================
+
+def try_split_lead_and_backing_vocals(vocals_wav: Path, stems_dir: Path, tmp_dir: Path) -> dict:
+    """
+    Issue #161: If `audio-separator` is installed, split isolated `vocals.wav` into
+    `vocals_lead.wav` and `vocals_backing.wav` using UVR Karaoke separation.
+    Returns `{"vocals_lead": Path, "vocals_backing": Path}` or `{}` if unavailable.
+    """
+    if not vocals_wav or not Path(vocals_wav).exists():
+        return {}
+    try:
+        import importlib.util
+        if importlib.util.find_spec("audio_separator") is None:
+            return {}
+        from audio_separator.separator import Separator
+    except Exception:
+        return {}
+
+    karaoke_out = tmp_dir / "karaoke_vocal_split"
+    karaoke_out.mkdir(parents=True, exist_ok=True)
+    try:
+        log_status("splitting_stems", "Splitting Lead Vocals vs. Backing Harmonies (UVR Karaoke AI)...", 56)
+        sep = Separator(output_dir=str(karaoke_out), output_format="WAV")
+        sep.load_model(model_filename="UVR-MDX-NET-Karaoke_2.onnx")
+        outputs = sep.separate(str(vocals_wav)) or []
+        lead_src = None
+        backing_src = None
+        for out_f in outputs:
+            p = Path(out_f)
+            if not p.is_absolute():
+                p = karaoke_out / p
+            if not p.exists():
+                continue
+            low = p.name.lower()
+            if "instrumental" in low or "no_vocal" in low or "backing" in low:
+                backing_src = p
+            elif "vocal" in low:
+                lead_src = p
+        if lead_src and backing_src:
+            lead_dest = stems_dir / "vocals_lead.wav"
+            backing_dest = stems_dir / "vocals_backing.wav"
+            shutil.copy2(lead_src, lead_dest)
+            shutil.copy2(backing_src, backing_dest)
+            log_status("splitting_stems", "Lead Vocal & Backing Harmony stems ready!", 58)
+            return {"vocals_lead": lead_dest, "vocals_backing": backing_dest}
+    except Exception as exc:
+        log_status("warning", f"Optional Lead/Harmony AI split skipped (using Stereo Mid/Side): {exc}", 57)
+    return {}
+
+
+# ============================================================================
+# ISSUE #159: 3-TIER SYNCED LYRICS PIPELINE (LRCLIB -> YT CAPTIONS -> WHISPER)
+# ============================================================================
+
+def _format_lrc_ts(sec: float) -> str:
+    total_centis = max(0, int(round(max(0.0, float(sec)) * 100)))
+    mins = total_centis // 6000
+    whole = (total_centis % 6000) // 100
+    centis = total_centis % 100
+    return f"{mins:02d}:{whole:02d}.{centis:02d}"
+
+
+def _clean_lyrics_query(raw_title: str) -> tuple:
+    s = re.sub(r"\.(mid|midi|musicxml|xml|mxl|wav|mp3|m4a|ogg|flac)$", "", str(raw_title or ""), flags=re.I)
+    s = re.sub(r"_+", " ", s)
+    s = re.sub(r"^(?:youtube|yt)\s*[:\-–—]?\s+", "", s, flags=re.I)
+    s = re.sub(
+        r"[\(\[]\s*(?:official\s*(?:music\s*)?video|official\s*audio|lyric\s*video|lyrics?|audio|hd|hq|4k|remastered|live|acoustic|karaoke|instrumental|visualizer|full\s*song|explicit|clean)[^\)\]]*[\)\]]",
+        " ",
+        s,
+        flags=re.I,
+    )
+    s = re.sub(r"\s*\|\s*.*$", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    m = re.match(r"^(.+?)\s+[-–—]\s+(.+)$", s)
+    if m:
+        artist = m.group(1).strip()
+        track = m.group(2).strip()
+        return artist, track, f"{artist} {track}".strip()
+    return "", s, s
+
+
+def _convert_lrclib_yaml_to_lrc(yaml_text: str):
+    """Convert LRCLIB `lyricsfile` word-synced YAML into enhanced `[mm:ss.xx] <mm:ss.xx> word` LRC."""
+    if not yaml_text or not isinstance(yaml_text, str):
+        return None
+    parsed_lines = []
+    cur_line = None
+    cur_word = None
+    in_words = False
+
+    def _unquote(val: str) -> str:
+        t = str(val or "").strip()
+        if len(t) >= 2 and ((t[0] == '"' and t[-1] == '"') or (t[0] == "'" and t[-1] == "'")):
+            return t[1:-1].replace('\\"', '"').replace("\\'", "'")
+        return t
+
+    def _parse_num(val: str):
+        try:
+            v = float(re.sub(r"#.*$", "", str(val or "")).strip())
+            return v if math.isfinite(v) else None
+        except Exception:
+            return None
+
+    def _commit_word():
+        nonlocal cur_word
+        if cur_line is not None and cur_word is not None and cur_word.get("text") is not None:
+            cur_line["words"].append(cur_word)
+        cur_word = None
+
+    def _commit_line():
+        nonlocal cur_line, in_words
+        _commit_word()
+        if cur_line is not None and (cur_line["words"] or cur_line.get("text")):
+            parsed_lines.append(cur_line)
+        cur_line = None
+        in_words = False
+
+    for raw in yaml_text.splitlines():
+        if not raw.strip() or raw.strip().startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        trimmed = raw.strip()
+        line_item_m = re.match(r"^-\s+(startTime|endTime|text|words)\s*:(.*)$", trimmed, re.I)
+        if line_item_m and indent <= 4:
+            _commit_line()
+            cur_line = {"startTime": None, "words": [], "text": ""}
+            in_words = False
+            k_low = line_item_m.group(1).lower()
+            v_str = line_item_m.group(2)
+            if k_low == "starttime":
+                cur_line["startTime"] = _parse_num(v_str)
+            elif k_low == "text":
+                cur_line["text"] = _unquote(v_str)
+            elif k_low == "words":
+                in_words = True
+            continue
+        if cur_line is None:
+            continue
+        if re.match(r"^words\s*:", trimmed, re.I):
+            in_words = True
+            continue
+        if not in_words:
+            if re.match(r"^startTime\s*:", trimmed, re.I):
+                cur_line["startTime"] = _parse_num(trimmed.split(":", 1)[1])
+            elif re.match(r"^text\s*:", trimmed, re.I):
+                cur_line["text"] = _unquote(trimmed.split(":", 1)[1])
+            continue
+        if re.match(r"^-\s+text\s*:", trimmed, re.I):
+            _commit_word()
+            cur_word = {"text": _unquote(re.sub(r"^-\s+text\s*:", "", trimmed, flags=re.I)), "startTime": None}
+        elif re.match(r"^-\s+startTime\s*:", trimmed, re.I):
+            _commit_word()
+            cur_word = {"text": "", "startTime": _parse_num(re.sub(r"^-\s+startTime\s*:", "", trimmed, flags=re.I))}
+        elif cur_word is not None:
+            if re.match(r"^text\s*:", trimmed, re.I):
+                cur_word["text"] = _unquote(trimmed.split(":", 1)[1])
+            elif re.match(r"^startTime\s*:", trimmed, re.I):
+                cur_word["startTime"] = _parse_num(trimmed.split(":", 1)[1])
+    _commit_line()
+
+    word_lines = [l for l in parsed_lines if l["words"] and l["startTime"] is not None]
+    if not word_lines:
+        return None
+    max_val = max(
+        [l["startTime"] for l in word_lines]
+        + [w["startTime"] for l in word_lines for w in l["words"] if w["startTime"] is not None]
+    )
+    scale = 0.001 if max_val > 1000.0 else 1.0
+    out = []
+    for l in word_lines:
+        ls = l["startTime"] * scale
+        tokens = []
+        for w in l["words"]:
+            wt = str(w.get("text") or "").strip()
+            if not wt:
+                continue
+            ws = (w["startTime"] * scale) if w["startTime"] is not None else ls
+            tokens.append(f"<{_format_lrc_ts(ws)}> {wt}")
+        if tokens:
+            out.append(f"[{_format_lrc_ts(ls)}] {' '.join(tokens)}")
+    return "\n".join(out) if out else None
+
+
+def _fetch_lrclib_lrc_text(title: str, duration_sec: float = 0.0):
+    """Tier 1: Query LRCLIB (lrclib.net) for word-synced or line-synced `.lrc` lyrics (±5s match)."""
+    import urllib.parse
+    import urllib.request
+
+    artist, track, query = _clean_lyrics_query(title)
+    if not query:
+        return None
+
+    headers = {
+        "User-Agent": "CollegeOfKeys/1.5.2 (https://github.com/kiyoshithekidd/college-of-keys)",
+        "Accept": "application/json",
+    }
+
+    def _get_json(url: str):
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            if resp.status >= 400:
+                return None
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
+
+    candidates = []
+    try:
+        if artist and track:
+            dur_q = f"&duration={int(round(duration_sec))}" if duration_sec > 10 else ""
+            exact = _get_json(
+                f"https://lrclib.net/api/get?track_name={urllib.parse.quote(track)}&artist_name={urllib.parse.quote(artist)}{dur_q}"
+            )
+            if isinstance(exact, dict):
+                candidates.append(exact)
+    except Exception:
+        pass
+
+    if not candidates or not candidates[0].get("hasWordSync"):
+        try:
+            res = _get_json(f"https://lrclib.net/api/search?q={urllib.parse.quote(query)}")
+            if isinstance(res, list):
+                candidates.extend(res)
+        except Exception:
+            pass
+
+    best = None
+    best_score = -1e9
+    norm_track = track.lower()
+    norm_artist = artist.lower()
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        has_word = bool(item.get("hasWordSync") and item.get("lyricsfile"))
+        has_synced = bool(item.get("syncedLyrics") and str(item["syncedLyrics"]).strip())
+        has_plain = bool(item.get("plainLyrics") and str(item["plainLyrics"]).strip())
+        if not (has_word or has_synced or has_plain):
+            continue
+        score = 120.0 if has_word else (90.0 if has_synced else 20.0)
+        it_track = str(item.get("trackName") or item.get("name") or "").lower()
+        it_artist = str(item.get("artistName") or "").lower()
+        if norm_track and norm_track in it_track:
+            score += 30.0
+        if norm_artist and norm_artist in it_artist:
+            score += 25.0
+        if duration_sec > 10 and item.get("duration") is not None:
+            try:
+                diff = abs(float(item["duration"]) - float(duration_sec))
+                if diff <= 5.0:
+                    score += 45.0
+                elif diff <= 10.0:
+                    score += 20.0
+                elif diff <= 20.0:
+                    score += 5.0
+                else:
+                    score -= min(40.0, diff * 0.5)
+            except Exception:
+                pass
+        if score > best_score:
+            best_score = score
+            best = item
+
+    if not best:
+        return None
+    if best.get("hasWordSync") and best.get("lyricsfile"):
+        enhanced = _convert_lrclib_yaml_to_lrc(str(best["lyricsfile"]))
+        if enhanced:
+            return enhanced
+    if best.get("syncedLyrics") and str(best["syncedLyrics"]).strip():
+        return str(best["syncedLyrics"]).strip()
+    if best.get("plainLyrics") and str(best["plainLyrics"]).strip():
+        return str(best["plainLyrics"]).strip()
+    return None
+
+
+def _parse_vtt_ts_sec(ts_str: str) -> float:
+    parts = ts_str.strip().replace(",", ".").split(":")
+    try:
+        if len(parts) == 3:
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + float(parts[1])
+    except Exception:
+        pass
+    return 0.0
+
+
+def _convert_vtt_text_to_lrc(vtt_text: str):
+    """Convert WebVTT (`.vtt`) human/auto captions (including inline `<00:00:10.500>` tags) into `.lrc`."""
+    if not vtt_text or not isinstance(vtt_text, str):
+        return None
+    cue_re = re.compile(r"^((?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3})\s*-->\s*((?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3})")
+    inline_ts_re = re.compile(r"<((?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3})>")
+    tag_strip_re = re.compile(r"</?[^>]+>")
+
+    lines_out = []
+    last_plain = None
+    blocks = re.split(r"\r?\n\r?\n+", vtt_text)
+    for block in blocks:
+        b_lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
+        if not b_lines or b_lines[0].upper().startswith("WEBVTT") or b_lines[0].startswith("NOTE"):
+            continue
+        cue_idx = next((idx for idx, ln in enumerate(b_lines) if cue_re.match(ln)), -1)
+        if cue_idx < 0:
+            continue
+        m = cue_re.match(b_lines[cue_idx])
+        start_sec = _parse_vtt_ts_sec(m.group(1))
+        payload = " ".join(b_lines[cue_idx + 1 :]).strip()
+        if not payload:
+            continue
+
+        # Convert inline VTT word timestamps `<00:00:12.340>` when present
+        inline_matches = list(inline_ts_re.finditer(payload))
+        if inline_matches:
+            tokens = []
+            first_chunk = tag_strip_re.sub("", payload[: inline_matches[0].start()]).strip()
+            if first_chunk and not (first_chunk.startswith("[") and first_chunk.endswith("]")):
+                tokens.append(f"<{_format_lrc_ts(start_sec)}> {first_chunk}")
+            for idx, im in enumerate(inline_matches):
+                w_sec = _parse_vtt_ts_sec(im.group(1))
+                end_pos = inline_matches[idx + 1].start() if idx + 1 < len(inline_matches) else len(payload)
+                chunk = tag_strip_re.sub("", payload[im.end() : end_pos]).strip()
+                if chunk and not (chunk.startswith("[") and chunk.endswith("]")):
+                    tokens.append(f"<{_format_lrc_ts(w_sec)}> {chunk}")
+            if tokens:
+                plain_check = " ".join(re.sub(r"^<[^>]+>\s*", "", tk) for tk in tokens)
+                if plain_check != last_plain:
+                    lines_out.append(f"[{_format_lrc_ts(start_sec)}] {' '.join(tokens)}")
+                    last_plain = plain_check
+            continue
+
+        clean = re.sub(r"\s+", " ", tag_strip_re.sub("", payload)).strip()
+        if not clean or (clean.startswith("[") and clean.endswith("]")) or clean == last_plain:
+            continue
+        lines_out.append(f"[{_format_lrc_ts(start_sec)}] {clean}")
+        last_plain = clean
+
+    return "\n".join(lines_out) if lines_out else None
+
+
+def _extract_youtube_subtitles_lrc(yt_url: str, tmp_dir: Path):
+    """Tier 2: Extract English JSON3 or WebVTT subtitles via yt-dlp into `.lrc` format."""
+    if not yt_url or not tmp_dir:
+        return None
+    try:
+        import yt_dlp
+    except ImportError:
+        return None
+
+    sub_dir = tmp_dir / "yt_subs"
+    sub_dir.mkdir(parents=True, exist_ok=True)
+    ydl_opts = {
+        "skip_download": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": ["en", "en-US", "en-GB"],
+        "subtitlesformat": "json3/vtt/best",
+        "outtmpl": str(sub_dir / "subs.%(ext)s"),
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.extract_info(yt_url, download=True)
+        json3_files = sorted(sub_dir.glob("*.json3"))
+        if json3_files:
+            payload = json.loads(json3_files[0].read_text(encoding="utf-8", errors="replace"))
+            lines_out = []
+            for ev in payload.get("events", []):
+                segs = ev.get("segs") or []
+                t_start_ms = ev.get("tStartMs")
+                if t_start_ms is None or not segs:
+                    continue
+                tokens = []
+                for seg in segs:
+                    txt = str(seg.get("utf8", "")).replace("\n", " ").strip()
+                    if not txt or (txt.startswith("[") and txt.endswith("]")):
+                        continue
+                    off_ms = seg.get("tOffsetMs", 0) or 0
+                    tokens.append(f"<{_format_lrc_ts((t_start_ms + off_ms) / 1000.0)}> {txt}")
+                if tokens:
+                    lines_out.append(f"[{_format_lrc_ts(t_start_ms / 1000.0)}] {' '.join(tokens)}")
+            if lines_out:
+                return "\n".join(lines_out)
+
+        vtt_files = sorted(sub_dir.glob("*.vtt"))
+        if vtt_files:
+            vtt_lrc = _convert_vtt_text_to_lrc(vtt_files[0].read_text(encoding="utf-8", errors="replace"))
+            if vtt_lrc:
+                return vtt_lrc
+    except Exception:
+        return None
+    return None
+
+
+def _transcribe_whisper_lrc(vocals_wav: Path):
+    """Tier 3: Optional local `faster-whisper` word-timestamped transcription on `vocals.wav`."""
+    if not vocals_wav or not Path(vocals_wav).exists():
+        return None
+    try:
+        import importlib.util
+        if importlib.util.find_spec("faster_whisper") is None:
+            return None
+        from faster_whisper import WhisperModel
+    except Exception:
+        return None
+
+    try:
+        log_status("transcribing", "Transcribing word-synced lyrics locally via faster-whisper...", 92)
+        model = WhisperModel("base", device="auto", compute_type="int8")
+        segments, _ = model.transcribe(str(vocals_wav), word_timestamps=True, vad_filter=True)
+        lines_out = []
+        for seg in segments:
+            words = getattr(seg, "words", None) or []
+            if words:
+                tokens = [f"<{_format_lrc_ts(w.start)}> {str(w.word).strip()}" for w in words if str(w.word).strip()]
+                if tokens:
+                    lines_out.append(f"[{_format_lrc_ts(seg.start)}] {' '.join(tokens)}")
+            elif str(seg.text or "").strip():
+                lines_out.append(f"[{_format_lrc_ts(seg.start)}] {str(seg.text).strip()}")
+        return "\n".join(lines_out) if lines_out else None
+    except Exception:
+        return None
+
+
+def _estimate_wav_duration_sec(wav_path: Path) -> float:
+    if not wav_path or not Path(wav_path).exists():
+        return 0.0
+    try:
+        with wave.open(str(wav_path), "rb") as wf:
+            fr = wf.getframerate()
+            return (wf.getnframes() / float(fr)) if fr > 0 else 0.0
+    except Exception:
+        return 0.0
+
+
+def fetch_synced_lyrics_for_import(
+    title: str,
+    output_lrc_path: Path,
+    yt_url: str = None,
+    vocals_wav: Path = None,
+    tmp_dir: Path = None,
+    duration_sec: float = 0.0,
+):
+    """Run the 3-tier synced lyrics cascade and persist `<safe_base>.lrc` if found."""
+    if output_lrc_path.exists():
+        return output_lrc_path
+    lrc_text = _fetch_lrclib_lrc_text(title, duration_sec=duration_sec)
+    if not lrc_text and yt_url:
+        lrc_text = _extract_youtube_subtitles_lrc(yt_url, tmp_dir)
+    if not lrc_text and vocals_wav:
+        lrc_text = _transcribe_whisper_lrc(vocals_wav)
+    if lrc_text:
+        try:
+            output_lrc_path.write_text(lrc_text, encoding="utf-8")
+            log_status("lyrics", f"Saved synced karaoke lyrics: {output_lrc_path.name}", 94)
+            return output_lrc_path
+        except Exception:
+            return None
+    return None
 
 
 # ============================================================================
@@ -2031,9 +2634,21 @@ def main():
                 stems_payload = None
                 if args.split_stems:
                     pcm_wav = tmp_dir / "decoded_mono.wav"
-                    if convert_audio_to_pcm_wav(source_audio_path, pcm_wav):
+                    has_mono = convert_audio_to_pcm_wav(source_audio_path, pcm_wav)
+                    stereo_stem_input = tmp_dir / "decoded_stereo_44k.wav"
+                    if dest_backing_path and dest_backing_path.exists() and dest_backing_path.suffix.lower() == ".wav":
+                        stem_source_wav = dest_backing_path
+                    elif convert_audio_to_stereo_backing_wav(source_audio_path, stereo_stem_input):
+                        stem_source_wav = stereo_stem_input
+                    else:
+                        stem_source_wav = pcm_wav if has_mono else None
+                    if stem_source_wav and Path(stem_source_wav).exists():
                         stems_dir = output_dir / f"{safe_base}_stems"
-                        stems_map = separate_audio_into_6_stems(pcm_wav, stems_dir, tmp_dir)
+                        stems_map = separate_audio_into_6_stems(Path(stem_source_wav), stems_dir, tmp_dir)
+                        if stems_map and stems_map.get("vocals"):
+                            vocal_sub = try_split_lead_and_backing_vocals(Path(stems_map["vocals"]), stems_dir, tmp_dir)
+                            if vocal_sub:
+                                stems_map.update(vocal_sub)
                         stems_payload = {k: str(v) for k, v in stems_map.items()}
                 log_status(
                     "complete",
@@ -2073,15 +2688,24 @@ def main():
                 except Exception:
                     dest_backing_path = None
 
-            # 2b. Issue #41 & #42: Optional 6-stem separation before MIDI writing.
-            #     Note (Issue #144/#145): Do NOT route piano-cover transcription through the weak
-            #     htdemucs_6s `piano.wav` stem; keep 6-stem separation for the play-along mixer
-            #     and Multi-Instrument Highways while transcribing the clean decoded audio.
+            # 2b. Issue #41, #42 & #161: Optional 6-stem separation before MIDI writing.
+            #     Feed 44.1 kHz STEREO WAV into Demucs so `vocals.wav` preserves stereo Lead vs. Harmony panning!
             stems_map = None
             stem_tracks = None
             if args.split_stems and has_pcm_wav:
                 stems_dir = output_dir / f"{safe_base}_stems"
-                stems_map = separate_audio_into_6_stems(pcm_wav, stems_dir, tmp_dir)
+                stereo_stem_input = tmp_dir / "decoded_stereo_44k.wav"
+                if dest_backing_path and dest_backing_path.exists() and dest_backing_path.suffix.lower() == ".wav":
+                    stem_source_wav = dest_backing_path
+                elif convert_audio_to_stereo_backing_wav(source_audio_path, stereo_stem_input):
+                    stem_source_wav = stereo_stem_input
+                else:
+                    stem_source_wav = pcm_wav
+                stems_map = separate_audio_into_6_stems(stem_source_wav, stems_dir, tmp_dir)
+                if stems_map and stems_map.get("vocals"):
+                    vocal_sub = try_split_lead_and_backing_vocals(Path(stems_map["vocals"]), stems_dir, tmp_dir)
+                    if vocal_sub:
+                        stems_map.update(vocal_sub)
                 stem_tracks = transcribe_separated_stems_for_highways(stems_map)
 
             # 3. Resolve requested engine (Issue #144/#145/#146)
@@ -2185,7 +2809,22 @@ def main():
                         "Could not decode audio stream to PCM WAV (ffmpeg/audioread unavailable or unsupported format)."
                     )
 
-            # 5. Write sidecar <safe_base>.bundle.json when stems were separated so the app auto-links all 6 stems
+            # 5. Issue #159: Auto-fetch synced karaoke lyrics (<safe_base>.lrc) for real YouTube/audio imports
+            dest_lrc_path = None
+            if not args.self_test:
+                yt_src = args.source.strip() if args.source and re.match(r"^https?://", args.source.strip(), re.I) else None
+                vocals_for_lyrics = Path(stems_map["vocals"]) if stems_map and stems_map.get("vocals") else None
+                dur_est = _estimate_wav_duration_sec(pcm_wav if has_pcm_wav else source_audio_path)
+                dest_lrc_path = fetch_synced_lyrics_for_import(
+                    title=title,
+                    output_lrc_path=output_dir / f"{safe_base}.lrc",
+                    yt_url=yt_src,
+                    vocals_wav=vocals_for_lyrics,
+                    tmp_dir=tmp_dir,
+                    duration_sec=dur_est,
+                )
+
+            # 6. Write sidecar <safe_base>.bundle.json when stems were separated so the app auto-links all stems
             has_backing_file = bool(dest_backing_path and dest_backing_path.exists())
             if stems_map:
                 sidecar_path = output_dir / f"{safe_base}.bundle.json"
@@ -2204,6 +2843,11 @@ def main():
                         "guitar": {"muted": False, "solo": False},
                         "other": {"muted": False, "solo": False},
                     },
+                    "vocalMix": {
+                        "leadVolume": 0.25,
+                        "harmoniesEnabled": True,
+                    },
+                    "lyricsOffsetSec": 0,
                     "audioOffsetSec": 0,
                     "audioTempoRatio": 1.0,
                     "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -2221,6 +2865,7 @@ def main():
                     "title": title,
                     "midi_path": str(dest_midi_path),
                     "backing_path": str(dest_backing_path) if has_backing_file else None,
+                    "lrc_path": str(dest_lrc_path) if dest_lrc_path and Path(dest_lrc_path).exists() else None,
                     "stems": {k: str(v) for k, v in stems_map.items()} if stems_map else None,
                     "split_stems": bool(stems_map),
                     "audio_only": False,
