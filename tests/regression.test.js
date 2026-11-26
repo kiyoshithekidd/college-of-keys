@@ -651,8 +651,49 @@ app.whenReady().then(async () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
       checks.escapeClosesCampaign = campaignModal.classList.contains('hidden');
 
+      // #158: .btn-audio-sync reserves its full pill width (> 40px) instead of overflowing a 20px .btn-icon box
+      const syncAnchor = document.getElementById('audio-sync-anchor');
+      const wasAnchorHidden = syncAnchor.classList.contains('hidden');
+      syncAnchor.classList.remove('hidden');
+      const syncBtnRect = document.getElementById('btn-audio-sync').getBoundingClientRect();
+      checks.audioSyncPillAutoWidth = syncBtnRect.width > 45 && Math.round(syncBtnRect.height) >= 20;
+      if (wasAnchorHidden) syncAnchor.classList.add('hidden');
+
+      // #159 & #160: Custom timed LRC word sweep (--word-fill-pct), ARIA announcer, Lyric Sync popover & Escape close
+      setExternalInstrumentSourceMode('vocal-mic');
+      spellSingingState.customLyricsBySongId[currentSong.songId] = '[00:00.20] <00:00.20> Sing <00:00.60> brave <00:01.00> bard';
+      ensureVocalChartForCurrentSong({ forceRebuild: true });
+      playbackState.currentTime = 0.4;
+      renderKaraokeFrame();
+      const activeWordSpan = document.querySelector('#karaoke-lyrics-current .karaoke-syl.active');
+      checks.karaokeWordSweepActive = Boolean(
+        activeWordSpan &&
+        activeWordSpan.style.getPropertyValue('--word-fill-pct').endsWith('%') &&
+        document.getElementById('karaoke-sr-announcer')?.textContent.includes('Sing brave bard')
+      );
+      document.getElementById('btn-karaoke-lyrics-sync').click();
+      checks.lyricsSyncPopoverOpens = !document.getElementById('karaoke-lyrics-sync-popover').classList.contains('hidden');
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      checks.escapeClosesLyricsSync = document.getElementById('karaoke-lyrics-sync-popover').classList.contains('hidden');
+      delete spellSingingState.customLyricsBySongId[currentSong.songId];
+      ensureVocalChartForCurrentSong({ forceRebuild: true });
+
+      // #161: Vocal Lead Highway swaps Bar 2 Practice dropdown for #btn-vocal-mix-bar and syncs Lead/Harmony state
       setExternalInstrumentSourceMode('midi-piano');
-      checks.restoredHighway = stageViewMode === 'highway';
+      assignSongTracksAndDifficulty('instrument-vocals');
+      checks.vocalHighwaySwapsPracticeForVocalMix = Boolean(
+        document.getElementById('practice-hand-control-group').classList.contains('hidden') &&
+        !document.getElementById('btn-vocal-mix-bar').classList.contains('hidden')
+      );
+      updateCurrentSongVocalMix({ leadVolume: 0.4, harmoniesEnabled: false });
+      checks.vocalMixControlsSynced = Boolean(
+        document.getElementById('karaoke-lead-vocal-readout').textContent === '40%' &&
+        document.getElementById('vocal-mix-bar-pct').textContent === '40%' &&
+        document.getElementById('vocal-mix-bar-harm').textContent === 'Harm OFF'
+      );
+      updateCurrentSongVocalMix({ leadVolume: 0.25, harmoniesEnabled: true });
+      assignSongTracksAndDifficulty('auto-piano');
+      checks.restoredHighway = stageViewMode === 'highway' && !document.getElementById('practice-hand-control-group').classList.contains('hidden');
 
       return checks;
     })();

@@ -581,6 +581,27 @@
               </div>
             </div>
 
+            <!-- Issue #161: Apple Music Sing-Style Vocal & Harmony Mix Controls -->
+            <div id="vocal-mix-popover-section" class="sync-control-section vocal-mix-popover-section">
+              <div class="popover-divider"></div>
+              <div class="sync-label-row">
+                <span class="sync-field-label">&#127908; Lead Vocal &amp; Harmonies</span>
+                <strong id="sync-lead-vocal-readout" class="sync-readout">25% Guide</strong>
+              </div>
+              <div class="vocal-mix-slider-row">
+                <input id="sync-lead-vocal-slider" type="range" min="0" max="100" step="5" value="25" class="tavern-slider vocal-mix-slider" aria-label="Lead Vocal Guide Volume" />
+                <button id="btn-sync-harmonies-toggle" type="button" class="tavern-btn btn-harmonies-toggle active" aria-pressed="true" title="Keep stereo/AI Backing Harmonies intact while lowering or muting the Lead Vocal">
+                  &#10024; Harmonies: ON
+                </button>
+              </div>
+              <div class="vocal-preset-row" role="group" aria-label="Lead vocal quick presets">
+                <button id="btn-vocal-preset-mute" type="button" class="tavern-btn sync-step-btn" title="Eliminate Lead Vocal (0%)">0% Mute</button>
+                <button id="btn-vocal-preset-guide" type="button" class="tavern-btn sync-step-btn" title="Apple Music Sing Guide Vocal (25%)">25% Guide</button>
+                <button id="btn-vocal-preset-full" type="button" class="tavern-btn sync-step-btn" title="Full Original Lead Vocal (100%)">100% Full</button>
+              </div>
+              <div id="sync-vocal-mode-hint" class="sync-vocal-mode-hint">Stereo Mid/Side Matrix active on vocals stem.</div>
+            </div>
+
             <!-- Issue #41: 6-Stem Play-Along Mixer (Shown when song bundle has separated stems) -->
             <div id="stem-mixer-section" class="sync-control-section stem-mixer-section hidden">
               <div class="popover-divider"></div>
@@ -746,8 +767,8 @@
           </select>
         </div>
 
-        <!-- Issue #20: Unified 1-Click Practice Hand Selector -->
-        <div class="control-group" title="Choose which hand(s) you play and whether the other hand auto-plays or mutes">
+        <!-- Issue #20: Unified 1-Click Practice Hand Selector (swapped for Vocal Mix pill on Vocal Lead Highway) -->
+        <div id="practice-hand-control-group" class="control-group" title="Choose which hand(s) you play and whether the other hand auto-plays or mutes">
           <label for="practice-mode-select">Practice</label>
           <select id="practice-mode-select" class="tavern-select practice-select">
             <option value="both" selected>&#128588; Both Hands (RH Gold + LH Blue)</option>
@@ -758,6 +779,9 @@
             <option value="preview">&#127911; Listen Only (Auto-Play Both)</option>
           </select>
         </div>
+        <button id="btn-vocal-mix-bar" type="button" class="tavern-btn btn-vocal-mix-pill hidden" title="Adjust Lead Vocal Guide Volume &amp; Backing Harmonies">
+          &#127908; Lead: <span id="vocal-mix-bar-pct">25%</span> &bull; <span id="vocal-mix-bar-harm">Harm ON</span> &#9662;
+        </button>
 
         <!-- Hidden legacy selects kept synchronized for internal state compatibility -->
         <select id="hand-isolation-select" class="hidden" aria-hidden="true">
@@ -862,28 +886,73 @@
           </div>
         </div>
 
-        <!-- Epic #43 (#126): Standalone Spell-Singing Karaoke Stage (No Piano Keyboard Required) -->
+        <!-- Epic #43 (#126) + #159/#160/#161: Standalone Spell-Singing Karaoke Stage -->
         <section id="spell-singing-stage" class="spell-singing-stage hidden" aria-label="Spell-Singing Karaoke Stage">
           <div class="karaoke-top-bar">
             <div class="karaoke-controls-left">
-              <span class="karaoke-mode-badge">&#127908; Spell-Singing Karaoke</span>
+              <span class="karaoke-mode-badge">&#127908; <span class="karaoke-badge-prefix">Spell-Singing </span>Karaoke</span>
               <button id="btn-karaoke-mic-toggle" type="button" class="tavern-btn tavern-btn-cast btn-compact" title="Start or stop microphone vocal pitch tracking">
                 &#127908; Enable Mic
               </button>
               <span id="karaoke-bleed-badge" class="karaoke-bleed-badge hidden" title="Headphones recommended when singing with a backing track to prevent speaker bleed into the mic">
-                &#127911; Use Headphones (Speaker Bleed Guard)
+                &#127911; Use Headphones
               </span>
               <span id="karaoke-no-mic-badge" class="karaoke-no-mic-badge hidden" title="No microphone detected — connect a USB, built-in, or headset mic">
-                &#9888;&#65039; No Mic Detected
+                &#9888;&#65039; No Mic
               </span>
             </div>
+
+            <!-- Issue #161: Inline Apple Music Sing Vocal & Harmony Strip -->
+            <div class="karaoke-vocal-mix-bar" role="group" aria-label="Lead Vocal and Harmony Controls">
+              <button id="btn-karaoke-lead-mute" type="button" class="tavern-btn btn-compact btn-karaoke-lead-icon" title="Toggle Lead Vocal between 0% Mute and 25% Guide">
+                &#128483;
+              </button>
+              <input id="karaoke-lead-vocal-slider" type="range" min="0" max="100" step="5" value="25" class="tavern-slider karaoke-lead-slider" aria-label="Lead Vocal Guide Volume" aria-valuetext="25% Guide Vocal" />
+              <span id="karaoke-lead-vocal-readout" class="karaoke-lead-readout">25%</span>
+              <button id="btn-karaoke-harmonies-toggle" type="button" class="tavern-btn btn-compact btn-harmonies-toggle active" aria-pressed="true" title="Keep Backing Harmonies intact while lowering or muting the Lead Vocal">
+                &#10024; Harm
+              </button>
+            </div>
+
             <div class="karaoke-controls-right">
               <label class="karaoke-toggle-label" title="Allow singing in any comfortable octave (Baritone / Tenor / Alto / Soprano)">
                 <input id="chk-karaoke-octave-free" type="checkbox" checked />
                 <span>Octave-Free</span>
               </label>
+              <button id="btn-karaoke-fetch-lyrics" type="button" class="tavern-btn tavern-btn-primary btn-compact" title="Auto-fetch word/line-synced lyrics from LRCLIB for this song">
+                &#128269; Fetch Lyrics
+              </button>
+              <div class="popover-anchor">
+                <button id="btn-karaoke-lyrics-sync" type="button" class="tavern-btn btn-compact" aria-expanded="false" aria-controls="karaoke-lyrics-sync-popover" title="Nudge lyric timing offset or Auto-Align lyrics to the first vocal note">
+                  &#9201; <span id="karaoke-lyrics-offset-badge">+0.0s</span>
+                </button>
+                <div id="karaoke-lyrics-sync-popover" class="conservatory-popover karaoke-lyrics-sync-popover hidden" role="dialog" aria-label="Lyric Timing Sync">
+                  <div class="popover-header">
+                    <strong>&#9201; Lyric Timing Sync</strong>
+                    <button id="btn-close-lyrics-sync" type="button" class="btn-icon" title="Close Lyric Sync" aria-label="Close Lyric Sync">&#10005;</button>
+                  </div>
+                  <div class="sync-label-row">
+                    <span class="sync-field-label">Lyric Offset</span>
+                    <strong id="lyrics-sync-offset-readout" class="sync-readout">+0.00s</strong>
+                  </div>
+                  <div class="sync-stepper-row" role="group" aria-label="Nudge lyric timing">
+                    <button id="btn-lyrics-offset-m500" type="button" class="tavern-btn sync-step-btn" title="Shift lyrics 0.5s earlier">-0.5s</button>
+                    <button id="btn-lyrics-offset-m100" type="button" class="tavern-btn sync-step-btn" title="Shift lyrics 0.1s earlier">-0.1s</button>
+                    <button id="btn-lyrics-offset-p100" type="button" class="tavern-btn sync-step-btn" title="Shift lyrics 0.1s later">+0.1s</button>
+                    <button id="btn-lyrics-offset-p500" type="button" class="tavern-btn sync-step-btn" title="Shift lyrics 0.5s later">+0.5s</button>
+                  </div>
+                  <div class="sync-actions-grid">
+                    <button id="btn-lyrics-auto-align" type="button" class="tavern-btn tavern-btn-cast sync-action-btn" title="Snap the first lyric line directly onto the first detected vocal melody note (fixes YouTube MV intros)">
+                      &#9889; Align to First Vocal
+                    </button>
+                    <button id="btn-lyrics-offset-reset" type="button" class="tavern-btn sync-action-btn" title="Reset lyric offset to 0.00s">
+                      &#8634; Reset
+                    </button>
+                  </div>
+                </div>
+              </div>
               <button id="btn-karaoke-paste-lyrics" type="button" class="tavern-btn btn-compact" title="Paste custom lyrics or .LRC timestamps for this song">
-                &#128221; Lyrics / .LRC
+                &#128221; .LRC
               </button>
               <div class="karaoke-vocal-xp-pill" title="Separate Vocal XP &amp; Live Pitch Accuracy (Tracked independently from Piano XP)">
                 <span id="karaoke-vocal-level-badge">Vocal LVL 1</span>
@@ -899,7 +968,9 @@
             <canvas id="vocal-highway-canvas"></canvas>
           </div>
 
-          <div class="karaoke-teleprompter" aria-live="polite">
+          <div class="karaoke-teleprompter">
+            <span id="karaoke-sr-announcer" class="sr-only" aria-live="polite"></span>
+            <span id="karaoke-lyric-source-pill" class="karaoke-lyric-source-pill hidden"></span>
             <div id="karaoke-lyrics-current" class="karaoke-lyrics-current">Press Play and sing along&hellip;</div>
             <div id="karaoke-lyrics-next" class="karaoke-lyrics-next"></div>
           </div>
