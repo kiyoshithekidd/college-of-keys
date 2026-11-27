@@ -7980,7 +7980,7 @@ body.view-mode-notation .grimoire-toast {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: 3;
+  z-index: 4;
 }
 
 .timeline-section-tick {

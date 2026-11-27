@@ -2071,6 +2071,7 @@ function setStageViewMode(mode, { announceToast = false } = {}) {
 
   updateNotationQualityBanner();
   syncNotationWaitOverlayPill(performance.now());
+  if (typeof drawLiveHitErrorBar === 'function') drawLiveHitErrorBar();
   computeKeyGeometry();
 
   if (announceToast && changed) {
@@ -4515,7 +4516,7 @@ function renderTimelineSectionMarkers() {
     btn.setAttribute('aria-label', `Jump to ${m.label}`);
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (!currentSong) return;
+      if (!currentSong || (songProgressSlider && songProgressSlider.disabled)) return;
       playbackState.currentTime = m.time;
       playbackState.isWaitingForStrike = false;
       playbackState.waitStartedAtMs = null;
@@ -6106,6 +6107,18 @@ function animationLoop(timestamp) {
         if (c.isCountIn) {
           setStrikeStatusBadge('ready', `\uD83E\uDD41 Count-In: ${c.beatNumber} / ${currentSong.beatsPerMeasure || 4}`);
         }
+      }
+      if (playbackState.metronomeCountInEnabled && prevTime < 0 && proposedTime >= 0) {
+        setStrikeStatusBadge(
+          'ready',
+          playbackState.accompanimentMode === 'auto-both'
+            ? 'Listen Only Mode (Auto-Playing Both Hands)'
+            : (playbackState.waitMode
+                ? 'Wait Mode Active (100ms Chord Grace)'
+                : (playbackState.rhythmMode
+                    ? 'Rhythm Mode Active'
+                    : 'Arcade Mode Active (Continuous Playback)'))
+        );
       }
     }
 
@@ -9001,18 +9014,22 @@ function drawFallingSpellHighway(strikeLineY, width, highwayTopY = 0, collectOnl
     ctx.restore();
   }
 
-  // Resolve key signature & transposition once per frame for Scale Degrees label mode (#179)
+  // Resolve key signature & transposition once per frame for Scale Degrees label mode (#179, #186)
+  // notationScore.primaryKeySpec is already transposed by song.transposeSemitones
   const labelMode = playbackState.fallingNoteLabelMode || 'notes';
   let tonicPitchClass = 0;
   let keyIsMinor = false;
   if (labelMode === 'degrees') {
-    const rawKey = currentSong.notationScore?.primaryKeySpec
-      || currentSong.headerKeySignatures?.[0]?.key
-      || currentSong.keySignature
-      || 'C';
-    const parsedKey = parseKeySpecForDegrees(rawKey);
-    tonicPitchClass = (parsedKey.tonicPc + (Number(currentSong.transposeSemitones) || 0) + 120) % 12;
-    keyIsMinor = parsedKey.isMinor;
+    if (currentSong.notationScore?.primaryKeySpec) {
+      const parsedKey = parseKeySpecForDegrees(currentSong.notationScore.primaryKeySpec);
+      tonicPitchClass = parsedKey.tonicPc;
+      keyIsMinor = parsedKey.isMinor;
+    } else {
+      const rawKey = currentSong.headerKeySignatures?.[0]?.key || currentSong.keySignature || 'C';
+      const parsedKey = parseKeySpecForDegrees(rawKey);
+      tonicPitchClass = (parsedKey.tonicPc + (Number(currentSong.transposeSemitones) || 0) + 120) % 12;
+      keyIsMinor = parsedKey.isMinor;
+    }
   }
 
   // 1. Draw scrolling horizontal beat/measure grid lines (honoring mid-song tempo/meter changes & pickup bars)
@@ -11839,6 +11856,7 @@ accompanimentSelect.addEventListener('change', (e) => {
   playbackState.accompanimentMode = e.target.value;
   syncPracticeModeDropdownFromState();
   resetSongProgressFlags(playbackState.currentTime, { preserveTriggeredAtTarget: true });
+  syncCrowdFailStateForModeChange({ clearWarning: !isCrowdFailCurrentlyActive() });
   e.target.blur();
 });
 

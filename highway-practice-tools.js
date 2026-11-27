@@ -206,7 +206,7 @@ function computeCountInDurationSec(bpm = 120, beatsPerMeasure = 4) {
   const safeBpm = Math.max(30, Math.min(260, Number(bpm) || 120));
   const beats = Math.max(2, Math.min(8, Math.round(Number(beatsPerMeasure) || 4)));
   const dur = (60 / safeBpm) * beats;
-  return Math.max(1.2, Math.min(4.0, Math.round(dur * 1000) / 1000));
+  return Math.max(1.2, Math.min(8.0, Math.round(dur * 1000) / 1000));
 }
 
 function findMetronomeClicksInWindow(prevTime, curTime, {
