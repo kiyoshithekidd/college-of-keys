@@ -10,6 +10,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.13.0] - 2026-11-26
+
+### Added
+- **Known-Lyrics Forced Alignment & In-App Tap-to-Sync Lyric Editor (`#175`):**
+  - Added `lyrics-sync-editor.js` and the **⏱ Tap-to-Sync (Space)** tab inside `#lyric-paste-modal`, supporting Spacebar line stamping, undo, per-line `-0.1s` / `+0.1s` nudges, progressive `🎯` re-anchoring, UTF-8 preservation, and saving clean sibling `.lrc` files.
+  - Extended `python_ml/transcribe_quest.py` with `--lyrics-file`, `--lyrics-lang` (`auto`, `en`, `ja`, `es`, `fr`, `ko`, `de`), and `_align_known_lyrics_to_vocals()` via optional `stable-ts` (`python_ml/requirements-pro.txt`) with automatic CUDA → CPU fallback.
+- **High-Quality Vocal Separation: Mel-Band RoFormer & Pre-CREPE De-Reverb (`#176`):**
+  - Added selectable **Vocal Separation** (`Standard Demucs 6-Stem` vs `High Quality Mel-Band RoFormer + Lead/Backing`) and **De-Reverb before Vocal Pitch Tracking** controls in `#quest-board-modal`, backed by `try_separate_vocals_roformer()` (conservative segment sizing + CPU/Demucs fallback) and `try_dereverb_vocals_for_pitch()` (`UVR-DeEcho-DeReverb.pth` on a temporary copy).
+- **Automatic Loudness Normalization (`-14 LUFS`) (`#177`):**
+  - Added `loudness-normalizer.js` (`clampLoudnessGainDb`, `computeLoudnessGainDb`, `applyLoudnessGainToVolume` with `-1.0 dBTP` ceiling and strict `0` mute invariant), FFmpeg EBU R128 `loudnorm` pass-1 measurement in `python_ml/transcribe_quest.py`, per-song `loudnessGainDb` persistence in `song-bundle.js`, and **Auto-Normalize Loudness (-14 LUFS)** toggle in **⚙ Audio & Keys** (`save-backup.js` parity included).
+- **Tests:** Added `tests/pipeline-pro.test.js` (3 Node unit tests) and `pipelineProControlsAndTapSync` Electron DOM check in `tests/regression.test.js`.
+
+### Fixed
+- **v1.13.0 Peer Review & QA Audit Hardening (`#194`):** Cleared `tapSyncClockTimer` on all modal close paths (`closeLyricPasteModal()`), reset `#lyric-paste-modal` to the Paste tab on open, refreshed `backingAudioEl.volume` and `applyCurrentStemMixToAudioElements()` after `currentSong` assignment so initial song loads apply `loudnessGainDb`, and prevented RoFormer from overwriting Demucs 6-stem `other.wav`.
+
+---
+
 ## [1.12.0] - 2026-11-26
 
 ### Added

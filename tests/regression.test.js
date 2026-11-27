@@ -1049,6 +1049,37 @@ app.whenReady().then(async () => {
         ratingPopVisible
       );
 
+      // Issues #175, #176, #177: Tap-to-Sync modal tab, Quest Board Pro options & Loudness Norm toggle
+      const lnToggle = document.getElementById('toggle-loudness-norm');
+      if (lnToggle) {
+        lnToggle.checked = false;
+        lnToggle.dispatchEvent(new Event('change'));
+      }
+      const lnMutedZero = applyLoudnessGainToVolume(0, 6, true) === 0;
+      const lnPersisted = localStorage.getItem('collegeOfKeys.loudnessNormEnabled.v1') === 'false';
+      if (lnToggle) {
+        lnToggle.checked = true;
+        lnToggle.dispatchEvent(new Event('change'));
+      }
+
+      document.getElementById('btn-karaoke-paste-lyrics').click();
+      document.getElementById('lyric-paste-textarea').value = 'Line A\\nLine B';
+      document.getElementById('btn-lyric-tab-tapsync').click();
+      const tapSyncVisible = !document.getElementById('lyric-tap-sync-panel').classList.contains('hidden');
+      document.getElementById('btn-tapsync-stamp').click();
+      const tapRowCount = document.querySelectorAll('#tapsync-line-list .tap-sync-row').length;
+      document.getElementById('btn-tapsync-close').click();
+
+      checks.pipelineProControlsAndTapSync = Boolean(
+        document.getElementById('quest-vocal-sep-preset') &&
+        document.getElementById('quest-dereverb-checkbox') &&
+        document.getElementById('quest-lyrics-lang-select') &&
+        lnMutedZero &&
+        lnPersisted &&
+        tapSyncVisible &&
+        tapRowCount === 2
+      );
+
       return checks;
     })();
   `);

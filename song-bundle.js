@@ -426,6 +426,10 @@ function resolveBundleForSong({
     -6,
     Math.min(6, Math.round(Number(record?.karaokeKeyShiftSemitones ?? fallbackRecord?.karaokeKeyShiftSemitones ?? 0) || 0))
   );
+  const rawLoudnessDb = Number(record?.loudnessGainDb ?? fallbackRecord?.loudnessGainDb ?? 0);
+  const loudnessGainDb = Number.isFinite(rawLoudnessDb)
+    ? Math.round(Math.max(-12, Math.min(6, rawLoudnessDb)) * 10) / 10
+    : 0;
 
   const youtubeUrlRaw = hasOwn(record, 'youtubeUrl') ? record.youtubeUrl : fallbackRecord?.youtubeUrl;
   const spotifyUrlRaw = hasOwn(record, 'spotifyUrl') ? record.spotifyUrl : fallbackRecord?.spotifyUrl;
@@ -455,6 +459,7 @@ function resolveBundleForSong({
     vocalMix,
     lyricsOffsetSec,
     karaokeKeyShiftSemitones,
+    loudnessGainDb,
     sidecarPath: sidecarPath && fs.existsSync(sidecarPath) ? sidecarPath : null,
     hasCustomBundle: Boolean(
       sheetMusicPath ||
@@ -469,7 +474,8 @@ function resolveBundleForSong({
       typeof midiCleanupEnabled === 'boolean' ||
       transposeSemitones !== 0 ||
       Math.abs(lyricsOffsetSec) > 0.001 ||
-      karaokeKeyShiftSemitones !== 0
+      karaokeKeyShiftSemitones !== 0 ||
+      Math.abs(loudnessGainDb) > 0.05
     )
   };
 }
@@ -597,6 +603,10 @@ function saveBundleRecord({
       -6,
       Math.min(6, Math.round(Number(record.karaokeKeyShiftSemitones !== undefined ? record.karaokeKeyShiftSemitones : (existing.karaokeKeyShiftSemitones ?? 0)) || 0))
     ),
+    loudnessGainDb: (() => {
+      const raw = Number(record.loudnessGainDb !== undefined ? record.loudnessGainDb : (existing.loudnessGainDb ?? 0));
+      return Number.isFinite(raw) ? Math.round(Math.max(-12, Math.min(6, raw)) * 10) / 10 : 0;
+    })(),
     updatedAt: new Date().toISOString()
   };
 
@@ -635,6 +645,7 @@ function saveBundleRecord({
         vocalMix: nextEntry.vocalMix,
         lyricsOffsetSec: nextEntry.lyricsOffsetSec,
         karaokeKeyShiftSemitones: nextEntry.karaokeKeyShiftSemitones,
+        loudnessGainDb: nextEntry.loudnessGainDb,
         audioUnlinked: nextEntry.audioUnlinked,
         sheetUnlinked: nextEntry.sheetUnlinked,
         youtubeUrl: nextEntry.youtubeUrl,

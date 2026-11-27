@@ -16,7 +16,8 @@ const nodeUnitTests = [
   path.join(__dirname, 'save-backup.test.js'),
   path.join(__dirname, 'midi-output.test.js'),
   path.join(__dirname, 'arcane-drills.test.js'),
-  path.join(__dirname, 'karaoke-stage-ecosystem.test.js')
+  path.join(__dirname, 'karaoke-stage-ecosystem.test.js'),
+  path.join(__dirname, 'pipeline-pro.test.js')
 ];
 const testEntry = path.join(__dirname, 'regression.test.js');
 const electronBin = require('electron');

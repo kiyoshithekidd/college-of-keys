@@ -342,6 +342,11 @@
               </div>
 
               <div class="popover-row">
+                <label for="toggle-loudness-norm" title="Automatically balance quiet and loud backing tracks to -14 LUFS">Auto-Normalize Loudness (-14 LUFS)</label>
+                <input id="toggle-loudness-norm" type="checkbox" class="tavern-checkbox" checked />
+              </div>
+
+              <div class="popover-row">
                 <label for="playable-track-select">Highway MIDI Track</label>
                 <select id="playable-track-select" class="tavern-select" disabled>
                   <option value="auto-piano">No Spell Loaded</option>
@@ -1679,6 +1684,31 @@
             </label>
           </div>
 
+          <!-- Issue #175 & #176: Pro Vocal Separation, Pre-CREPE De-Reverb & Forced Alignment Language -->
+          <div class="quest-engine-option-row quest-pro-options-row">
+            <label for="quest-vocal-sep-preset">Vocal Separation</label>
+            <select id="quest-vocal-sep-preset" class="tavern-select">
+              <option value="standard" selected>Standard (Demucs 6-Stem)</option>
+              <option value="roformer">High Quality (Mel-Band RoFormer + Lead/Backing)</option>
+            </select>
+            <label for="quest-lyrics-lang-select">Lyrics Lang</label>
+            <select id="quest-lyrics-lang-select" class="tavern-select">
+              <option value="auto" selected>Auto-Detect</option>
+              <option value="en">English (en)</option>
+              <option value="ja">Japanese (ja)</option>
+              <option value="es">Spanish (es)</option>
+              <option value="fr">French (fr)</option>
+              <option value="ko">Korean (ko)</option>
+              <option value="de">German (de)</option>
+            </select>
+          </div>
+          <div class="quest-stems-option-row">
+            <label for="quest-dereverb-checkbox" class="quest-stem-toggle-label" title="Run optional UVR De-Reverb on a temporary copy before CREPE vocal pitch tracking">
+              <input id="quest-dereverb-checkbox" type="checkbox" />
+              <span>&#10024; <strong>De-Reverb before Vocal Pitch Tracking</strong> (cleaner CREPE melody on reverb-heavy ballads; requires optional <code>audio-separator</code>)</span>
+            </label>
+          </div>
+
           <div class="quest-action-row">
             <button id="btn-run-quest-url" class="tavern-btn tavern-btn-cast quest-btn-main" title="Download YouTube or local audio, split stems, and transcribe into ./Imports">
               &#128302; Transcribe (Piano Cover)
@@ -2280,19 +2310,41 @@
     </div>
   </div>
 
-  <!-- Issue #125 (Epic #43): Paste Lyrics / .LRC Modal -->
+  <!-- Issue #125 & #175: Paste Lyrics / .LRC & Tap-to-Sync Editor Modal -->
   <div id="lyric-paste-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="lyric-paste-title">
     <div class="performance-modal-card lyric-paste-modal-card">
       <div class="modal-header-ornament">&#127908; SPELL-SINGING LYRICS &#127908;</div>
       <h2 id="lyric-paste-title" class="modal-main-title">Sync Lyrics or .LRC Timestamps</h2>
-      <p class="lyric-paste-hint">
-        Paste standard <code>.lrc</code> lines (<code>[00:12.50] Sing the melody</code>) or plain lyric lines. Leave blank to use MusicXML lyrics or the built-in Solf&egrave;ge melodic guide.
-      </p>
-      <textarea id="lyric-paste-textarea" class="lyric-paste-textarea" rows="8" placeholder="[00:02.00] First line of the chorus...&#10;[00:06.50] Second line of the chorus..."></textarea>
-      <div class="modal-actions">
-        <button id="btn-lyric-paste-cancel" type="button" class="tavern-btn">Cancel</button>
-        <button id="btn-lyric-paste-clear" type="button" class="tavern-btn">Use Default / Solf&egrave;ge</button>
-        <button id="btn-lyric-paste-apply" type="button" class="tavern-btn tavern-btn-cast">&#10024; Apply Lyrics</button>
+      <div class="lyric-modal-tabs" role="tablist" aria-label="Lyric Editor Mode">
+        <button id="btn-lyric-tab-paste" type="button" class="tavern-btn tavern-btn-primary" role="tab" aria-selected="true">&#128221; Paste / Edit .LRC</button>
+        <button id="btn-lyric-tab-tapsync" type="button" class="tavern-btn" role="tab" aria-selected="false">&#9201; Tap-to-Sync (Space)</button>
+      </div>
+
+      <div id="lyric-paste-panel">
+        <p class="lyric-paste-hint">
+          Paste standard <code>.lrc</code> lines (<code>[00:12.50] Sing the melody</code>) or plain lyric lines. Leave blank to use MusicXML lyrics or the built-in Solf&egrave;ge melodic guide.
+        </p>
+        <textarea id="lyric-paste-textarea" class="lyric-paste-textarea" rows="8" placeholder="[00:02.00] First line of the chorus...&#10;[00:06.50] Second line of the chorus..."></textarea>
+        <div class="modal-actions">
+          <button id="btn-lyric-paste-cancel" type="button" class="tavern-btn">Cancel</button>
+          <button id="btn-lyric-paste-clear" type="button" class="tavern-btn">Use Default / Solf&egrave;ge</button>
+          <button id="btn-lyric-paste-apply" type="button" class="tavern-btn tavern-btn-cast">&#10024; Apply Lyrics</button>
+        </div>
+      </div>
+
+      <div id="lyric-tap-sync-panel" class="hidden">
+        <div class="tap-sync-toolbar">
+          <button id="btn-tapsync-play" type="button" class="tavern-btn tavern-btn-primary">&#9654; Play / Pause</button>
+          <button id="btn-tapsync-restart" type="button" class="tavern-btn">&#9198; Restart</button>
+          <strong id="tapsync-clock-readout" class="tap-sync-clock">00:00.00</strong>
+          <button id="btn-tapsync-stamp" type="button" class="tavern-btn tavern-btn-cast">&#9201; Tap Stamp (Space)</button>
+          <button id="btn-tapsync-undo" type="button" class="tavern-btn">&#8617; Undo</button>
+        </div>
+        <div id="tapsync-line-list" class="tap-sync-line-list" aria-live="polite"></div>
+        <div class="modal-actions">
+          <button id="btn-tapsync-close" type="button" class="tavern-btn">Cancel</button>
+          <button id="btn-tapsync-save" type="button" class="tavern-btn tavern-btn-cast">&#128190; Save Sibling .LRC &amp; Apply</button>
+        </div>
       </div>
     </div>
   </div>

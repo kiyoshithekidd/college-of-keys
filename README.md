@@ -35,6 +35,7 @@
 | **v1.10.0** | **Architecture & Save Safety Net: 1-Click Bard Save Backup Export & Import (`#185`), Modularized `renderer.js` (`modules/spellbook-ui.js`, `modules/highway-renderer.js`, `modules/performance-modal.js`, `modules/audio-engine.js`) (`#184`), and QA Hardening (`#188`)** | **Completed** |
 | **v1.11.0** | **Piano Hardware & Warmup Dojo: Web MIDI Output Pass-Through to Hardware Digital Piano (`#180`), Arcane Drills Interactive Scales/Chords/Progressions Dojo (`#178`), and QA Hardening (`#190`)** | **Completed** |
 | **v1.12.0** | **Karaoke Stage & Chart Ecosystem: Community `.txt` Syllable-Timed Vocal Chart Importer (`#172`), Radiant 2x Notes / Rap Freestyle Bars / Per-Line Rating Pops (`#173`), Real-Time `±6 st` Karaoke Key Shifting (`#174`), and QA Hardening (`#192`)** | **Completed** |
+| **v1.13.0** | **Audio & Lyrics Pipeline Pro: Known-Lyrics Forced Alignment & Tap-to-Sync Editor (`#175`), Mel-Band RoFormer & Pre-CREPE De-Reverb Presets (`#176`), Automatic `-14 LUFS` Loudness Normalization (`#177`), and QA Hardening (`#194`)** | **Completed** |
 
 ---
 
@@ -151,6 +152,11 @@
 - **Radiant Bonus Notes, Rap Freestyle Bars & Per-Line Rating Pops (`#173`):** Golden **Radiant (`*` / `G`)** ribbons award `2x` score & Vocal XP, **Spoken/Rap (`F` / `G`)** bars score on microphone voice activity without requiring exact pitch, and every completed phrase pops a **Cool! / Great! / Awesome! / Perfect!** rating badge with bonus Vocal XP.
 - **Real-Time Karaoke Key / Pitch Shifting (`#174`, `#192`):** Shift a song by `-6 st` to `+6 st` via the **♭ - / + ♯** stepper in `#spell-singing-stage` — shifting melodic audio stems & backing audio (bypassing `drums`) together with the vocal highway target notes and pitch scorer, persisted per song in `song-bundle.js`.
 
+### 17. Audio & Lyrics Pipeline Pro (`v1.13.0`)
+- **Known-Lyrics Forced Alignment & In-App Tap-to-Sync (`#175`, `#194`):** Align plain lyrics to `vocals.wav` via optional `stable-ts` (`python_ml/requirements-pro.txt`) with automatic CUDA → CPU fallback and language selection, or stamp `.lrc` lines live with `Space`, undo, per-line nudge, and `🎯` re-anchor in the **⏱ Tap-to-Sync** tab of `#lyric-paste-modal`.
+- **Mel-Band RoFormer & Pre-CREPE De-Reverb Presets (`#176`, `#194`):** Optional Quest Board presets when `audio-separator` is installed (`High Quality Mel-Band RoFormer + Lead/Backing` and `De-Reverb before Vocal Pitch Tracking`), with automatic CPU/Demucs fallback.
+- **Automatic Loudness Normalization (`#177`, `#194`):** Measures EBU R128 loudness (`-14 LUFS` target, `-1.0 dBTP` ceiling) on import, persists `loudnessGainDb` (`-12..+6 dB`) per song in `song-bundle.js`, and applies it uniformly across backing audio and all 6 stems + vocal sub-stems (toggleable in **⚙ Audio & Keys**).
+
 ---
 
 ## Controls & Input Modes
@@ -208,7 +214,7 @@ npm test
 - [`midi-output.js`](./midi-output.js) & [`arcane-drills.js`](./arcane-drills.js) — Web MIDI Output pass-through controller (`CC 64` / `CC 123` / `CC 120` safety) and Arcane Drills scales/chords/progressions theory & scoring engine.
 - [`save-backup.js`](./save-backup.js) — Schema-versioned 1-Click Bard Save Export & Import with pre-import safety backups.
 - [`notation-engine.js`](./notation-engine.js) — VexFlow 5 + Bravura Grand-Staff sheet music engine, LRU tile cache, and smooth tracking playhead.
-- [`instrument-input.js`](./instrument-input.js), [`spell-singing.js`](./spell-singing.js), [`txt-vocal-chart.js`](./txt-vocal-chart.js), [`karaoke-pitch-shift.js`](./karaoke-pitch-shift.js), [`lyrics-fetcher.js`](./lyrics-fetcher.js) & [`vocal-harmony-dsp.js`](./vocal-harmony-dsp.js) — External instrument input routing, vocal contour simplifier & Bezier glide highway (with Radiant 2x, Rap RMS scoring, & Per-Line Rating Pops), `.txt` syllable-timed vocal chart importer, `±6 st` real-time Karaoke key shifter, LRCLIB synced lyrics fetcher, and Apple Music Sing Stereo Mid/Side + AI Lead/Harmony vocal mixer DSP.
+- [`instrument-input.js`](./instrument-input.js), [`spell-singing.js`](./spell-singing.js), [`txt-vocal-chart.js`](./txt-vocal-chart.js), [`karaoke-pitch-shift.js`](./karaoke-pitch-shift.js), [`lyrics-sync-editor.js`](./lyrics-sync-editor.js), [`loudness-normalizer.js`](./loudness-normalizer.js), [`lyrics-fetcher.js`](./lyrics-fetcher.js) & [`vocal-harmony-dsp.js`](./vocal-harmony-dsp.js) — External instrument input routing, vocal contour simplifier & Bezier glide highway, `.txt` vocal chart importer, `±6 st` Karaoke key shifter, Tap-to-Sync `.lrc` editor, `-14 LUFS` loudness normalizer, LRCLIB synced lyrics fetcher, and Stereo Mid/Side + AI Lead/Harmony vocal mixer DSP.
 - [`d20-roller.js`](./d20-roller.js) — Three.js + `cannon-es` 3D physics d20 Performance Check dice tray.
 - [`musicxml-converter.js`](./musicxml-converter.js), [`midi-hygiene.js`](./midi-hygiene.js), [`song-bundle.js`](./song-bundle.js) & [`omr-confidence.js`](./omr-confidence.js) — Pure-JS MusicXML-to-MIDI converter, Smart MIDI Hygiene & Multi-Instrument Highways, Grimoire Song Bundle sync (including per-song `vocalMix` and `lyricsOffsetSec`), and OMR confidence review.
 - [`tavern-setlists.js`](./tavern-setlists.js), [`bard-achievements.js`](./bard-achievements.js), [`guild-tutorial.js`](./guild-tutorial.js), [`bard-colleges.js`](./bard-colleges.js), [`bard-campaign.js`](./bard-campaign.js), [`hall-of-legends.js`](./hall-of-legends.js), [`grimoire-preview.js`](./grimoire-preview.js) & [`highway-practice-tools.js`](./highway-practice-tools.js) — Tavern Crowd Meter & fail state, Setlists, Achievements, Interactive Tutorial, Bard Colleges, 4-Act Story Campaign, Grimoire Hall of Legends, 30s Audio Preview, and Highway Scroll Speed / Scale Degrees / CC 64 Sustain / Hit-Error / Metronome helpers.
