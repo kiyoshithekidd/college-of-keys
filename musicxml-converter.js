@@ -1056,6 +1056,9 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
     }
     keySignatures.push(ks);
   }
+  if (keySignatures.length === 0) {
+    keySignatures.push({ ticks: 0, fifths: 0, mode: 'major', vfKeySpec: 'C' });
+  }
 
   // Build @tonejs/midi object
   const midi = new Midi();

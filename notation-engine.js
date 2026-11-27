@@ -484,6 +484,7 @@ function estimateKeySignature(notes = []) {
  * spelled idiomatically for the active key signature.
  */
 const midiToVexKeyCache = new Map();
+const keyManagerCache = new Map();
 
 function midiToVexKey(midi, vfKeySpec = 'C', vfRef = null) {
   const safeMidi = Math.max(0, Math.min(127, Math.round(Number(midi) || 60)));
@@ -498,7 +499,11 @@ function midiToVexKey(midi, vfKeySpec = 'C', vfRef = null) {
     const cached = midiToVexKeyCache.get(cacheKey);
     if (cached) return cached;
     try {
-      const km = new vfRef.KeyManager(safeKey);
+      let km = keyManagerCache.get(safeKey);
+      if (!km) {
+        km = new vfRef.KeyManager(safeKey);
+        keyManagerCache.set(safeKey, km);
+      }
       km.reset();
       const selected = km.selectNote(candidateName);
       if (selected && typeof selected.note === 'string') {
@@ -1104,9 +1109,13 @@ function buildScoreData(song, options = {}) {
   let keyIsEstimated = false;
   let fallbackKey = 'C';
   if (explicitKeySigs.length === 0) {
-    estimatedKey = estimateKeySignature(allPrepared);
-    fallbackKey = estimatedKey.vfKeySpec;
-    keyIsEstimated = true;
+    if (xmlMeta && Array.isArray(xmlMeta.keySignatures)) {
+      explicitKeySigs.push({ ticks: 0, fifths: 0, mode: 'major', vfKeySpec: 'C' });
+    } else {
+      estimatedKey = estimateKeySignature(allPrepared);
+      fallbackKey = estimatedKey.vfKeySpec;
+      keyIsEstimated = true;
+    }
   }
   const keySigMap = buildKeySigMap(explicitKeySigs, fallbackKey);
   const transposeSemitones = Math.round(Number(song.transposeSemitones) || 0);

@@ -1848,7 +1848,7 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   .d20-grade-banner.nat-1,
   .arcane-crest,
-  .inspiration-banner.charged,
+  .inspiration-banner.ready,
   .tavern-hearth-glow,
   .tavern-crest-logo-img,
   .splash-crest-logo-img,
@@ -2980,29 +2980,6 @@ html, body {
   box-shadow: 0 0 10px rgba(255, 215, 0, 0.55);
 }
 
-.grimoire-empty {
-  text-align: center;
-  padding: 24px 12px;
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  border: 1px dashed rgba(138, 109, 47, 0.45);
-  border-radius: 8px;
-}
-
-.grimoire-footer {
-  padding: 8px 12px;
-  border-top: 1px solid rgba(138, 109, 47, 0.4);
-  font-size: 0.68rem;
-  color: var(--text-muted);
-  text-align: center;
-  background: rgba(18, 13, 10, 0.92);
-}
-
-.grimoire-footer code {
-  color: var(--radiant-gold);
-  font-family: 'Consolas', monospace;
-}
-
 .grimoire-toast {
   position: fixed;
   bottom: 225px;
@@ -3389,7 +3366,6 @@ body.view-mode-notation .grimoire-toast {
   box-shadow: 0 0 12px rgba(0, 229, 255, 0.35);
 }
 
-.quest-stage-pill.stage-complete,
 .quest-stage-pill.stage-done {
   border-color: #36d399;
   color: #a7f3d0;
@@ -4641,8 +4617,7 @@ body.view-mode-notation .grimoire-toast {
 
   .tavern-scene-stage .tavern-title-block,
   .tavern-scene-stage .tavern-station-card,
-  .tavern-scene-stage #tavern-bard-card,
-  .tavern-scene-stage #tavern-streak-calendar-card {
+  .tavern-scene-stage #tavern-bard-card {
     position: static;
     transform: none !important;
     width: 100% !important;
@@ -5347,12 +5322,6 @@ body.view-mode-notation .grimoire-toast {
 .quest-bounties-section {
   border-color: rgba(212, 175, 55, 0.45);
   background: linear-gradient(145deg, rgba(30, 22, 15, 0.92) 0%, rgba(16, 12, 8, 0.95) 100%);
-}
-
-.quest-bounties-heading {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .bounty-header-icon {

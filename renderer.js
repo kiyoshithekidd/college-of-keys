@@ -4664,7 +4664,7 @@ const audioEngineModule = createAudioEngineModule({
   set auditionRequestSeq(v) { auditionRequestSeq = v; },
   get isAuditionPending() { return isAuditionPending; },
   set isAuditionPending(v) { isAuditionPending = v; },
-  audioSyncPopover
+  audioSyncPopover, btnSyncAudition, btnSyncMarkBeat1
 });
 const {
   applyCurrentStemMixToAudioElements,

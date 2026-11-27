@@ -12,7 +12,7 @@ function createAudioEngineModule(deps) {
     Tone, playbackState, grimoireSpells,
     computeVocalMixMatrixGains, isStemAudibleInMix,
     renderGrimoireSidebar, getBackingAudioVolumeFromSlider, showGrimoireToast,
-    audioSyncPopover
+    audioSyncPopover, btnSyncAudition, btnSyncMarkBeat1
   } = deps;
 
   function applyCurrentStemMixToAudioElements() {
@@ -282,6 +282,8 @@ function createAudioEngineModule(deps) {
     if (btnSyncMarkBeat1) {
       btnSyncMarkBeat1.textContent = '\uD83C\uDFAF Mark Beat 1';
     }
+    btnSyncAudition?.classList.remove('is-auditioning');
+    btnSyncMarkBeat1?.classList.remove('is-armed');
   }
 
   async function startAudioAudition() {
@@ -295,6 +297,8 @@ function createAudioEngineModule(deps) {
 
     const seq = ++deps.auditionRequestSeq;
     deps.isAuditionPending = true;
+    btnSyncAudition?.classList.add('is-auditioning');
+    btnSyncMarkBeat1?.classList.add('is-armed');
     pausePlayback();
     if (btnSyncAudition) btnSyncAudition.textContent = '\u23F9 Stop Audition';
     if (syncStatusHint) syncStatusHint.textContent = 'Starting audition from 0:00\u2026';
