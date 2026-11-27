@@ -752,6 +752,65 @@ app.whenReady().then(async () => {
       assignSongTracksAndDifficulty('auto-piano');
       checks.restoredHighway = stageViewMode === 'highway' && !document.getElementById('practice-hand-control-group').classList.contains('hidden');
 
+      // Issue #162 & #163: Grimoire Hall of Legends + 30s Audio Preview DOM checks
+      const prevSongRef = currentSong;
+      const prevTotalXp = bardProfile.totalXp;
+      const demoKey = getSongHistoryKey(currentSong);
+      const prevDemoHist = songPlayHistory[demoKey] ? { ...songPlayHistory[demoKey] } : null;
+
+      // Seed a baseline record and verify Hall of Legends 11th spread renders both lists
+      songPlayHistory[demoKey] = {
+        ...(prevDemoHist || {}),
+        songId: demoKey,
+        title: currentSong.title,
+        filePath: currentSong.filePath || 'BUILTIN_DEMO',
+        plays: 1,
+        bestAccuracy: 85,
+        bestAccuracySetAt: '2026-11-25T12:00:00.000Z',
+        bestRunXp: 300,
+        bestRunXpSetAt: '2026-11-25T12:00:00.000Z',
+        lastPlayed: '2026-11-25T12:00:00.000Z',
+        firstPlayed: '2026-11-25T12:00:00.000Z'
+      };
+
+      openGrimoireSpellbook('highway');
+      const legendsPip = document.getElementById('tier-pip-hall-of-legends');
+      const rowPreviewBtns = document.querySelectorAll('.spellbook-card-preview-btn');
+      const detailPreviewBtn = document.getElementById('btn-spellbook-preview-song');
+      checks.grimoirePreviewButtonsPresent = Boolean(rowPreviewBtns.length > 0 && detailPreviewBtn);
+
+      // Verify Recording option is hidden when entry has no backing audio
+      const firstEntry = Array.from(grimoireSpells.values())[0];
+      openSpellbookPreviewMenu({ ...firstEntry, backingAudioPath: null }, detailPreviewBtn);
+      checks.grimoirePreviewHidesRecordingWithoutAudio = Boolean(
+        document.getElementById('btn-preview-source-recording').classList.contains('hidden')
+      );
+      closeSpellbookPreviewMenu();
+
+      // Switch directly to Hall of Legends spread (index 10)
+      currentSpellbookTierIndex = HALL_OF_LEGENDS_SPREAD_INDEX;
+      renderSpellbookSpread();
+      const legendsLeftVisible = !document.getElementById('spellbook-legends-left-panel').classList.contains('hidden');
+      const legendsRightVisible = !document.getElementById('spellbook-legends-right-panel').classList.contains('hidden');
+      const accRows = document.querySelectorAll('#spellbook-legends-acc-list .legends-record-row');
+      const xpRows = document.querySelectorAll('#spellbook-legends-xp-list .legends-record-row');
+      checks.hallOfLegendsSpreadRenders = Boolean(legendsPip && legendsLeftVisible && legendsRightVisible && accRows.length >= 1 && xpRows.length >= 1);
+
+      // Verify preview stops on close and never mutates currentSong or XP
+      closeGrimoireSpellbook();
+      checks.grimoirePreviewIsolation = Boolean(
+        !grimoirePreviewController.getState().isPlaying &&
+        currentSong === prevSongRef &&
+        bardProfile.totalXp === prevTotalXp
+      );
+
+      // Restore seeded history
+      if (prevDemoHist) {
+        songPlayHistory[demoKey] = prevDemoHist;
+      } else {
+        delete songPlayHistory[demoKey];
+      }
+
       return checks;
     })();
   `);

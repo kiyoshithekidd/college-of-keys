@@ -133,6 +133,12 @@ const {
   computeHallOfLegends,
   formatLegendDate
 } = require('./hall-of-legends');
+const {
+  PREVIEW_DURATION_SEC,
+  hasPreviewBackingAudio,
+  getAvailablePreviewSources,
+  createGrimoirePreviewController
+} = require('./grimoire-preview');
 
 const MIN_MIDI = 36; // C2
 const MAX_MIDI = 96; // C7
@@ -456,8 +462,12 @@ const spellbookBundleAudioChip = document.getElementById('spellbook-bundle-audio
 const spellbookBundleSpotifyLink = document.getElementById('spellbook-bundle-spotify-link');
 const btnSpellbookBundle = document.getElementById('btn-spellbook-bundle');
 const btnSpellbookLoadSong = document.getElementById('btn-spellbook-load-song');
+const btnSpellbookPreviewSong = document.getElementById('btn-spellbook-preview-song');
 const btnSpellbookFavoriteSong = document.getElementById('btn-spellbook-favorite-song');
 const btnSpellbookDeleteSong = document.getElementById('btn-spellbook-delete-song');
+const spellbookPreviewMenu = document.getElementById('spellbook-preview-menu');
+const btnPreviewSourceRecording = document.getElementById('btn-preview-source-recording');
+const btnPreviewSourceMidi = document.getElementById('btn-preview-source-midi');
 
 // Navigation Bar Elements
 const btnSpellbookPrevPage = document.getElementById('btn-spellbook-prev-page');
@@ -4120,6 +4130,7 @@ async function startPlayback() {
   if (!currentSong || isAnyModalOpen() || isTavernMenuVisible) return;
   const targetSong = currentSong;
   stopAudioAudition();
+  stopGrimoirePreview();
   await ensureAudioReady();
 
   if (!currentSong || currentSong !== targetSong || isAnyModalOpen() || isTavernMenuVisible) {
@@ -6621,7 +6632,199 @@ function openGrimoireSpellbook(origin = 'highway') {
   }
 }
 
+let previewMenuEntryId = null;
+
+async function extractPreviewNotesForGrimoireEntry(entry) {
+  if (!entry) return [];
+  let arrayBuf = null;
+  if (entry.filePath === 'BUILTIN_DEMO') {
+    const bytes = buildDemoSpellMidiBytes();
+    arrayBuf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  } else if (entry.filePath && fs.existsSync(entry.filePath)) {
+    const rawBuf = fs.readFileSync(entry.filePath);
+    if (isMusicXmlFileName(entry.fileName || entry.filePath)) {
+      const converted = convertMusicXmlToMidiBuffer(rawBuf, entry.fileName || path.basename(entry.filePath));
+      if (converted && converted.midiBytes) {
+        arrayBuf = converted.midiBytes.buffer.slice(
+          converted.midiBytes.byteOffset,
+          converted.midiBytes.byteOffset + converted.midiBytes.byteLength
+        );
+      }
+    } else {
+      arrayBuf = rawBuf.buffer.slice(rawBuf.byteOffset, rawBuf.byteOffset + rawBuf.byteLength);
+    }
+  }
+  if (!arrayBuf) return [];
+
+  const midi = new Midi(arrayBuf);
+  const extracted = [];
+  for (const track of midi.tracks) {
+    if (track.channel === 9) continue;
+    for (const note of track.notes) {
+      const folded = foldMidiNoteDetails(note.midi);
+      extracted.push({
+        midi: note.midi,
+        foldedMidi: folded.foldedMidi,
+        name: midiToNoteName(folded.foldedMidi),
+        foldedName: midiToNoteName(folded.foldedMidi),
+        time: note.time,
+        duration: note.duration,
+        velocity: note.velocity
+      });
+    }
+  }
+  return extracted;
+}
+
+const grimoirePreviewController = createGrimoirePreviewController({
+  Tone,
+  AudioCtor: typeof Audio !== 'undefined' ? Audio : null,
+  pathToFileURL,
+  getBackingVolume: () => getBackingAudioVolumeFromSlider(),
+  ensureAudioReady,
+  getPianoInstrument: () => getActiveInstrument(),
+  extractNotesForEntry: extractPreviewNotesForGrimoireEntry,
+  onStateChange: (state) => updateGrimoirePreviewUI(state),
+  onError: (msg) => showGrimoireToast(msg, 'warning')
+});
+
+function closeSpellbookPreviewMenu() {
+  previewMenuEntryId = null;
+  if (spellbookPreviewMenu) {
+    spellbookPreviewMenu.classList.add('hidden');
+  }
+}
+
+function stopGrimoirePreview() {
+  closeSpellbookPreviewMenu();
+  grimoirePreviewController.stopPreview();
+}
+
+function updateGrimoirePreviewUI(state = grimoirePreviewController.getState()) {
+  const activeId = state && state.isPlaying ? state.entryId : null;
+  const pct = state && state.isPlaying ? Math.round((state.progress || 0) * 100) : 0;
+
+  if (spellbookSongList) {
+    spellbookSongList.querySelectorAll('.spellbook-card-preview-btn').forEach((btn) => {
+      const isThis = Boolean(activeId && btn.dataset.entryId === activeId);
+      btn.classList.toggle('is-previewing', isThis);
+      btn.style.setProperty('--preview-pct', `${isThis ? pct : 0}%`);
+      btn.textContent = isThis ? '\u25A0' : '\u25B6';
+      btn.setAttribute('aria-pressed', isThis ? 'true' : 'false');
+      const title = btn.dataset.entryTitle || 'spell';
+      btn.title = isThis
+        ? `Stop 30s preview of "${title}"`
+        : `Preview 30s of "${title}"`;
+      btn.setAttribute('aria-label', isThis ? `Stop preview of ${title}` : `Preview ${title}`);
+    });
+  }
+
+  if (btnSpellbookPreviewSong) {
+    const selectedId = selectedSpellbookEntryId;
+    const isSelectedPreviewing = Boolean(activeId && selectedId && activeId === selectedId);
+    btnSpellbookPreviewSong.classList.toggle('is-previewing', isSelectedPreviewing);
+    btnSpellbookPreviewSong.setAttribute('aria-pressed', isSelectedPreviewing ? 'true' : 'false');
+    if (isSelectedPreviewing) {
+      const remaining = Math.max(0, Math.ceil((state.durationSec || PREVIEW_DURATION_SEC) - (state.elapsedSec || 0)));
+      const srcLabel = state.source === 'recording' ? 'Recording' : 'Piano';
+      btnSpellbookPreviewSong.textContent = `\u25A0 Stop (${srcLabel} ${remaining}s)`;
+    } else {
+      btnSpellbookPreviewSong.textContent = '\uD83C\uDFA7 Preview';
+    }
+  }
+}
+
+function openSpellbookPreviewMenu(entry, anchorEl) {
+  if (!spellbookPreviewMenu || !entry) return;
+  const hasRecording = hasPreviewBackingAudio(entry);
+  previewMenuEntryId = entry.id;
+
+  if (btnPreviewSourceRecording) {
+    btnPreviewSourceRecording.classList.toggle('hidden', !hasRecording);
+    btnPreviewSourceRecording.disabled = !hasRecording;
+  }
+
+  spellbookPreviewMenu.classList.remove('hidden');
+
+  const container = grimoireSpellbookModal?.querySelector('.spellbook-container');
+  if (container && anchorEl) {
+    const cRect = container.getBoundingClientRect();
+    const aRect = anchorEl.getBoundingClientRect();
+    const menuW = spellbookPreviewMenu.offsetWidth || 184;
+    const menuH = spellbookPreviewMenu.offsetHeight || 110;
+    let left = aRect.right - cRect.left - menuW;
+    if (left < 12) left = aRect.left - cRect.left;
+    if (left + menuW > cRect.width - 12) left = Math.max(12, cRect.width - menuW - 12);
+    let top = aRect.bottom - cRect.top + 6;
+    if (top + menuH > cRect.height - 12) {
+      top = Math.max(12, aRect.top - cRect.top - menuH - 6);
+    }
+    spellbookPreviewMenu.style.left = `${Math.round(left)}px`;
+    spellbookPreviewMenu.style.top = `${Math.round(top)}px`;
+  }
+}
+
+function handleGrimoirePreviewButtonClick(entry, anchorEl) {
+  if (!entry) return;
+  if (grimoirePreviewController.isPreviewingEntry(entry.id)) {
+    stopGrimoirePreview();
+    return;
+  }
+  const sources = getAvailablePreviewSources(entry);
+  if (sources.length === 1) {
+    closeSpellbookPreviewMenu();
+    void grimoirePreviewController.startPreview(entry, sources[0]);
+    return;
+  }
+  if (previewMenuEntryId === entry.id && spellbookPreviewMenu && !spellbookPreviewMenu.classList.contains('hidden')) {
+    closeSpellbookPreviewMenu();
+    return;
+  }
+  openSpellbookPreviewMenu(entry, anchorEl);
+}
+
+if (btnPreviewSourceRecording) {
+  btnPreviewSourceRecording.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const entry = previewMenuEntryId ? grimoireSpells.get(previewMenuEntryId) : null;
+    closeSpellbookPreviewMenu();
+    if (entry) {
+      void grimoirePreviewController.startPreview(entry, 'recording');
+    }
+  });
+}
+
+if (btnPreviewSourceMidi) {
+  btnPreviewSourceMidi.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const entry = previewMenuEntryId ? grimoireSpells.get(previewMenuEntryId) : null;
+    closeSpellbookPreviewMenu();
+    if (entry) {
+      void grimoirePreviewController.startPreview(entry, 'midi');
+    }
+  });
+}
+
+if (btnSpellbookPreviewSong) {
+  btnSpellbookPreviewSong.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const entry = selectedSpellbookEntryId ? grimoireSpells.get(selectedSpellbookEntryId) : null;
+    if (!entry) return;
+    handleGrimoirePreviewButtonClick(entry, btnSpellbookPreviewSong);
+  });
+}
+
+document.addEventListener('click', (e) => {
+  if (!spellbookPreviewMenu || spellbookPreviewMenu.classList.contains('hidden')) return;
+  if (spellbookPreviewMenu.contains(e.target)) return;
+  if (e.target && e.target.closest && (e.target.closest('.spellbook-card-preview-btn') || e.target.closest('#btn-spellbook-preview-song'))) {
+    return;
+  }
+  closeSpellbookPreviewMenu();
+});
+
 function closeGrimoireSpellbook() {
+  stopGrimoirePreview();
   if (grimoireSpellbookModal) {
     grimoireSpellbookModal.classList.add('hidden');
   }
@@ -6653,6 +6856,7 @@ function navigateToSpellbookTier(targetIndex, animDirection = 'forward') {
   if (targetIndex < 0 || targetIndex >= TOTAL_SPELLBOOK_SPREADS) return;
   if (targetIndex === currentSpellbookTierIndex && !spellbookFavoritesOnly) return;
 
+  stopGrimoirePreview();
   if (spellbookFavoritesOnly) {
     spellbookFavoritesOnly = false;
     saveSpellbookFavoritesFilter();
@@ -6754,7 +6958,9 @@ function renderHallOfLegendsList(listEl, emptyEl, records, kind) {
     const grimoireEntry = findGrimoireEntryForLegendRecord(rec);
     const isLoadable = Boolean(
       grimoireEntry &&
-      (grimoireEntry.isBuiltin || (grimoireEntry.filePath && fs.existsSync(grimoireEntry.filePath)))
+      (grimoireEntry.isBuiltin ||
+        grimoireEntry.filePath === 'BUILTIN_DEMO' ||
+        (grimoireEntry.filePath && fs.existsSync(grimoireEntry.filePath)))
     );
 
     const li = document.createElement('li');
@@ -7011,6 +7217,26 @@ function renderSpellbookSpread() {
         ? `${entry.spellLevel} \u2022 ${formatSeconds(entry.duration)}`
         : `${entry.bpm} \u2022 ${formatSeconds(entry.duration)}`;
 
+      const isPreviewingThis = grimoirePreviewController.isPreviewingEntry(entry.id);
+      const cardPreviewBtn = document.createElement('button');
+      cardPreviewBtn.type = 'button';
+      cardPreviewBtn.className = `spellbook-card-preview-btn${isPreviewingThis ? ' is-previewing' : ''}`;
+      cardPreviewBtn.dataset.entryId = entry.id;
+      cardPreviewBtn.dataset.entryTitle = entry.title;
+      cardPreviewBtn.textContent = isPreviewingThis ? '\u25A0' : '\u25B6';
+      cardPreviewBtn.title = isPreviewingThis
+        ? `Stop 30s preview of "${entry.title}"`
+        : `Preview 30s of "${entry.title}"`;
+      cardPreviewBtn.setAttribute('aria-label', isPreviewingThis ? `Stop preview of ${entry.title}` : `Preview ${entry.title}`);
+      cardPreviewBtn.setAttribute('aria-pressed', isPreviewingThis ? 'true' : 'false');
+      cardPreviewBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleGrimoirePreviewButtonClick(entry, cardPreviewBtn);
+      });
+      cardPreviewBtn.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+      });
+
       const cardStarBtn = document.createElement('button');
       cardStarBtn.type = 'button';
       cardStarBtn.className = `spellbook-card-star-btn${entry.isFavorite ? ' is-favorite' : ''}`;
@@ -7030,6 +7256,7 @@ function renderSpellbookSpread() {
 
       item.appendChild(titleWrap);
       item.appendChild(metaSpan);
+      item.appendChild(cardPreviewBtn);
       item.appendChild(cardStarBtn);
 
       if (isGrimoireEntryDeletable(entry)) {
@@ -7125,6 +7352,12 @@ function renderSpellbookDetails(entry) {
       btnSpellbookFavoriteSong.textContent = '\u2606';
       btnSpellbookFavoriteSong.setAttribute('aria-pressed', 'false');
       btnSpellbookFavoriteSong.title = 'Attune this spell';
+    }
+    if (btnSpellbookPreviewSong) {
+      btnSpellbookPreviewSong.disabled = true;
+      btnSpellbookPreviewSong.classList.remove('is-previewing');
+      btnSpellbookPreviewSong.textContent = '\uD83C\uDFA7 Preview';
+      btnSpellbookPreviewSong.setAttribute('aria-pressed', 'false');
     }
     if (btnSpellbookDeleteSong) btnSpellbookDeleteSong.classList.add('hidden');
     return;
@@ -7266,6 +7499,10 @@ function renderSpellbookDetails(entry) {
   if (btnSpellbookLoadSong) {
     btnSpellbookLoadSong.disabled = false;
   }
+  if (btnSpellbookPreviewSong) {
+    btnSpellbookPreviewSong.disabled = false;
+    updateGrimoirePreviewUI();
+  }
 
   if (btnSpellbookFavoriteSong) {
     btnSpellbookFavoriteSong.disabled = false;
@@ -7293,6 +7530,7 @@ function loadSelectedSpellbookSong() {
   const entry = (selectedSpellbookEntryId && grimoireSpells.get(selectedSpellbookEntryId)) || null;
   if (!entry) return;
 
+  stopGrimoirePreview();
   loadGrimoireEntry(entry);
   closeGrimoireSpellbook();
   hideTavernMenu();
@@ -7324,6 +7562,7 @@ function renderGrimoireSidebar() {
  * Load a selected Spell Card from The Grimoire onto the Spell Highway
  */
 function loadGrimoireEntry(entry) {
+  stopGrimoirePreview();
   if (entry.filePath === 'BUILTIN_DEMO') {
     loadBuiltInDemoSpell();
     return;
@@ -13810,6 +14049,7 @@ window.addEventListener('blur', () => {
 // Terminate any active background Python transcription/OMR child process, mic stream & audio audition on close/reload (Issue #17, #76, #130, #139)
 window.addEventListener('beforeunload', () => {
   stopAudioAudition();
+  stopGrimoirePreview();
   if (typeof stopLiveAudioInstrumentInput === 'function') {
     stopLiveAudioInstrumentInput();
   }

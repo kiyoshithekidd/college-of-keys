@@ -1951,6 +1951,9 @@
                   <button id="btn-spellbook-load-song" class="tavern-btn tavern-btn-cast btn-spellbook-load" title="Load this spell onto the 61-key Spell Highway and take the stage!">
                     &#9654; Inscribe on Highway (Load Spell)
                   </button>
+                  <button id="btn-spellbook-preview-song" type="button" class="tavern-btn btn-spellbook-preview" title="Preview 30 seconds before loading (Recording or Piano MIDI)" aria-label="Preview 30 seconds">
+                    &#127911; Preview
+                  </button>
                   <button id="btn-spellbook-favorite-song" type="button" class="btn-icon btn-spellbook-favorite" title="Star this spell as a Favorite" aria-label="Star as Favorite" aria-pressed="false">
                     &#9734;
                   </button>
@@ -2004,6 +2007,19 @@
 
           <button id="btn-spellbook-next-page" class="tavern-btn btn-page-nav" title="Turn to Next Spell Tier (Right Arrow / D)">
             Next Tier &#11166;
+          </button>
+        </div>
+
+        <!-- Issue #163: Floating 30s Audio Preview Source Picker -->
+        <div id="spellbook-preview-menu" class="spellbook-preview-menu hidden" role="menu" aria-label="Choose 30-second preview source">
+          <div class="preview-menu-heading">Preview 30s Excerpt</div>
+          <button id="btn-preview-source-recording" type="button" class="preview-menu-option" role="menuitem">
+            <span>&#127897; Recording</span>
+            <small>Backing Audio</small>
+          </button>
+          <button id="btn-preview-source-midi" type="button" class="preview-menu-option" role="menuitem">
+            <span>&#127929; Piano MIDI</span>
+            <small>Grand Synth</small>
           </button>
         </div>
       </div>
