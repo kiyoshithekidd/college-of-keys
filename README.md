@@ -29,6 +29,7 @@
 | **v1.5.1** | **Performance & QA Hardening (`#150`–`#156`): Debounced Profile Saves, Idle Tavern Canvas Guard, `O(visible)` Highway Scans, Zero-Alloc YIN DSP, `O(M+N)` VexFlow Partitioning, Single-Pass `readdirSync` Bundles, `O(log T)` MusicXML, Vectorized Python WAV Writer & CSS/GPU Compositor Cleanup** | **Completed** |
 | **v1.5.2** | **Responsive Top-Bar Layout & Overflow Fix: Isolated `.spell-meta-main` Truncation, 2-Row Responsive Wrap on `#spell-scroll-bar` (`<=1820px`), and `1024px` Bar 1 Protection** | **Completed** |
 | **v1.6.0** | **3-Tier Synced Lyrics Cascade (`LRCLIB` Word/Line Sync + YouTube `.json3`/`.vtt` + `faster-whisper`) & 1-Click `🔍 Fetch Lyrics` (`#159`), CREPE 170ms Vibrato Smoothing & Bezier Portamento Glide Ribbons (`#160`), Apple Music Sing Lead Vocal Fader & Mid/Side + UVR AI Harmony Control (`#161`), `.btn-audio-sync` Pill Overflow Fix (`#158`), and Peer Review & QA Hardening (`#166`)** | **Completed** |
+| **v1.7.0** | **Grimoire Hall of Legends Personal Records Board & `+50 XP` Record Bonus (`#162`), Grimoire 30-Second Audio Preview (`🎙 Recording` & `🎹 Piano MIDI`) (`#163`), Song-Stats Migration Persistence Fix (`#167`), and Peer Review & QA Hardening (`#168`)** | **Completed** |
 
 ---
 
@@ -117,6 +118,11 @@
 - **Vocal & Harmony Control (`#161`):** Lead Vocal fader (`0% Mute` / `25% Guide` / `100% Full`) and `✨ Harm` toggle using a Web Audio Stereo Mid/Side matrix, plus optional UVR Lead/Backing split. Settings persist per song.
 - **Fixes (`#158`, `#166`):** Sync pill overflow fixed; 13 peer-review/QA findings resolved, including a multi-stem `ReferenceError`.
 
+### 11. Grimoire Hall of Legends & 30-Second Audio Preview (`v1.7.0`)
+- **Hall of Legends (`#162`):** Final 11th spread in The Grimoire (`🏆` bookmark tab) displaying your **Top 10 Best Accuracy** and **Top 10 Biggest Single-Run XP** piano performances side by side. Strictly beating a prior personal record on a qualifying full-difficulty piano run (`≥80%` note coverage) awards a flat **`+50 XP`** bonus per record beaten (never on first play or ties). Tap any entry to load that spell.
+- **30-Second Audio Preview (`#163`):** Every Grimoire song row and the Spell Details bar includes a **`▶` / `🎧 Preview`** control playing a 30-second excerpt — choose **`🎙 Recording`** (backing audio, shown only when present on disk) or **`🎹 Piano MIDI`** (rendered through the piano synth). Runs in an isolated audio path that stops on Stop, Load, Close, Page Flip, Filter Toggle, Delete, or Playback Start without touching highway state or XP.
+- **Persistence & QA Fixes (`#167`, `#168`):** Fixed startup `song_stats.json` migration dropping extended per-song fields (`weakBarHistory`, `preferredTempo`, personal record dates), added `song_stats.json` to `.gitignore`, and resolved all 8 peer-review/QA findings.
+
 ---
 
 ## Controls & Input Modes
@@ -175,10 +181,10 @@ npm test
 - [`instrument-input.js`](./instrument-input.js), [`spell-singing.js`](./spell-singing.js), [`lyrics-fetcher.js`](./lyrics-fetcher.js) & [`vocal-harmony-dsp.js`](./vocal-harmony-dsp.js) — External instrument input routing, Let's Sing vocal contour simplifier & Bezier glide highway, LRCLIB word/line synced lyrics fetcher, and Apple Music Sing Stereo Mid/Side + AI Lead/Harmony vocal mixer DSP.
 - [`d20-roller.js`](./d20-roller.js) — Three.js + `cannon-es` 3D physics d20 Performance Check dice tray.
 - [`musicxml-converter.js`](./musicxml-converter.js), [`midi-hygiene.js`](./midi-hygiene.js), [`song-bundle.js`](./song-bundle.js) & [`omr-confidence.js`](./omr-confidence.js) — Pure-JS MusicXML-to-MIDI converter, Smart MIDI Hygiene & Multi-Instrument Highways, Grimoire Song Bundle sync (including per-song `vocalMix` and `lyricsOffsetSec`), and OMR confidence review.
-- [`tavern-setlists.js`](./tavern-setlists.js), [`bard-achievements.js`](./bard-achievements.js), [`guild-tutorial.js`](./guild-tutorial.js), [`bard-colleges.js`](./bard-colleges.js) & [`bard-campaign.js`](./bard-campaign.js) — Tavern Crowd Meter, Setlists, Achievements, Interactive Tutorial, Bard Colleges, and 4-Act Story Campaign modules.
+- [`tavern-setlists.js`](./tavern-setlists.js), [`bard-achievements.js`](./bard-achievements.js), [`guild-tutorial.js`](./guild-tutorial.js), [`bard-colleges.js`](./bard-colleges.js), [`bard-campaign.js`](./bard-campaign.js), [`hall-of-legends.js`](./hall-of-legends.js) & [`grimoire-preview.js`](./grimoire-preview.js) — Tavern Crowd Meter, Setlists, Achievements, Interactive Tutorial, Bard Colleges, 4-Act Story Campaign, Grimoire Hall of Legends personal records, and isolated 30-second Audio Preview modules.
 - [`python_ml/transcribe_quest.py`](./python_ml/transcribe_quest.py) & [`python_ml/omr_import.py`](./python_ml/omr_import.py) — Python ML pipelines for YouTube/audio transcription (`basic-pitch` default + optional **Transkun V2** solo-piano engine + optional **Demucs 4-stem + CREPE** vocal melody & harmony arrangement + stereo Demucs 6-stem separation + optional UVR Lead/Backing vocal split + 3-tier synced `.lrc` lyrics cascade) and PDF/image sheet-music OMR (`homr` + `pypdfium2`).
 - [`docs/transkun-spike-findings.md`](./docs/transkun-spike-findings.md) — Issue #144 transcription engine benchmark and architectural decision record (`basic-pitch` vs Transkun V2 vs ByteDance).
-- [`tests/run-tests.js`](./tests/run-tests.js), [`tests/karaoke-and-lyrics.test.js`](./tests/karaoke-and-lyrics.test.js) & [`tests/regression.test.js`](./tests/regression.test.js) — Automated Node unit + headless Electron DOM regression suite (`npm test`).
+- [`tests/run-tests.js`](./tests/run-tests.js), [`tests/karaoke-and-lyrics.test.js`](./tests/karaoke-and-lyrics.test.js), [`tests/legends-and-preview.test.js`](./tests/legends-and-preview.test.js) & [`tests/regression.test.js`](./tests/regression.test.js) — Automated Node unit + headless Electron DOM regression suite (`npm test`).
 - [`PERSONAS.md`](./PERSONAS.md) — Core user personas (The Returning Adult, The Gamer Bard, The Rock Band Player, Casual Song Player, Young Learner, Conservatory Purist) guiding all feature decisions.
 - [`Gemini.md`](./Gemini.md) — Detailed architectural plan, engineering decisions & rationale log, open-source benchmark notes, and build log.
 - [`CHANGELOG.md`](./CHANGELOG.md) — Versioned phase-by-phase changelog.
