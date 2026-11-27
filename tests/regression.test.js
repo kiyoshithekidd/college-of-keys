@@ -1010,6 +1010,45 @@ app.whenReady().then(async () => {
         closedOnEsc
       );
 
+      // Issues #172, #173, #174: .txt vocal chart import, Radiant/Rap/Line Rating Pop, & Key Shift stepper
+      const sampleTxt = [
+        '#TITLE:Tavern Duet Test',
+        '#ARTIST:Test Bard',
+        '#BPM:120',
+        '#GAP:0',
+        'P1',
+        '* 0 4 0 Gold ',
+        'F 4 4 0 Rap',
+        '- 8',
+        'P2',
+        ': 0 4 4 Harm',
+        'E'
+      ].join('\\n');
+      const txtLoaded = loadSongFromBuffer(Buffer.from(sampleTxt, 'utf8'), 'tavern_duet_test.txt', null, { quietSuccess: true });
+      const inKaraokeMode = stageViewMode === 'karaoke';
+      const duetBtn = document.getElementById('btn-karaoke-duet-voice');
+      const duetVisible = duetBtn && !duetBtn.classList.contains('hidden');
+      const keyUpBtn = document.getElementById('btn-karaoke-key-up');
+      if (keyUpBtn) keyUpBtn.click();
+      if (keyUpBtn) keyUpBtn.click();
+      const keyShifted = (
+        currentSong.karaokeKeyShiftSemitones === 2 &&
+        spellSingingState.scorer.state.keyShiftSemitones === 2 &&
+        document.getElementById('karaoke-key-shift-readout').textContent === '+2 st'
+      );
+
+      showKaraokePhraseRatingPop({ label: 'Perfect!', xpBonus: 20, coveragePct: 98, phraseIndex: 0 });
+      const ratingPopVisible = !document.getElementById('karaoke-phrase-rating-pop').classList.contains('hidden');
+      setStageViewMode('highway');
+
+      checks.karaokeStageEcosystemWorks = Boolean(
+        txtLoaded &&
+        inKaraokeMode &&
+        duetVisible &&
+        keyShifted &&
+        ratingPopVisible
+      );
+
       return checks;
     })();
   `);

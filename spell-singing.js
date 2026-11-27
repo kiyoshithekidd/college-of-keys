@@ -624,6 +624,8 @@ function createVocalSessionScorer(vocalChart, options = {}) {
   const state = {
     octaveAgnostic: options.octaveAgnostic !== false,
     toleranceSemitones: Number(options.toleranceSemitones) || 1.0,
+    keyShiftSemitones: Math.max(-6, Math.min(6, Math.round(Number(options.keyShiftSemitones) || 0))),
+    rapEnergyGate: Number(options.rapEnergyGate) || 0.015,
     pitchTrail: [],
     activePitch: null,
     lastInTuneTime: -999,
@@ -634,6 +636,9 @@ function createVocalSessionScorer(vocalChart, options = {}) {
     vocalCombo: 0,
     maxVocalCombo: 0,
     vocalScorePoints: 0,
+    phraseBonusXp: 0,
+    ratedPhraseIndices: new Set(),
+    lastPhraseRating: null,
     recentInTuneSamples: []
   };
 
@@ -648,12 +653,21 @@ function createVocalSessionScorer(vocalChart, options = {}) {
     state.vocalCombo = 0;
     state.maxVocalCombo = 0;
     state.vocalScorePoints = 0;
+    state.phraseBonusXp = 0;
+    state.ratedPhraseIndices.clear();
+    state.lastPhraseRating = null;
     state.recentInTuneSamples = [];
     for (const n of chart.notes || []) {
       n.hitFrames = 0;
       n.totalFrames = 0;
       n.fillRatio = 0;
     }
+  }
+  reset();
+
+  function setKeyShiftSemitones(semitones) {
+    state.keyShiftSemitones = Math.max(-6, Math.min(6, Math.round(Number(semitones) || 0)));
+    return state.keyShiftSemitones;
   }
 
   function findTargetNoteAtTime(songTime) {
@@ -696,6 +710,58 @@ function createVocalSessionScorer(vocalChart, options = {}) {
     return { currentIdx: phrases.length - 1, nextIdx: -1 };
   }
 
+  function evaluatePhraseRatings(songTime) {
+    const phrases = chart.phrases || [];
+    let emitted = null;
+    for (const p of phrases) {
+      if (state.ratedPhraseIndices.has(p.index)) continue;
+      if (songTime < p.endTime + 0.12) continue;
+      const pNotes = (p.notes || []).filter((n) => (n.totalFrames || 0) > 0 || (n.duration || 0) > 0);
+      if (pNotes.length === 0) {
+        state.ratedPhraseIndices.add(p.index);
+        continue;
+      }
+      let totalWeight = 0;
+      let hitWeight = 0;
+      for (const n of pNotes) {
+        const w = Math.max(0.1, Number(n.duration) || 0.25);
+        totalWeight += w;
+        hitWeight += w * Math.min(1, Number(n.fillRatio) || 0);
+      }
+      const coveragePct = totalWeight > 0 ? Math.round((hitWeight / totalWeight) * 100) : 0;
+      state.ratedPhraseIndices.add(p.index);
+
+      let label = null;
+      let xpBonus = 0;
+      if (coveragePct >= 92) {
+        label = 'Perfect!';
+        xpBonus = 20;
+      } else if (coveragePct >= 78) {
+        label = 'Awesome!';
+        xpBonus = 14;
+      } else if (coveragePct >= 60) {
+        label = 'Great!';
+        xpBonus = 8;
+      } else if (coveragePct >= 40) {
+        label = 'Cool!';
+        xpBonus = 4;
+      }
+
+      if (label) {
+        state.phraseBonusXp += xpBonus;
+        emitted = {
+          phraseIndex: p.index,
+          label,
+          xpBonus,
+          coveragePct,
+          id: `${p.index}-${coveragePct}`
+        };
+        state.lastPhraseRating = emitted;
+      }
+    }
+    return emitted;
+  }
+
   function recordFrame(songTime, detectedPitch, { scoringActive = true } = {}) {
     while (state.pitchTrail.length > 0 && state.pitchTrail[state.pitchTrail.length - 1].time > songTime) {
       state.pitchTrail.pop();
@@ -717,6 +783,57 @@ function createVocalSessionScorer(vocalChart, options = {}) {
       state.totalScoredFrames += 1;
     }
 
+    const phraseRating = scoringActive ? evaluatePhraseRatings(songTime) : null;
+
+    // Issue #173: Rap / Spoken Freestyle Bars score on microphone voice activity (RMS) without requiring pitch
+    const isRapTarget = Boolean(targetNote && targetNote.isRap);
+    const hasVoiceActivity = Boolean(
+      detectedPitch && (
+        Number.isFinite(detectedPitch.midiFloat) ||
+        (Number.isFinite(detectedPitch.rms) && detectedPitch.rms >= state.rapEnergyGate)
+      )
+    );
+
+    if (isRapTarget && hasVoiceActivity) {
+      const shiftedTargetMidi = targetNote.midi + state.keyShiftSemitones;
+      if (scoringActive && scoreableRealNote) {
+        state.lastInTuneTime = songTime;
+        state.inTuneFrames += 1;
+        state.perfectFrames += 1;
+        scoreableRealNote.hitFrames += 1;
+        scoreableRealNote.fillRatio = Math.min(1, scoreableRealNote.hitFrames / Math.max(1, scoreableRealNote.totalFrames));
+        state.vocalCombo += 1;
+        if (state.vocalCombo > state.maxVocalCombo) state.maxVocalCombo = state.vocalCombo;
+        const rapMult = scoreableRealNote.isGolden ? 2 : 1;
+        state.vocalScorePoints += 10 * rapMult;
+      }
+      const point = {
+        time: songTime,
+        midiFloat: Number.isFinite(detectedPitch.midiFloat) ? detectedPitch.midiFloat : shiftedTargetMidi,
+        displayMidi: shiftedTargetMidi,
+        inTune: true,
+        tier: 'perfect',
+        centsDelta: 0,
+        vibrato: false
+      };
+      state.activePitch = point;
+      if (scoringActive) {
+        state.pitchTrail.push(point);
+        const cutoff = songTime - 8.0;
+        while (state.pitchTrail.length > 0 && state.pitchTrail[0].time < cutoff) {
+          state.pitchTrail.shift();
+        }
+      }
+      return {
+        targetNote,
+        inTune: true,
+        tier: 'perfect',
+        vibrato: false,
+        displayMidi: shiftedTargetMidi,
+        phraseRating
+      };
+    }
+
     if (!detectedPitch || !Number.isFinite(detectedPitch.midiFloat)) {
       state.activePitch = null;
       const sinceInTune = songTime - state.lastInTuneTime;
@@ -724,19 +841,20 @@ function createVocalSessionScorer(vocalChart, options = {}) {
         scoreableRealNote.hitFrames += 0.5;
         scoreableRealNote.fillRatio = Math.min(1, scoreableRealNote.hitFrames / Math.max(1, scoreableRealNote.totalFrames));
       }
-      return { targetNote, inTune: false, tier: 'off', vibrato: false };
+      return { targetNote, inTune: false, tier: 'off', vibrato: false, phraseRating };
     }
 
     let dist = { semitoneDelta: 0, absSemitones: 0, centsDelta: 0, inTune: false, tier: 'off', preciseNorm: 0 };
     let displayMidi = detectedPitch.midiFloat;
 
     if (targetNote) {
-      dist = calcVocalPitchDistance(detectedPitch.midiFloat, targetNote.midi, {
+      const shiftedTargetMidi = targetNote.midi + state.keyShiftSemitones;
+      dist = calcVocalPitchDistance(detectedPitch.midiFloat, shiftedTargetMidi, {
         octaveAgnostic: state.octaveAgnostic,
         toleranceSemitones: state.toleranceSemitones
       });
       displayMidi = state.octaveAgnostic
-        ? targetNote.midi + dist.semitoneDelta
+        ? shiftedTargetMidi + dist.semitoneDelta
         : detectedPitch.midiFloat;
     }
 
@@ -759,7 +877,8 @@ function createVocalSessionScorer(vocalChart, options = {}) {
       if (state.vocalCombo > state.maxVocalCombo) state.maxVocalCombo = state.vocalCombo;
       if (scoreableRealNote) {
         const tierPts = dist.tier === 'perfect' ? 12 : dist.tier === 'great' ? 9 : 6;
-        state.vocalScorePoints += tierPts + (scoreableRealNote.isGolden ? 6 : 0) + (vibrato ? 4 : 0);
+        const radiantMult = scoreableRealNote.isGolden ? 2 : 1;
+        state.vocalScorePoints += (tierPts + (vibrato ? 4 : 0)) * radiantMult;
       }
     } else if (scoringActive && scoreableRealNote) {
       state.vocalCombo = 0;
@@ -783,7 +902,7 @@ function createVocalSessionScorer(vocalChart, options = {}) {
       }
     }
 
-    return { targetNote, ...dist, vibrato, displayMidi };
+    return { targetNote, ...dist, vibrato, displayMidi, phraseRating };
   }
 
   function getSummary() {
@@ -795,20 +914,32 @@ function createVocalSessionScorer(vocalChart, options = {}) {
       : 0;
     const allNotes = chart.notes || [];
     let completedNotes = 0;
+    let radiantCompletedNotes = 0;
     for (let i = 0; i < allNotes.length; i++) {
-      if (allNotes[i].fillRatio >= 0.45) completedNotes++;
+      if (allNotes[i].fillRatio >= 0.45) {
+        completedNotes++;
+        if (allNotes[i].isGolden) radiantCompletedNotes++;
+      }
     }
+    const baseNoteXp = (completedNotes - radiantCompletedNotes) * 14 + radiantCompletedNotes * 28;
     const vocalXpEarned = Math.max(
       0,
-      Math.round(completedNotes * 14 + (accuracyPct >= 85 ? 80 : accuracyPct >= 65 ? 40 : 0) + state.vibratoFrames * 0.5)
+      Math.round(
+        baseNoteXp +
+        state.phraseBonusXp +
+        (accuracyPct >= 85 ? 80 : accuracyPct >= 65 ? 40 : 0) +
+        state.vibratoFrames * 0.5
+      )
     );
 
     return {
       accuracyPct,
       perfectPct,
       completedNotes,
+      radiantCompletedNotes,
       totalNotes: (chart.notes || []).length,
       vocalScorePoints: state.vocalScorePoints,
+      phraseBonusXp: state.phraseBonusXp,
       maxVocalCombo: state.vocalCombo > state.maxVocalCombo ? state.vocalCombo : state.maxVocalCombo,
       vibratoFrames: state.vibratoFrames,
       vocalXpEarned
@@ -819,8 +950,10 @@ function createVocalSessionScorer(vocalChart, options = {}) {
     chart,
     state,
     reset,
+    setKeyShiftSemitones,
     findTargetNoteAtTime,
     getActivePhraseIndices,
+    evaluatePhraseRatings,
     recordFrame,
     getSummary
   };
@@ -848,12 +981,13 @@ function renderSpellSingingStage(ctx, width, height, {
 
   const notes = vocalChart?.notes || [];
   const phrases = vocalChart?.phrases || [];
+  const keyShift = Math.max(-6, Math.min(6, Math.round(Number(scorerState?.keyShiftSemitones) || 0)));
   const playheadX = Math.round(width * 0.28);
 
   // 2. Dynamic Phrase Auto-Zoom (frame active/upcoming phrase pitch range)
   const activePhrase = phrases.find((p) => currentTime <= p.endTime + 0.5) || phrases[phrases.length - 1] || null;
-  let minMidi = activePhrase ? activePhrase.minMidi - 3 : 55;
-  let maxMidi = activePhrase ? activePhrase.maxMidi + 3 : 75;
+  let minMidi = (activePhrase ? activePhrase.minMidi : 58) + keyShift - 3;
+  let maxMidi = (activePhrase ? activePhrase.maxMidi : 72) + keyShift + 3;
   if (maxMidi - minMidi < 14) {
     const mid = Math.round((minMidi + maxMidi) / 2);
     minMidi = mid - 7;
@@ -897,15 +1031,16 @@ function renderSpellSingingStage(ctx, width, height, {
   ctx.lineCap = 'round';
   for (let i = 0; i < notes.length - 1; i++) {
     const n = notes[i];
-    if (!n.slideToNext) continue;
+    if (!n.slideToNext || n.isRap) continue;
     const next = notes[i + 1];
+    if (next.isRap) continue;
     if (n.time > maxVisibleTime) break;
     if (next.endTime < minVisibleTime) continue;
 
     const x1 = playheadX + (n.endTime - currentTime) * pxPerSec;
     const x2 = playheadX + (next.time - currentTime) * pxPerSec;
-    const y1 = midiToY(n.midi);
-    const y2 = midiToY(next.midi);
+    const y1 = midiToY(n.midi + keyShift);
+    const y2 = midiToY(next.midi + keyShift);
     const cx = (x1 + x2) * 0.5;
 
     ctx.beginPath();
@@ -933,17 +1068,31 @@ function renderSpellSingingStage(ctx, width, height, {
     if (n.endTime < minVisibleTime) continue;
     const x = playheadX + (n.time - currentTime) * pxPerSec;
     const w = Math.max(18, n.duration * pxPerSec);
-    const yCenter = midiToY(n.midi);
+    const yCenter = midiToY(n.midi + keyShift);
     const yTop = yCenter - barHeight / 2;
     const radius = Math.min(barHeight / 2, w / 2, 11);
 
     ctx.save();
+    if (n.isGolden) {
+      ctx.shadowColor = 'rgba(255, 215, 0, 0.65)';
+      ctx.shadowBlur = 10;
+    }
     drawRoundedRectPath(ctx, x, yTop, w, barHeight, radius);
-    ctx.fillStyle = n.isGolden ? 'rgba(255, 215, 0, 0.24)' : 'rgba(0, 229, 255, 0.20)';
+    if (n.isRap) {
+      ctx.fillStyle = n.isGolden ? 'rgba(245, 158, 11, 0.28)' : 'rgba(168, 85, 247, 0.24)';
+    } else {
+      ctx.fillStyle = n.isGolden ? 'rgba(255, 215, 0, 0.26)' : 'rgba(0, 229, 255, 0.20)';
+    }
     ctx.fill();
     ctx.lineWidth = n.isGolden ? 2 : 1.5;
-    ctx.strokeStyle = n.isGolden ? '#ffd700' : '#00e5ff';
+    if (n.isRap) {
+      ctx.setLineDash([5, 3]);
+      ctx.strokeStyle = n.isGolden ? '#fbbf24' : '#c084fc';
+    } else {
+      ctx.strokeStyle = n.isGolden ? '#ffd700' : '#00e5ff';
+    }
     ctx.stroke();
+    ctx.setLineDash([]);
 
     if (n.fillRatio > 0.02) {
       ctx.clip();
@@ -952,6 +1101,9 @@ function renderSpellSingingStage(ctx, width, height, {
       if (n.isGolden) {
         fillGrad.addColorStop(0, 'rgba(255, 215, 0, 0.85)');
         fillGrad.addColorStop(1, 'rgba(254, 240, 138, 0.96)');
+      } else if (n.isRap) {
+        fillGrad.addColorStop(0, 'rgba(192, 132, 252, 0.82)');
+        fillGrad.addColorStop(1, 'rgba(245, 158, 11, 0.92)');
       } else {
         fillGrad.addColorStop(0, 'rgba(54, 211, 153, 0.82)');
         fillGrad.addColorStop(1, 'rgba(0, 229, 255, 0.94)');
@@ -965,9 +1117,10 @@ function renderSpellSingingStage(ctx, width, height, {
     if (n.lyric && x > lastLabelRightX + 6) {
       ctx.font = '600 12px system-ui, -apple-system, sans-serif';
       ctx.textAlign = 'left';
-      const labelW = ctx.measureText(n.lyric).width;
+      const cueText = n.isRap ? `🎤 ${n.lyric}` : n.lyric;
+      const labelW = ctx.measureText(cueText).width;
       ctx.fillStyle = currentTime >= n.time && currentTime <= n.endTime ? '#ffd700' : '#f4ebd9';
-      ctx.fillText(n.lyric, x + 3, yTop + barHeight + 15);
+      ctx.fillText(cueText, x + 3, yTop + barHeight + 15);
       lastLabelRightX = x + 3 + labelW;
     }
   }

@@ -165,6 +165,7 @@ function createMidSideVocalProcessor(audioContext, mediaElement) {
     };
 
     return {
+      outputNode: merger,
       resumeContext: resumeIfNeeded,
       updateGains(midGain, sideGain) {
         const now = audioContext.currentTime || 0;

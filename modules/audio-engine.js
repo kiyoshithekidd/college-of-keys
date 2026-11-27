@@ -16,7 +16,10 @@ function createAudioEngineModule(deps) {
   } = deps;
 
   function applyCurrentStemMixToAudioElements() {
-    if (!deps.currentSong?.stemAudioEls) return;
+    if (!deps.currentSong?.stemAudioEls) {
+      applyKaraokeKeyShiftToAudioElements();
+      return;
+    }
     const mix = normalizeStemMix(deps.currentSong.stemMix);
     deps.currentSong.stemMix = mix;
     const vMix = normalizeVocalMix(deps.currentSong.vocalMix);
@@ -82,6 +85,7 @@ function createAudioEngineModule(deps) {
       stEl.volume = vol;
       stEl.muted = !isStemAudibleInMix(stemName, mix, playbackState.backingBandEnabled);
     }
+    applyKaraokeKeyShiftToAudioElements();
   }
 
   function renderStemMixerUI() {
@@ -587,8 +591,47 @@ function createAudioEngineModule(deps) {
     }
   }
 
+  function applyKaraokeKeyShiftToAudioElements() {
+    if (!deps.currentSong) return;
+    const isKaraoke = deps.stageViewMode === 'karaoke';
+    const shift = isKaraoke
+      ? Math.max(-6, Math.min(6, Math.round(Number(deps.currentSong.karaokeKeyShiftSemitones) || 0)))
+      : 0;
+
+    const createBus = deps.createKaraokePitchShiftBus;
+    if (!deps.currentSong.karaokePitchShiftBus && shift === 0) return;
+
+    if (!deps.currentSong.karaokePitchShiftBus && typeof createBus === 'function' && typeof Tone !== 'undefined' && Tone.context?.rawContext) {
+      deps.currentSong.karaokePitchShiftBus = createBus({ Tone, audioContext: Tone.context.rawContext });
+    }
+    const bus = deps.currentSong.karaokePitchShiftBus;
+    if (!bus) return;
+
+    if (deps.currentSong.stemAudioEls) {
+      for (const [stemName, stEl] of Object.entries(deps.currentSong.stemAudioEls)) {
+        if (!stEl || stemName === 'drums') continue;
+        if (stemName === 'vocals') {
+          if (!deps.currentSong.midSideVocalProcessor && typeof Tone !== 'undefined' && Tone.context?.rawContext) {
+            deps.currentSong.midSideVocalProcessor = createMidSideVocalProcessor(Tone.context.rawContext, stEl);
+          }
+          if (deps.currentSong.midSideVocalProcessor?.outputNode) {
+            bus.attachMediaElement(stEl, { customSourceNode: deps.currentSong.midSideVocalProcessor.outputNode });
+          } else {
+            bus.attachMediaElement(stEl);
+          }
+        } else {
+          bus.attachMediaElement(stEl);
+        }
+      }
+    } else if (deps.currentSong.backingAudioEl) {
+      bus.attachMediaElement(deps.currentSong.backingAudioEl);
+    }
+    bus.setSemitones(shift);
+  }
+
   return {
     applyCurrentStemMixToAudioElements,
+    applyKaraokeKeyShiftToAudioElements,
     renderStemMixerUI,
     toggleStemMute,
     toggleStemSolo,
