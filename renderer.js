@@ -126,6 +126,19 @@ const {
   computeVocalMixMatrixGains,
   createMidSideVocalProcessor
 } = require('./vocal-harmony-dsp');
+const {
+  HALL_OF_LEGENDS_BONUS_XP,
+  isQualifyingLegendRun,
+  evaluatePersonalRecordUpdate,
+  computeHallOfLegends,
+  formatLegendDate
+} = require('./hall-of-legends');
+const {
+  PREVIEW_DURATION_SEC,
+  hasPreviewBackingAudio,
+  getAvailablePreviewSources,
+  createGrimoirePreviewController
+} = require('./grimoire-preview');
 
 const MIN_MIDI = 36; // C2
 const MAX_MIDI = 96; // C7
@@ -406,6 +419,7 @@ const spellbookTierXp = document.getElementById('spellbook-tier-xp');
 const spellbookTierName = document.getElementById('spellbook-tier-name');
 const spellbookTierDesc = document.getElementById('spellbook-tier-desc');
 const spellbookSearchInput = document.getElementById('spellbook-search-input');
+const spellbookSearchRow = spellbookSearchInput ? spellbookSearchInput.closest('.page-search-row') : null;
 const btnSpellbookFavoritesFilter = document.getElementById('btn-spellbook-favorites-filter');
 const spellbookFavCount = document.getElementById('spellbook-fav-count');
 const spellbookSongList = document.getElementById('spellbook-song-list');
@@ -413,6 +427,16 @@ const spellbookEmptyState = document.getElementById('spellbook-empty-state');
 const btnSpellbookQuestPointer = document.getElementById('btn-spellbook-quest-pointer');
 const spellbookPageNumLeft = document.getElementById('spellbook-page-num-left');
 const spellbookPageNumRight = document.getElementById('spellbook-page-num-right');
+const spellbookDetailPanel = document.getElementById('spellbook-detail-panel');
+const spellbookLegendsLeftPanel = document.getElementById('spellbook-legends-left-panel');
+const spellbookLegendsRightPanel = document.getElementById('spellbook-legends-right-panel');
+const spellbookLegendsAccList = document.getElementById('spellbook-legends-acc-list');
+const spellbookLegendsAccEmpty = document.getElementById('spellbook-legends-acc-empty');
+const spellbookLegendsXpList = document.getElementById('spellbook-legends-xp-list');
+const spellbookLegendsXpEmpty = document.getElementById('spellbook-legends-xp-empty');
+const modalRecordsBanner = document.getElementById('modal-records-banner');
+const modalRecordsXpPill = document.getElementById('modal-records-xp-pill');
+const modalRecordsList = document.getElementById('modal-records-list');
 
 // Right Page Details Elements
 const spellbookDetailTierChip = document.getElementById('spellbook-detail-tier-chip');
@@ -438,8 +462,12 @@ const spellbookBundleAudioChip = document.getElementById('spellbook-bundle-audio
 const spellbookBundleSpotifyLink = document.getElementById('spellbook-bundle-spotify-link');
 const btnSpellbookBundle = document.getElementById('btn-spellbook-bundle');
 const btnSpellbookLoadSong = document.getElementById('btn-spellbook-load-song');
+const btnSpellbookPreviewSong = document.getElementById('btn-spellbook-preview-song');
 const btnSpellbookFavoriteSong = document.getElementById('btn-spellbook-favorite-song');
 const btnSpellbookDeleteSong = document.getElementById('btn-spellbook-delete-song');
+const spellbookPreviewMenu = document.getElementById('spellbook-preview-menu');
+const btnPreviewSourceRecording = document.getElementById('btn-preview-source-recording');
+const btnPreviewSourceMidi = document.getElementById('btn-preview-source-midi');
 
 // Navigation Bar Elements
 const btnSpellbookPrevPage = document.getElementById('btn-spellbook-prev-page');
@@ -2202,7 +2230,7 @@ function loadBardProfile() {
   if (loadedHistory && typeof loadedHistory === 'object') {
     const migratedHistory = {};
     for (const [key, rawEntry] of Object.entries(loadedHistory)) {
-      if (!rawEntry || typeof rawEntry !== 'object') continue;
+      if (!key || !rawEntry || typeof rawEntry !== 'object') continue;
       let targetKey = key;
       const lowerKey = key.toLowerCase();
       if (lowerKey === 'builtin::demo' || lowerKey.includes('demo spell')) {
@@ -2225,30 +2253,70 @@ function loadBardProfile() {
       const lastAcc = Number(rawEntry.lastAccuracy) || bestAcc;
       const bestChain = Number(rawEntry.bestChain) || 0;
       const totalXp = Number(rawEntry.totalXpEarned) || 0;
+      const bestRunXp = Number(rawEntry.bestRunXp) || 0;
+      const bestAccSetAt = rawEntry.bestAccuracySetAt || (bestAcc > 0 ? (rawEntry.lastPlayed || rawEntry.firstPlayed || null) : null);
+      const bestRunXpSetAt = rawEntry.bestRunXpSetAt || null;
 
       if (!migratedHistory[targetKey]) {
         migratedHistory[targetKey] = {
+          ...rawEntry,
           songId: targetKey,
           title: rawEntry.title || 'Untitled Scroll',
           filePath: rawEntry.filePath || null,
           plays,
           bestAccuracy: bestAcc,
+          bestAccuracySetAt: bestAccSetAt,
           lastAccuracy: lastAcc,
           bestChain,
           totalXpEarned: totalXp,
+          bestRunXp,
+          bestRunXpSetAt,
           lastPlayed: rawEntry.lastPlayed || null,
           firstPlayed: rawEntry.firstPlayed || new Date().toISOString()
         };
       } else {
-        // Merge duplicates (e.g. before and after saving to Grimoire)
+        // Merge duplicates (e.g. before and after saving to Grimoire) while preserving extended fields (#167)
         const existing = migratedHistory[targetKey];
+        for (const [field, val] of Object.entries(rawEntry)) {
+          if (existing[field] === undefined && val !== undefined) {
+            existing[field] = val;
+          }
+        }
         existing.plays = (existing.plays || 0) + plays;
-        existing.bestAccuracy = Math.max(existing.bestAccuracy || 0, bestAcc);
+        if (bestAcc > (existing.bestAccuracy || 0)) {
+          existing.bestAccuracy = bestAcc;
+          existing.bestAccuracySetAt = bestAccSetAt;
+        } else if (bestAcc === (existing.bestAccuracy || 0) && bestAcc > 0 && bestAccSetAt) {
+          const nextMs = Date.parse(bestAccSetAt);
+          const curMs = Date.parse(existing.bestAccuracySetAt || '');
+          if (Number.isFinite(nextMs) && (!Number.isFinite(curMs) || nextMs < curMs)) {
+            existing.bestAccuracySetAt = bestAccSetAt;
+          }
+        }
+        if (bestRunXp > (existing.bestRunXp || 0)) {
+          existing.bestRunXp = bestRunXp;
+          existing.bestRunXpSetAt = bestRunXpSetAt;
+        } else if (bestRunXp === (existing.bestRunXp || 0) && bestRunXp > 0 && bestRunXpSetAt) {
+          const nextMs = Date.parse(bestRunXpSetAt);
+          const curMs = Date.parse(existing.bestRunXpSetAt || '');
+          if (Number.isFinite(nextMs) && (!Number.isFinite(curMs) || nextMs < curMs)) {
+            existing.bestRunXpSetAt = bestRunXpSetAt;
+          }
+        }
         existing.bestChain = Math.max(existing.bestChain || 0, bestChain);
         existing.totalXpEarned = (existing.totalXpEarned || 0) + totalXp;
+        if (rawEntry.weakBarHistory && typeof rawEntry.weakBarHistory === 'object') {
+          existing.weakBarHistory = {
+            ...(existing.weakBarHistory && typeof existing.weakBarHistory === 'object' ? existing.weakBarHistory : {}),
+            ...rawEntry.weakBarHistory
+          };
+        }
         if (rawEntry.lastPlayed && (!existing.lastPlayed || new Date(rawEntry.lastPlayed) > new Date(existing.lastPlayed))) {
           existing.lastPlayed = rawEntry.lastPlayed;
           existing.lastAccuracy = lastAcc;
+          if (rawEntry.preferredTempo !== undefined) {
+            existing.preferredTempo = rawEntry.preferredTempo;
+          }
         }
         if (rawEntry.filePath && !existing.filePath) {
           existing.filePath = rawEntry.filePath;
@@ -2498,9 +2566,11 @@ function recordMeasureOutcome(timeSec, { clean = 0, fumbled = 0, missed = 0 } = 
 /**
  * Award XP to the Bard profile and current song session
  */
-function awardBardXp(xpAmount) {
+function awardBardXp(xpAmount, { skipSongXp = false } = {}) {
   if (xpAmount <= 0) return;
-  songSessionStats.songXpEarned += xpAmount;
+  if (!skipSongXp) {
+    songSessionStats.songXpEarned += xpAmount;
+  }
   bardProfile.totalXp += xpAmount;
   recomputeBardLevelFromTotalXp();
   if (playbackState.isPlaying) {
@@ -3373,21 +3443,54 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
     ? { ...(songPlayHistory[getSongHistoryKey(currentSong)]?.weakBarHistory || {}) }
     : {};
 
-  // Record song play history & Daily Quests BEFORE rendering XP/Level-Up banner (Issue #52, #53, #67)
+  // Record song play history & Daily Quests BEFORE rendering XP/Level-Up banner (Issue #52, #53, #67, #162)
   // Only the natural end-of-song path records play history; the manual button does not (Issue #67)
   let questOutcome = { newlyCompletedQuests: [], totalBonusXp: 0 };
+  let recordOutcome = { qualified: false, beatAccuracy: false, beatXp: false, bonusXp: 0, beatenRecords: [] };
   if (recordPlay && currentSong && totalAttempts > 0) {
+    const priorRecord = songPlayHistory[getSongHistoryKey(currentSong)] || null;
+    const runXpBeforeBonus = Math.max(0, Number(songSessionStats.songXpEarned) || 0);
+    const totalSongNotes = Array.isArray(currentSong.notes)
+      ? currentSong.notes.length
+      : (Number(currentSong.totalNotes) || 0);
+    const qualifiedForLegends = isQualifyingLegendRun({
+      stageViewMode,
+      waitMode: Boolean(playbackState.waitMode),
+      playbackSpeed: playbackState.playbackSpeed,
+      handIsolation: playbackState.handIsolation,
+      accompanimentMode: playbackState.accompanimentMode,
+      rehearsalLoopEnabled: Boolean(rehearsalLoopState?.enabled),
+      encoreDrillActive: Boolean(encoreDrillQueue?.active),
+      totalAttempts,
+      totalNotes: totalSongNotes
+    });
+
+    recordOutcome = evaluatePersonalRecordUpdate(priorRecord, {
+      accuracyPct,
+      runXp: runXpBeforeBonus,
+      qualified: qualifiedForLegends
+    });
+
     questOutcome = recordSongPerformance(
       currentSong,
       accuracyPct,
       songSessionStats.maxSpellChain,
-      songSessionStats.songXpEarned,
+      runXpBeforeBonus,
       {
         waitMode: Boolean(playbackState.waitMode),
         cleanNotesHit: songSessionStats.cleanNotesHit,
-        cleanChordRolls: songSessionStats.cleanChordRolls
+        cleanChordRolls: songSessionStats.cleanChordRolls,
+        recordOutcome
       }
     ) || questOutcome;
+
+    if (recordOutcome.bonusXp > 0) {
+      awardBardXp(recordOutcome.bonusXp, { skipSongXp: true });
+      const labels = recordOutcome.beatenRecords.map((r) =>
+        r.kind === 'accuracy' ? `Best Accuracy (${r.current}%)` : `Biggest XP (${r.current.toLocaleString()} XP)`
+      );
+      showGrimoireToast(`\uD83C\uDFC6 New Personal Record: ${labels.join(' & ')} (+${recordOutcome.bonusXp} Bonus XP)`, 'success');
+    }
 
     const isFullDifficulty =
       (!playbackState.waitMode && playbackState.playbackSpeed >= 1.0 && playbackState.handIsolation === 'both') ||
@@ -3432,6 +3535,31 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
         li.appendChild(nameSpan);
         li.appendChild(xpStrong);
         modalQuestsList.appendChild(li);
+      }
+    }
+  }
+
+  if (modalRecordsBanner && modalRecordsList && modalRecordsXpPill) {
+    const beaten = recordOutcome.beatenRecords || [];
+    modalRecordsBanner.classList.toggle('hidden', beaten.length === 0);
+    while (modalRecordsList.firstChild) {
+      modalRecordsList.removeChild(modalRecordsList.firstChild);
+    }
+    if (beaten.length > 0) {
+      modalRecordsXpPill.textContent = `+${recordOutcome.bonusXp.toLocaleString()} Bonus XP`;
+      for (const rec of beaten) {
+        const li = document.createElement('li');
+        const descSpan = document.createElement('span');
+        if (rec.kind === 'accuracy') {
+          descSpan.textContent = `\uD83C\uDFAF Best Accuracy: ${rec.previous}% \u2192 ${rec.current}%`;
+        } else {
+          descSpan.textContent = `\u2728 Biggest XP: ${rec.previous.toLocaleString()} \u2192 ${rec.current.toLocaleString()} XP`;
+        }
+        const xpStrong = document.createElement('strong');
+        xpStrong.textContent = `+${rec.bonusXp} XP`;
+        li.appendChild(descSpan);
+        li.appendChild(xpStrong);
+        modalRecordsList.appendChild(li);
       }
     }
   }
@@ -4006,6 +4134,7 @@ async function startPlayback() {
   if (!currentSong || isAnyModalOpen() || isTavernMenuVisible) return;
   const targetSong = currentSong;
   stopAudioAudition();
+  stopGrimoirePreview();
   await ensureAudioReady();
 
   if (!currentSong || currentSong !== targetSong || isAnyModalOpen() || isTavernMenuVisible) {
@@ -6507,7 +6636,199 @@ function openGrimoireSpellbook(origin = 'highway') {
   }
 }
 
+let previewMenuEntryId = null;
+
+async function extractPreviewNotesForGrimoireEntry(entry) {
+  if (!entry) return [];
+  let arrayBuf = null;
+  if (entry.filePath === 'BUILTIN_DEMO') {
+    const bytes = buildDemoSpellMidiBytes();
+    arrayBuf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  } else if (entry.filePath && fs.existsSync(entry.filePath)) {
+    const rawBuf = fs.readFileSync(entry.filePath);
+    if (isMusicXmlFileName(entry.fileName || entry.filePath)) {
+      const converted = convertMusicXmlToMidiBuffer(rawBuf, entry.fileName || path.basename(entry.filePath));
+      if (converted && converted.midiBytes) {
+        arrayBuf = converted.midiBytes.buffer.slice(
+          converted.midiBytes.byteOffset,
+          converted.midiBytes.byteOffset + converted.midiBytes.byteLength
+        );
+      }
+    } else {
+      arrayBuf = rawBuf.buffer.slice(rawBuf.byteOffset, rawBuf.byteOffset + rawBuf.byteLength);
+    }
+  }
+  if (!arrayBuf) return [];
+
+  const midi = new Midi(arrayBuf);
+  const extracted = [];
+  for (const track of midi.tracks) {
+    if (track.channel === 9) continue;
+    for (const note of track.notes) {
+      const folded = foldMidiNoteDetails(note.midi);
+      extracted.push({
+        midi: note.midi,
+        foldedMidi: folded.foldedMidi,
+        name: midiToNoteName(folded.foldedMidi),
+        foldedName: midiToNoteName(folded.foldedMidi),
+        time: note.time,
+        duration: note.duration,
+        velocity: note.velocity
+      });
+    }
+  }
+  return extracted;
+}
+
+const grimoirePreviewController = createGrimoirePreviewController({
+  Tone,
+  AudioCtor: typeof Audio !== 'undefined' ? Audio : null,
+  pathToFileURL,
+  getBackingVolume: () => getBackingAudioVolumeFromSlider(),
+  ensureAudioReady,
+  getPianoInstrument: () => getActiveInstrument(),
+  extractNotesForEntry: extractPreviewNotesForGrimoireEntry,
+  onStateChange: (state) => updateGrimoirePreviewUI(state),
+  onError: (msg) => showGrimoireToast(msg, 'warning')
+});
+
+function closeSpellbookPreviewMenu() {
+  previewMenuEntryId = null;
+  if (spellbookPreviewMenu) {
+    spellbookPreviewMenu.classList.add('hidden');
+  }
+}
+
+function stopGrimoirePreview() {
+  closeSpellbookPreviewMenu();
+  grimoirePreviewController.stopPreview();
+}
+
+function updateGrimoirePreviewUI(state = grimoirePreviewController.getState()) {
+  const activeId = state && state.isPlaying ? state.entryId : null;
+  const pct = state && state.isPlaying ? Math.round((state.progress || 0) * 100) : 0;
+
+  if (spellbookSongList) {
+    spellbookSongList.querySelectorAll('.spellbook-card-preview-btn').forEach((btn) => {
+      const isThis = Boolean(activeId && btn.dataset.entryId === activeId);
+      btn.classList.toggle('is-previewing', isThis);
+      btn.style.setProperty('--preview-pct', `${isThis ? pct : 0}%`);
+      btn.textContent = isThis ? '\u25A0' : '\u25B6';
+      btn.setAttribute('aria-pressed', isThis ? 'true' : 'false');
+      const title = btn.dataset.entryTitle || 'spell';
+      btn.title = isThis
+        ? `Stop 30s preview of "${title}"`
+        : `Preview 30s of "${title}"`;
+      btn.setAttribute('aria-label', isThis ? `Stop preview of ${title}` : `Preview ${title}`);
+    });
+  }
+
+  if (btnSpellbookPreviewSong) {
+    const selectedId = selectedSpellbookEntryId;
+    const isSelectedPreviewing = Boolean(activeId && selectedId && activeId === selectedId);
+    btnSpellbookPreviewSong.classList.toggle('is-previewing', isSelectedPreviewing);
+    btnSpellbookPreviewSong.setAttribute('aria-pressed', isSelectedPreviewing ? 'true' : 'false');
+    if (isSelectedPreviewing) {
+      const remaining = Math.max(0, Math.ceil((state.durationSec || PREVIEW_DURATION_SEC) - (state.elapsedSec || 0)));
+      const srcLabel = state.source === 'recording' ? 'Recording' : 'Piano';
+      btnSpellbookPreviewSong.textContent = `\u25A0 Stop (${srcLabel} ${remaining}s)`;
+    } else {
+      btnSpellbookPreviewSong.textContent = '\uD83C\uDFA7 Preview';
+    }
+  }
+}
+
+function openSpellbookPreviewMenu(entry, anchorEl) {
+  if (!spellbookPreviewMenu || !entry) return;
+  const hasRecording = hasPreviewBackingAudio(entry);
+  previewMenuEntryId = entry.id;
+
+  if (btnPreviewSourceRecording) {
+    btnPreviewSourceRecording.classList.toggle('hidden', !hasRecording);
+    btnPreviewSourceRecording.disabled = !hasRecording;
+  }
+
+  spellbookPreviewMenu.classList.remove('hidden');
+
+  const container = grimoireSpellbookModal?.querySelector('.spellbook-container');
+  if (container && anchorEl) {
+    const cRect = container.getBoundingClientRect();
+    const aRect = anchorEl.getBoundingClientRect();
+    const menuW = spellbookPreviewMenu.offsetWidth || 184;
+    const menuH = spellbookPreviewMenu.offsetHeight || 110;
+    let left = aRect.right - cRect.left - menuW;
+    if (left < 12) left = aRect.left - cRect.left;
+    if (left + menuW > cRect.width - 12) left = Math.max(12, cRect.width - menuW - 12);
+    let top = aRect.bottom - cRect.top + 6;
+    if (top + menuH > cRect.height - 12) {
+      top = Math.max(12, aRect.top - cRect.top - menuH - 6);
+    }
+    spellbookPreviewMenu.style.left = `${Math.round(left)}px`;
+    spellbookPreviewMenu.style.top = `${Math.round(top)}px`;
+  }
+}
+
+function handleGrimoirePreviewButtonClick(entry, anchorEl) {
+  if (!entry) return;
+  if (grimoirePreviewController.isPreviewingEntry(entry.id)) {
+    stopGrimoirePreview();
+    return;
+  }
+  const sources = getAvailablePreviewSources(entry);
+  if (sources.length === 1) {
+    closeSpellbookPreviewMenu();
+    void grimoirePreviewController.startPreview(entry, sources[0]);
+    return;
+  }
+  if (previewMenuEntryId === entry.id && spellbookPreviewMenu && !spellbookPreviewMenu.classList.contains('hidden')) {
+    closeSpellbookPreviewMenu();
+    return;
+  }
+  openSpellbookPreviewMenu(entry, anchorEl);
+}
+
+if (btnPreviewSourceRecording) {
+  btnPreviewSourceRecording.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const entry = previewMenuEntryId ? grimoireSpells.get(previewMenuEntryId) : null;
+    closeSpellbookPreviewMenu();
+    if (entry) {
+      void grimoirePreviewController.startPreview(entry, 'recording');
+    }
+  });
+}
+
+if (btnPreviewSourceMidi) {
+  btnPreviewSourceMidi.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const entry = previewMenuEntryId ? grimoireSpells.get(previewMenuEntryId) : null;
+    closeSpellbookPreviewMenu();
+    if (entry) {
+      void grimoirePreviewController.startPreview(entry, 'midi');
+    }
+  });
+}
+
+if (btnSpellbookPreviewSong) {
+  btnSpellbookPreviewSong.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const entry = selectedSpellbookEntryId ? grimoireSpells.get(selectedSpellbookEntryId) : null;
+    if (!entry) return;
+    handleGrimoirePreviewButtonClick(entry, btnSpellbookPreviewSong);
+  });
+}
+
+document.addEventListener('click', (e) => {
+  if (!spellbookPreviewMenu || spellbookPreviewMenu.classList.contains('hidden')) return;
+  if (spellbookPreviewMenu.contains(e.target)) return;
+  if (e.target && e.target.closest && (e.target.closest('.spellbook-card-preview-btn') || e.target.closest('#btn-spellbook-preview-song'))) {
+    return;
+  }
+  closeSpellbookPreviewMenu();
+});
+
 function closeGrimoireSpellbook() {
+  stopGrimoirePreview();
   if (grimoireSpellbookModal) {
     grimoireSpellbookModal.classList.add('hidden');
   }
@@ -6524,18 +6845,22 @@ function closeGrimoireSpellbook() {
   }
 }
 
+const HALL_OF_LEGENDS_SPREAD_INDEX = SPELLBOOK_TIERS.length;
+const TOTAL_SPELLBOOK_SPREADS = SPELLBOOK_TIERS.length + 1;
+
 function flipSpellbookPage(direction) {
   if (isSpellbookFlipping || spellbookFavoritesOnly) return;
   const targetIndex = currentSpellbookTierIndex + direction;
-  if (targetIndex < 0 || targetIndex >= SPELLBOOK_TIERS.length) return;
+  if (targetIndex < 0 || targetIndex >= TOTAL_SPELLBOOK_SPREADS) return;
   navigateToSpellbookTier(targetIndex, direction > 0 ? 'forward' : 'backward');
 }
 
 function navigateToSpellbookTier(targetIndex, animDirection = 'forward') {
   if (isSpellbookFlipping) return;
-  if (targetIndex < 0 || targetIndex >= SPELLBOOK_TIERS.length) return;
+  if (targetIndex < 0 || targetIndex >= TOTAL_SPELLBOOK_SPREADS) return;
   if (targetIndex === currentSpellbookTierIndex && !spellbookFavoritesOnly) return;
 
+  stopGrimoirePreview();
   if (spellbookFavoritesOnly) {
     spellbookFavoritesOnly = false;
     saveSpellbookFavoritesFilter();
@@ -6578,10 +6903,168 @@ function renderSpellbookTierPips() {
     });
     spellbookTierPips.appendChild(pip);
   });
+
+  // Issue #162: 11th Bookmark Tab — Hall of Legends (Personal Records)
+  const isLegendsActive = !spellbookFavoritesOnly && currentSpellbookTierIndex === HALL_OF_LEGENDS_SPREAD_INDEX;
+  const legendsPip = document.createElement('button');
+  legendsPip.type = 'button';
+  legendsPip.id = 'tier-pip-hall-of-legends';
+  legendsPip.className = `tier-pip tier-pip-legends${isLegendsActive ? ' active' : ''}`;
+  legendsPip.textContent = '\uD83C\uDFC6';
+  legendsPip.title = 'Hall of Legends \u2014 Personal Piano Records (Best Accuracy & Biggest XP)';
+  legendsPip.setAttribute('role', 'tab');
+  legendsPip.setAttribute('aria-label', 'Hall of Legends');
+  legendsPip.setAttribute('aria-selected', isLegendsActive ? 'true' : 'false');
+  legendsPip.addEventListener('click', (e) => {
+    e.stopPropagation();
+    navigateToSpellbookTier(
+      HALL_OF_LEGENDS_SPREAD_INDEX,
+      HALL_OF_LEGENDS_SPREAD_INDEX > currentSpellbookTierIndex ? 'forward' : 'backward'
+    );
+  });
+  spellbookTierPips.appendChild(legendsPip);
+}
+
+function findGrimoireEntryForLegendRecord(rec) {
+  if (!rec) return null;
+  const entries = Array.from(grimoireSpells.values());
+  if (rec.songId) {
+    const byId = entries.find((e) => e.songId === rec.songId || e.id === rec.songId);
+    if (byId) return byId;
+  }
+  if (rec.filePath) {
+    try {
+      const targetResolved = path.resolve(rec.filePath).toLowerCase();
+      const byPath = entries.find((e) => e.filePath && path.resolve(e.filePath).toLowerCase() === targetResolved);
+      if (byPath) return byPath;
+    } catch {
+      // Ignore path resolution errors
+    }
+  }
+  if (rec.title) {
+    const targetTitle = rec.title.toLowerCase();
+    const byTitle = entries.find((e) => e.title && e.title.toLowerCase() === targetTitle);
+    if (byTitle) return byTitle;
+  }
+  return null;
+}
+
+function renderHallOfLegendsList(listEl, emptyEl, records, kind) {
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  const hasRecords = Array.isArray(records) && records.length > 0;
+  if (emptyEl) {
+    emptyEl.classList.toggle('hidden', hasRecords);
+  }
+  if (!hasRecords) return;
+
+  records.forEach((rec, idx) => {
+    const grimoireEntry = findGrimoireEntryForLegendRecord(rec);
+    const isLoadable = Boolean(
+      grimoireEntry &&
+      (grimoireEntry.isBuiltin ||
+        grimoireEntry.filePath === 'BUILTIN_DEMO' ||
+        (grimoireEntry.filePath && fs.existsSync(grimoireEntry.filePath)))
+    );
+
+    const li = document.createElement('li');
+    li.className = `legends-record-row${idx < 3 ? ` legends-rank-${idx + 1}` : ''}${isLoadable ? '' : ' legends-row-missing'}`;
+    li.dataset.songId = rec.songId;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'legends-record-btn';
+    btn.disabled = !isLoadable;
+    btn.title = isLoadable
+      ? `Load "${rec.title}" onto the Spell Highway`
+      : `"${rec.title}" scroll file is not currently in your Grimoire`;
+
+    const rankSpan = document.createElement('span');
+    rankSpan.className = 'legends-rank-badge';
+    rankSpan.textContent = idx === 0 ? '\uD83E\uDD47' : idx === 1 ? '\uD83E\uDD48' : idx === 2 ? '\uD83E\uDD49' : `#${idx + 1}`;
+
+    const infoDiv = document.createElement('div');
+    infoDiv.className = 'legends-song-info';
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'legends-song-title';
+    titleSpan.textContent = rec.title;
+    const dateSpan = document.createElement('span');
+    dateSpan.className = 'legends-song-date';
+    dateSpan.textContent = isLoadable
+      ? formatLegendDate(rec.setAt)
+      : `${formatLegendDate(rec.setAt)} \u2022 Scroll missing`;
+    infoDiv.appendChild(titleSpan);
+    infoDiv.appendChild(dateSpan);
+
+    const valSpan = document.createElement('span');
+    valSpan.className = `legends-record-value ${kind === 'accuracy' ? 'legends-val-acc' : 'legends-val-xp'}`;
+    valSpan.textContent = kind === 'accuracy' ? `${rec.value}%` : `${Number(rec.value).toLocaleString()} XP`;
+
+    btn.appendChild(rankSpan);
+    btn.appendChild(infoDiv);
+    btn.appendChild(valSpan);
+
+    if (isLoadable) {
+      btn.addEventListener('click', () => {
+        grimoireEntry.newlyIngested = false;
+        selectedSpellbookEntryId = grimoireEntry.id;
+        loadSelectedSpellbookSong();
+      });
+    }
+
+    li.appendChild(btn);
+    listEl.appendChild(li);
+  });
+}
+
+function renderHallOfLegendsSpread() {
+  if (spellbookTierBadge) {
+    spellbookTierBadge.textContent = '\uD83C\uDFC6 Hall of Legends';
+    spellbookTierBadge.className = 'tier-ribbon-badge tier-legends';
+  }
+  if (spellbookTierXp) {
+    spellbookTierXp.textContent = 'Piano Records';
+  }
+  if (spellbookTierName) spellbookTierName.textContent = 'Hall of Legends';
+  if (spellbookTierDesc) spellbookTierDesc.textContent = 'Your top 10 personal piano records \u2022 Beat a record for +50 Bonus XP';
+  if (spellbookPageNumLeft) spellbookPageNumLeft.textContent = 'Page XI \u2022 Best Accuracy';
+  if (spellbookPageNumRight) spellbookPageNumRight.textContent = 'Page XIb \u2022 Biggest XP';
+
+  if (spellbookSearchRow) spellbookSearchRow.classList.add('hidden');
+  if (spellbookSongList) spellbookSongList.classList.add('hidden');
+  if (spellbookEmptyState) spellbookEmptyState.classList.add('hidden');
+  if (spellbookDetailPanel) spellbookDetailPanel.classList.add('hidden');
+  if (spellbookLegendsLeftPanel) spellbookLegendsLeftPanel.classList.remove('hidden');
+  if (spellbookLegendsRightPanel) spellbookLegendsRightPanel.classList.remove('hidden');
+
+  const board = computeHallOfLegends(songPlayHistory);
+  renderHallOfLegendsList(spellbookLegendsAccList, spellbookLegendsAccEmpty, board.accuracy, 'accuracy');
+  renderHallOfLegendsList(spellbookLegendsXpList, spellbookLegendsXpEmpty, board.xp, 'xp');
+
+  if (btnSpellbookPrevPage) {
+    btnSpellbookPrevPage.disabled = false;
+  }
+  if (btnSpellbookNextPage) {
+    btnSpellbookNextPage.disabled = true;
+  }
+  renderSpellbookTierPips();
 }
 
 function renderSpellbookSpread() {
   if (!grimoireSpellbookModal) return;
+
+  const isLegendsSpread = !spellbookFavoritesOnly && currentSpellbookTierIndex === HALL_OF_LEGENDS_SPREAD_INDEX;
+  if (isLegendsSpread) {
+    renderHallOfLegendsSpread();
+    return;
+  }
+
+  // Restore standard tier / Attuned panels when leaving Hall of Legends
+  if (spellbookSearchRow) spellbookSearchRow.classList.remove('hidden');
+  if (spellbookSongList) spellbookSongList.classList.remove('hidden');
+  if (spellbookDetailPanel) spellbookDetailPanel.classList.remove('hidden');
+  if (spellbookLegendsLeftPanel) spellbookLegendsLeftPanel.classList.add('hidden');
+  if (spellbookLegendsRightPanel) spellbookLegendsRightPanel.classList.add('hidden');
 
   const tier = SPELLBOOK_TIERS[currentSpellbookTierIndex] || SPELLBOOK_TIERS[0];
   const allEntries = Array.from(grimoireSpells.values());
@@ -6739,6 +7222,26 @@ function renderSpellbookSpread() {
         ? `${entry.spellLevel} \u2022 ${formatSeconds(entry.duration)}`
         : `${entry.bpm} \u2022 ${formatSeconds(entry.duration)}`;
 
+      const isPreviewingThis = grimoirePreviewController.isPreviewingEntry(entry.id);
+      const cardPreviewBtn = document.createElement('button');
+      cardPreviewBtn.type = 'button';
+      cardPreviewBtn.className = `spellbook-card-preview-btn${isPreviewingThis ? ' is-previewing' : ''}`;
+      cardPreviewBtn.dataset.entryId = entry.id;
+      cardPreviewBtn.dataset.entryTitle = entry.title;
+      cardPreviewBtn.textContent = isPreviewingThis ? '\u25A0' : '\u25B6';
+      cardPreviewBtn.title = isPreviewingThis
+        ? `Stop 30s preview of "${entry.title}"`
+        : `Preview 30s of "${entry.title}"`;
+      cardPreviewBtn.setAttribute('aria-label', isPreviewingThis ? `Stop preview of ${entry.title}` : `Preview ${entry.title}`);
+      cardPreviewBtn.setAttribute('aria-pressed', isPreviewingThis ? 'true' : 'false');
+      cardPreviewBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleGrimoirePreviewButtonClick(entry, cardPreviewBtn);
+      });
+      cardPreviewBtn.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+      });
+
       const cardStarBtn = document.createElement('button');
       cardStarBtn.type = 'button';
       cardStarBtn.className = `spellbook-card-star-btn${entry.isFavorite ? ' is-favorite' : ''}`;
@@ -6758,6 +7261,7 @@ function renderSpellbookSpread() {
 
       item.appendChild(titleWrap);
       item.appendChild(metaSpan);
+      item.appendChild(cardPreviewBtn);
       item.appendChild(cardStarBtn);
 
       if (isGrimoireEntryDeletable(entry)) {
@@ -6812,12 +7316,12 @@ function renderSpellbookSpread() {
     renderSpellbookDetails(selectedEntry);
   }
 
-  // Navigation button states & 10 Bookmark Tabs / Tier Pips
+  // Navigation button states & Bookmark Tabs / Tier Pips (including Hall of Legends)
   if (btnSpellbookPrevPage) {
     btnSpellbookPrevPage.disabled = spellbookFavoritesOnly || currentSpellbookTierIndex <= 0;
   }
   if (btnSpellbookNextPage) {
-    btnSpellbookNextPage.disabled = spellbookFavoritesOnly || currentSpellbookTierIndex >= SPELLBOOK_TIERS.length - 1;
+    btnSpellbookNextPage.disabled = spellbookFavoritesOnly || currentSpellbookTierIndex >= TOTAL_SPELLBOOK_SPREADS - 1;
   }
 
   renderSpellbookTierPips();
@@ -6853,6 +7357,12 @@ function renderSpellbookDetails(entry) {
       btnSpellbookFavoriteSong.textContent = '\u2606';
       btnSpellbookFavoriteSong.setAttribute('aria-pressed', 'false');
       btnSpellbookFavoriteSong.title = 'Attune this spell';
+    }
+    if (btnSpellbookPreviewSong) {
+      btnSpellbookPreviewSong.disabled = true;
+      btnSpellbookPreviewSong.classList.remove('is-previewing');
+      btnSpellbookPreviewSong.textContent = '\uD83C\uDFA7 Preview';
+      btnSpellbookPreviewSong.setAttribute('aria-pressed', 'false');
     }
     if (btnSpellbookDeleteSong) btnSpellbookDeleteSong.classList.add('hidden');
     return;
@@ -6994,6 +7504,10 @@ function renderSpellbookDetails(entry) {
   if (btnSpellbookLoadSong) {
     btnSpellbookLoadSong.disabled = false;
   }
+  if (btnSpellbookPreviewSong) {
+    btnSpellbookPreviewSong.disabled = false;
+    updateGrimoirePreviewUI();
+  }
 
   if (btnSpellbookFavoriteSong) {
     btnSpellbookFavoriteSong.disabled = false;
@@ -7021,6 +7535,7 @@ function loadSelectedSpellbookSong() {
   const entry = (selectedSpellbookEntryId && grimoireSpells.get(selectedSpellbookEntryId)) || null;
   if (!entry) return;
 
+  stopGrimoirePreview();
   loadGrimoireEntry(entry);
   closeGrimoireSpellbook();
   hideTavernMenu();
@@ -7052,6 +7567,7 @@ function renderGrimoireSidebar() {
  * Load a selected Spell Card from The Grimoire onto the Spell Highway
  */
 function loadGrimoireEntry(entry) {
+  stopGrimoirePreview();
   if (entry.filePath === 'BUILTIN_DEMO') {
     loadBuiltInDemoSpell();
     return;
@@ -7654,6 +8170,7 @@ function removeGrimoireEntry(entry) {
 function confirmPendingSpellDeletion() {
   if (!pendingDeleteEntry || isDeleteInProgress) return;
   const targetEntry = pendingDeleteEntry;
+  stopGrimoirePreview();
 
   isDeleteInProgress = true;
   if (btnDeleteConfirmCancel) btnDeleteConfirmCancel.disabled = true;
@@ -10098,6 +10615,11 @@ window.addEventListener('keydown', (e) => {
       closeQuestBoardModal();
       return;
     }
+    if (spellbookPreviewMenu && !spellbookPreviewMenu.classList.contains('hidden')) {
+      e.preventDefault();
+      closeSpellbookPreviewMenu();
+      return;
+    }
     if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
       e.preventDefault();
       closeGrimoireSpellbook();
@@ -11464,6 +11986,7 @@ if (btnSpellbookFavoriteSong) {
 
 if (btnSpellbookFavoritesFilter) {
   btnSpellbookFavoritesFilter.addEventListener('click', () => {
+    stopGrimoirePreview();
     spellbookFavoritesOnly = !spellbookFavoritesOnly;
     saveSpellbookFavoritesFilter();
     renderSpellbookSpread();
@@ -11504,6 +12027,7 @@ if (deleteSpellConfirmModal) {
 
 if (spellbookSearchInput) {
   spellbookSearchInput.addEventListener('input', () => {
+    closeSpellbookPreviewMenu();
     renderSpellbookSpread();
   });
 }
@@ -13538,6 +14062,7 @@ window.addEventListener('blur', () => {
 // Terminate any active background Python transcription/OMR child process, mic stream & audio audition on close/reload (Issue #17, #76, #130, #139)
 window.addEventListener('beforeunload', () => {
   stopAudioAudition();
+  stopGrimoirePreview();
   if (typeof stopLiveAudioInstrumentInput === 'function') {
     stopLiveAudioInstrumentInput();
   }
@@ -13604,25 +14129,42 @@ function recordSongPerformance(song, accuracyPct, maxChain, xpEarned, meta = {})
   if (!song) return { newlyCompletedQuests: [], totalBonusXp: 0 };
   const key = song.songId || (song.filePath || song.title || 'Demo Spell').toLowerCase();
   const title = song.title || 'Untitled Scroll';
+  const nowIso = new Date().toISOString();
   const existing = songPlayHistory[key] || {
     songId: song.songId || key,
     title,
     filePath: song.filePath || null,
     plays: 0,
     bestAccuracy: 0,
+    bestAccuracySetAt: null,
     lastAccuracy: 0,
     bestChain: 0,
     totalXpEarned: 0,
+    bestRunXp: 0,
+    bestRunXpSetAt: null,
     lastPlayed: null,
-    firstPlayed: new Date().toISOString()
+    firstPlayed: nowIso
   };
 
+  const prevBestAcc = Number(existing.bestAccuracy) || 0;
   existing.plays = (Number(existing.plays) || 0) + 1;
   existing.lastAccuracy = accuracyPct;
-  existing.bestAccuracy = Math.max(Number(existing.bestAccuracy) || 0, accuracyPct);
+  if (meta.recordOutcome) {
+    existing.bestAccuracy = meta.recordOutcome.newBestAccuracy;
+    existing.bestAccuracySetAt = meta.recordOutcome.newBestAccuracySetAt;
+    existing.bestRunXp = meta.recordOutcome.newBestRunXp;
+    existing.bestRunXpSetAt = meta.recordOutcome.newBestRunXpSetAt;
+  } else {
+    if (accuracyPct > prevBestAcc) {
+      existing.bestAccuracy = accuracyPct;
+      existing.bestAccuracySetAt = nowIso;
+    } else {
+      existing.bestAccuracy = prevBestAcc;
+    }
+  }
   existing.bestChain = Math.max(Number(existing.bestChain) || 0, maxChain);
   existing.totalXpEarned = (Number(existing.totalXpEarned) || 0) + xpEarned;
-  existing.lastPlayed = new Date().toISOString();
+  existing.lastPlayed = nowIso;
   existing.title = title;
   if (song.filePath) {
     existing.filePath = song.filePath;

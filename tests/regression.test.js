@@ -530,18 +530,23 @@ async function runUnitTests() {
 }
 
 app.whenReady().then(async () => {
-  const bundleStorePath = path.join(REPO_ROOT, 'grimoire_bundles.json');
-  const hadBundleStoreBefore = fs.existsSync(bundleStorePath);
-  const prevBundleStoreContent = hadBundleStoreBefore ? fs.readFileSync(bundleStorePath, 'utf8') : null;
+  const managedStoreFiles = ['grimoire_bundles.json', 'song_stats.json', 'bard_profile.json'].map((name) => {
+    const filePath = path.join(REPO_ROOT, name);
+    const existed = fs.existsSync(filePath);
+    const prevContent = existed ? fs.readFileSync(filePath, 'utf8') : null;
+    return { filePath, existed, prevContent };
+  });
   const cleanupBundleStore = () => {
-    try {
-      if (hadBundleStoreBefore) {
-        fs.writeFileSync(bundleStorePath, prevBundleStoreContent, 'utf8');
-      } else if (fs.existsSync(bundleStorePath)) {
-        fs.unlinkSync(bundleStorePath);
+    for (const store of managedStoreFiles) {
+      try {
+        if (store.existed) {
+          fs.writeFileSync(store.filePath, store.prevContent, 'utf8');
+        } else if (fs.existsSync(store.filePath)) {
+          fs.unlinkSync(store.filePath);
+        }
+      } catch {
+        // Ignore cleanup errors
       }
-    } catch {
-      // Ignore cleanup errors
     }
   };
 
@@ -746,6 +751,81 @@ app.whenReady().then(async () => {
       updateCurrentSongVocalMix({ leadVolume: 0.25, harmoniesEnabled: true });
       assignSongTracksAndDifficulty('auto-piano');
       checks.restoredHighway = stageViewMode === 'highway' && !document.getElementById('practice-hand-control-group').classList.contains('hidden');
+
+      // Issue #162 & #163: Grimoire Hall of Legends + 30s Audio Preview DOM checks
+      const prevSongRef = currentSong;
+      const prevTotalXp = bardProfile.totalXp;
+      const demoKey = getSongHistoryKey(currentSong);
+      const prevDemoHist = songPlayHistory[demoKey] ? { ...songPlayHistory[demoKey] } : null;
+
+      // Seed a baseline record and verify Hall of Legends 11th spread renders both lists
+      songPlayHistory[demoKey] = {
+        ...(prevDemoHist || {}),
+        songId: demoKey,
+        title: currentSong.title,
+        filePath: currentSong.filePath || 'BUILTIN_DEMO',
+        plays: 1,
+        bestAccuracy: 85,
+        bestAccuracySetAt: '2026-11-25T12:00:00.000Z',
+        bestRunXp: 300,
+        bestRunXpSetAt: '2026-11-25T12:00:00.000Z',
+        lastPlayed: '2026-11-25T12:00:00.000Z',
+        firstPlayed: '2026-11-25T12:00:00.000Z'
+      };
+
+      openGrimoireSpellbook('highway');
+      const legendsPip = document.getElementById('tier-pip-hall-of-legends');
+      const rowPreviewBtns = document.querySelectorAll('.spellbook-card-preview-btn');
+      const detailPreviewBtn = document.getElementById('btn-spellbook-preview-song');
+      checks.grimoirePreviewButtonsPresent = Boolean(rowPreviewBtns.length > 0 && detailPreviewBtn);
+
+      // Verify Recording option is hidden when entry has no backing audio
+      const firstEntry = Array.from(grimoireSpells.values())[0];
+      openSpellbookPreviewMenu({ ...firstEntry, backingAudioPath: null }, detailPreviewBtn);
+      checks.grimoirePreviewHidesRecordingWithoutAudio = Boolean(
+        document.getElementById('btn-preview-source-recording').classList.contains('hidden')
+      );
+      closeSpellbookPreviewMenu();
+
+      // Switch directly to Hall of Legends spread (index 10)
+      currentSpellbookTierIndex = HALL_OF_LEGENDS_SPREAD_INDEX;
+      renderSpellbookSpread();
+      const legendsLeftVisible = !document.getElementById('spellbook-legends-left-panel').classList.contains('hidden');
+      const legendsRightVisible = !document.getElementById('spellbook-legends-right-panel').classList.contains('hidden');
+      const accRows = document.querySelectorAll('#spellbook-legends-acc-list .legends-record-row');
+      const xpRows = document.querySelectorAll('#spellbook-legends-xp-list .legends-record-row');
+      checks.hallOfLegendsSpreadRenders = Boolean(legendsPip && legendsLeftVisible && legendsRightVisible && accRows.length >= 1 && xpRows.length >= 1);
+
+      // Issue #168 Finding #1: Leaving Hall of Legends must restore #spellbook-song-list
+      currentSpellbookTierIndex = 0;
+      renderSpellbookSpread();
+      checks.hallOfLegendsRestoresSongList = Boolean(
+        !document.getElementById('spellbook-song-list').classList.contains('hidden') &&
+        document.getElementById('spellbook-legends-left-panel').classList.contains('hidden')
+      );
+
+      // Issue #168 Finding #6: Pressing Escape while preview menu is open closes menu without closing Grimoire
+      openSpellbookPreviewMenu(firstEntry, detailPreviewBtn);
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      checks.escapeClosesPreviewMenuFirst = Boolean(
+        document.getElementById('spellbook-preview-menu').classList.contains('hidden') &&
+        !document.getElementById('grimoire-spellbook-modal').classList.contains('hidden')
+      );
+
+      // Verify preview stops on close and never mutates currentSong or XP
+      closeGrimoireSpellbook();
+      checks.grimoirePreviewIsolation = Boolean(
+        !grimoirePreviewController.getState().isPlaying &&
+        currentSong === prevSongRef &&
+        bardProfile.totalXp === prevTotalXp
+      );
+
+      // Restore seeded history
+      if (prevDemoHist) {
+        songPlayHistory[demoKey] = prevDemoHist;
+      } else {
+        delete songPlayHistory[demoKey];
+      }
 
       return checks;
     })();

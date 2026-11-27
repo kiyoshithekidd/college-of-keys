@@ -8,11 +8,14 @@ const { spawnSync } = require('child_process');
 const path = require('path');
 
 const repoRoot = path.resolve(__dirname, '..');
-const nodeUnitTest = path.join(__dirname, 'karaoke-and-lyrics.test.js');
+const nodeUnitTests = [
+  path.join(__dirname, 'karaoke-and-lyrics.test.js'),
+  path.join(__dirname, 'legends-and-preview.test.js')
+];
 const testEntry = path.join(__dirname, 'regression.test.js');
 const electronBin = require('electron');
 
-const nodeRes = spawnSync(process.execPath, ['--test', nodeUnitTest], {
+const nodeRes = spawnSync(process.execPath, ['--test', ...nodeUnitTests], {
   cwd: repoRoot,
   stdio: 'inherit'
 });

@@ -10,6 +10,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.7.0] - 2026-11-26
+
+### Added
+- **Grimoire Hall of Legends — Personal Records Board (`#162`):**
+  - Added `hall-of-legends.js` with qualifying full-difficulty piano run validation (`≥80%` note coverage, excludes Karaoke, Wait Mode, slow tempo, hand isolation, loops, Encore Drill, and listen-only), anti-farm personal record evaluation (baseline sets record with 0 bonus, ties pay 0, strictly beating a prior non-zero record pays `+50 XP` per record), and Top-10 ranking.
+  - Added the 11th Grimoire spread (`🏆` bookmark tab after 9th-Level) showing **Best Accuracy** (left page) and **Biggest Single-Run XP** (right page) side by side with tap-to-load support and a **New Personal Record!** celebration banner in the Performance Check modal.
+- **Grimoire 30-Second Audio Preview (`#163`):**
+  - Added `grimoire-preview.js` providing an isolated 30-second preview controller supporting both **`🎙 Recording`** (backing audio, hidden when unavailable on disk) and **`🎹 Piano MIDI`** (50 ms lookahead synth playback without touching highway state or XP).
+  - Added `▶` / `■` preview buttons with 30-second progress rings on every Grimoire song row, a `🎧 Preview` button in the Spell Details bar, a floating source-picker menu, and stop hooks on Stop, Load, Close, Page Flip, Attuned Filter Toggle, Spell Delete, Playback Start, and `beforeunload`.
+  - Added `tests/legends-and-preview.test.js` (6 Node unit tests) and 6 new headless Electron DOM checks in `tests/regression.test.js`.
+
+### Fixed
+- **Song-Stats Startup Migration Field Loss (`#167`):** Preserved extended per-song fields (`weakBarHistory`, `preferredTempo`, `bestAccuracySetAt`, `bestRunXp`, `bestRunXpSetAt`) across startup migration in `renderer.js`, added `song_stats.json` to `.gitignore`, and backed up/restored `song_stats.json` and `bard_profile.json` during `npm test`.
+- **Hall of Legends & Audio Preview Peer Review & QA Audit Hardening (`#168`):** Restored `#spellbook-song-list` visibility when leaving Hall of Legends, guarded `bestAccuracy` record updates behind `qualified`, emitted stopped state on failed preview switch, honored `0` muted backing volume, stopped preview on Attuned toggle / spell delete, prioritized `Escape` to close `#spellbook-preview-menu` before closing the Grimoire modal, normalized `pathToFileURL().href`, and hardened migration date comparisons.
+
+---
+
 ## [1.6.0] - 2026-11-26
 
 ### Added
