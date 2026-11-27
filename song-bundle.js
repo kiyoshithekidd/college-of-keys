@@ -422,6 +422,10 @@ function resolveBundleForSong({
   const lyricsOffsetSec = clampLyricsOffsetSec(
     record?.lyricsOffsetSec ?? fallbackRecord?.lyricsOffsetSec ?? 0
   );
+  const karaokeKeyShiftSemitones = Math.max(
+    -6,
+    Math.min(6, Math.round(Number(record?.karaokeKeyShiftSemitones ?? fallbackRecord?.karaokeKeyShiftSemitones ?? 0) || 0))
+  );
 
   const youtubeUrlRaw = hasOwn(record, 'youtubeUrl') ? record.youtubeUrl : fallbackRecord?.youtubeUrl;
   const spotifyUrlRaw = hasOwn(record, 'spotifyUrl') ? record.spotifyUrl : fallbackRecord?.spotifyUrl;
@@ -450,6 +454,7 @@ function resolveBundleForSong({
     transposeSemitones,
     vocalMix,
     lyricsOffsetSec,
+    karaokeKeyShiftSemitones,
     sidecarPath: sidecarPath && fs.existsSync(sidecarPath) ? sidecarPath : null,
     hasCustomBundle: Boolean(
       sheetMusicPath ||
@@ -463,7 +468,8 @@ function resolveBundleForSong({
       Math.abs(audioTempoRatio - 1.0) > 0.0001 ||
       typeof midiCleanupEnabled === 'boolean' ||
       transposeSemitones !== 0 ||
-      Math.abs(lyricsOffsetSec) > 0.001
+      Math.abs(lyricsOffsetSec) > 0.001 ||
+      karaokeKeyShiftSemitones !== 0
     )
   };
 }
@@ -587,6 +593,10 @@ function saveBundleRecord({
     lyricsOffsetSec: clampLyricsOffsetSec(
       record.lyricsOffsetSec !== undefined ? record.lyricsOffsetSec : (existing.lyricsOffsetSec ?? 0)
     ),
+    karaokeKeyShiftSemitones: Math.max(
+      -6,
+      Math.min(6, Math.round(Number(record.karaokeKeyShiftSemitones !== undefined ? record.karaokeKeyShiftSemitones : (existing.karaokeKeyShiftSemitones ?? 0)) || 0))
+    ),
     updatedAt: new Date().toISOString()
   };
 
@@ -624,6 +634,7 @@ function saveBundleRecord({
         stemMix: nextEntry.stemMix,
         vocalMix: nextEntry.vocalMix,
         lyricsOffsetSec: nextEntry.lyricsOffsetSec,
+        karaokeKeyShiftSemitones: nextEntry.karaokeKeyShiftSemitones,
         audioUnlinked: nextEntry.audioUnlinked,
         sheetUnlinked: nextEntry.sheetUnlinked,
         youtubeUrl: nextEntry.youtubeUrl,

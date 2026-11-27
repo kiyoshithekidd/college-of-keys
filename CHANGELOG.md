@@ -10,6 +10,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.12.0] - 2026-11-26
+
+### Added
+- **Community `.txt` Syllable-Timed Vocal Chart Importer (`#172`):**
+  - Added `txt-vocal-chart.js` supporting `#TITLE`, `#ARTIST`, `#BPM` (including comma decimals), `#GAP`, `#MP3`/`#AUDIO`, `#RELATIVE`, `#ENCODING` (UTF-8 + Windows-1252 fallback), `P1`/`P2` duet voice separation, and `:`, `*`, `F`, `G`, `-`, `E` note/phrase tokens.
+  - Integrated `.txt` vocal chart loading, sibling audio pairing, Grimoire `Imports/` scanning, **✨ Radiant / 🎤 Rap / 👥 Duet** Spellbook badges, and auto-switch to Karaoke Mode.
+- **Karaoke Radiant Bonus Notes, Spoken/Rap Freestyle Bars & Per-Line Rating Pops (`#173`):**
+  - Extended `spell-singing.js` with `2x` score & Vocal XP for Radiant (`*` / `G`) notes, pitch-free microphone RMS voice-activity scoring + striped amber/violet bars for Spoken/Rap (`F` / `G`) phrases, and duration-weighted Per-Line Rating Pops (`Cool!`, `Great!`, `Awesome!`, `Perfect!`) with phrase bonus XP.
+- **Real-Time Karaoke Key / Pitch Shifting (`#174`):**
+  - Added `karaoke-pitch-shift.js` (`±6` semitones) and **♭ - / + ♯** Key Shift stepper in `#spell-singing-stage`, shifting melodic stems & backing audio (bypassing `drums` stem) alongside vocal pitch highway targets and octave-agnostic scorer targets, persisted per song in `song-bundle.js`.
+- **Tests:** Added `tests/karaoke-stage-ecosystem.test.js` (4 Node unit tests) and `karaokeStageEcosystemWorks` Electron DOM integration check in `tests/regression.test.js`.
+
+### Fixed
+- **v1.12.0 Peer Review & QA Audit Hardening (`#192`):** Guarded `scanWatchedDirectories()` against non-chart `.txt` files, aligned `.txt` Grimoire entry fields (`id`, `spellLevel`, `xpMultiplier`, `totalNotes`, `isFavorite`), added `rawBuffer` + transport enablement in `loadTxtVocalChartFromBuffer()`, tracked per-voice `relativeOffsets` for interleaved `P1`/`P2` `#RELATIVE:YES` charts, ensured `applyKaraokeKeyShiftToAudioElements()` runs on single-track `backingAudioEl` view switches, prevented `MediaElementAudioSourceNode` collisions with `midSideVocalProcessor`, and loaded `karaokeKeyShiftSemitones` in `parseMidiBuffer()`.
+
+---
+
 ## [1.11.0] - 2026-11-26
 
 ### Added

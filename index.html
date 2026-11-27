@@ -227,7 +227,7 @@
           <button id="btn-open-quest-board" class="tavern-btn btn-quest-board" title="Open The Quest Board: Paste a YouTube URL to transcribe into MIDI or browse BitMIDI, VGMusic & YouTube">
             &#128302; Quest Board
           </button>
-          <input id="midi-file-input" type="file" accept=".mid,.midi,.xml,.musicxml,.mxl,.pdf,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff" hidden />
+          <input id="midi-file-input" type="file" accept=".mid,.midi,.xml,.musicxml,.mxl,.txt,.pdf,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff" hidden />
           <button id="btn-load-midi" class="tavern-btn tavern-btn-primary" title="Import a .mid, .musicxml, .xml, or .mxl file (or drag & drop onto window)">
             &#128220; Import
           </button>
@@ -1073,6 +1073,14 @@
             </div>
 
             <div class="karaoke-controls-right">
+              <div class="karaoke-key-shift-group" role="group" aria-label="Karaoke Key Shift">
+                <button id="btn-karaoke-key-down" type="button" class="tavern-btn btn-compact" title="Lower song key &amp; vocal targets by 1 semitone">&#9837; -</button>
+                <span id="karaoke-key-shift-readout" class="karaoke-key-shift-readout" title="Real-time Karaoke Key Shift (-6 to +6 semitones)">0 st</span>
+                <button id="btn-karaoke-key-up" type="button" class="tavern-btn btn-compact" title="Raise song key &amp; vocal targets by 1 semitone">+ &#9839;</button>
+              </div>
+              <button id="btn-karaoke-duet-voice" type="button" class="tavern-btn btn-compact hidden" title="Switch Duet Singer Track (P1 / P2)">
+                &#127908; P1
+              </button>
               <label class="karaoke-toggle-label" title="Allow singing in any comfortable octave (Baritone / Tenor / Alto / Soprano)">
                 <input id="chk-karaoke-octave-free" type="checkbox" checked />
                 <span>Octave-Free</span>
@@ -1124,6 +1132,11 @@
 
           <div class="karaoke-canvas-wrap">
             <canvas id="vocal-highway-canvas"></canvas>
+            <!-- Issue #173: Per-Line Rating Pop Overlay -->
+            <div id="karaoke-phrase-rating-pop" class="karaoke-phrase-rating-pop hidden" aria-live="polite">
+              <strong id="karaoke-phrase-rating-label" class="phrase-rating-label">Perfect!</strong>
+              <span id="karaoke-phrase-rating-xp" class="phrase-rating-xp">+20 Vocal XP</span>
+            </div>
           </div>
 
           <div class="karaoke-teleprompter">

@@ -19,6 +19,16 @@ const { pathToFileURL } = require('url');
 const { shell, ipcRenderer, webUtils } = require('electron');
 const { createD20TrayRoller } = require('./d20-roller');
 const { isMusicXmlFileName, convertMusicXmlToMidiBuffer } = require('./musicxml-converter');
+const {
+  parseTxtVocalChart,
+  inspectTxtVocalChartBuffer,
+  buildVocalChartFromTxt
+} = require('./txt-vocal-chart');
+const {
+  clampKaraokeKeyShift,
+  formatKeyShiftLabel,
+  createKaraokePitchShiftBus
+} = require('./karaoke-pitch-shift');
 const { isOmrSheetFileName, analyzeOmrConfidence, applyOmrOverridesToMusicXml } = require('./omr-confidence');
 const {
   MIDI_OUTPUT_DEVICE_STORAGE_KEY,
@@ -1408,7 +1418,135 @@ function areTracksDuplicates(trackA, trackB) {
   return true;
 }
 
+function isTxtFileName(fileName = '') {
+  return /\.txt$/i.test(String(fileName || '').trim());
+}
+
+function loadTxtVocalChartFromBuffer(arrayBuffer, fileName = 'Vocal Chart.txt', filePath = null, { quietSuccess = false } = {}) {
+  const parsed = parseTxtVocalChart(arrayBuffer, String(fileName || '').replace(/\.txt$/i, ''));
+  if (!parsed || !parsed.isTxtVocalChart) {
+    showGrimoireToast('Not a valid syllable-timed .txt vocal chart (#BPM + note lines required).', 'warning');
+    return false;
+  }
+
+  pausePlayback();
+  if (typeof stopAudioAudition === 'function') stopAudioAudition();
+  if (currentSong?.backingAudioEl) {
+    try {
+      currentSong.backingAudioEl._disposed = true;
+      currentSong.backingAudioEl.pause();
+      currentSong.backingAudioEl.removeAttribute('src');
+      currentSong.backingAudioEl.load();
+    } catch {}
+  }
+  if (currentSong?.midSideVocalProcessor) {
+    try { currentSong.midSideVocalProcessor.disconnect(); } catch {}
+    currentSong.midSideVocalProcessor = null;
+  }
+  if (currentSong?.karaokePitchShiftBus) {
+    try { currentSong.karaokePitchShiftBus.dispose(); } catch {}
+    currentSong.karaokePitchShiftBus = null;
+  }
+  if (currentSong?.stemAudioEls) {
+    for (const stEl of Object.values(currentSong.stemAudioEls)) {
+      if (!stEl) continue;
+      try {
+        stEl._disposed = true;
+        stEl.pause();
+        stEl.removeAttribute('src');
+        stEl.load();
+      } catch {}
+    }
+  }
+
+  const songId = crypto.createHash("sha1").update(Buffer.from(arrayBuffer)).digest("hex");
+  const bundleStore = loadBundlesStore(BUNDLE_STORE_PATH);
+  const bundle = resolveBundleForSong({
+    filePath,
+    fileName,
+    songId,
+    title: parsed.title,
+    store: bundleStore,
+    projectRoot: __dirname
+  });
+
+  let backingAudioPath = bundle.backingAudioPath || null;
+  if (!backingAudioPath && parsed.audioFileName && filePath) {
+    const candidate = path.join(path.dirname(filePath), parsed.audioFileName);
+    if (fs.existsSync(candidate)) {
+      backingAudioPath = candidate;
+    }
+  }
+
+  let backingAudioEl = null;
+  if (backingAudioPath && fs.existsSync(backingAudioPath)) {
+    backingAudioEl = new Audio(pathToFileURL(backingAudioPath).href);
+    backingAudioEl.preload = 'auto';
+    backingAudioEl.volume = getBackingAudioVolumeFromSlider();
+  }
+
+  const vocalChart = buildVocalChartFromTxt(parsed, { voice: 'P1' });
+  const notes = vocalChart.notes || [];
+  const nps = parsed.durationSec > 0 ? notes.length / parsed.durationSec : 0;
+  const difficulty = {
+    spellLevel: nps >= 5 ? 6 : nps >= 3.5 ? 4 : nps >= 2 ? 2 : 0,
+    label: nps >= 5 ? '6th-Level' : nps >= 3.5 ? '4th-Level' : nps >= 2 ? '2nd-Level' : 'Cantrip',
+    nps: Math.round(nps * 100) / 100
+  };
+
+  currentSong = {
+    songId,
+    rawBuffer: Buffer.from(arrayBuffer),
+    fileName,
+    filePath,
+    title: parsed.title,
+    artist: parsed.artist,
+    bpm: parsed.bpm,
+    duration: parsed.durationSec,
+    isTxtVocalChart: true,
+    txtParsed: parsed,
+    txtVocalChart: vocalChart,
+    hasRap: parsed.hasRap,
+    hasRadiant: parsed.hasRadiant,
+    isDuet: parsed.isDuet,
+    track1Notes: [],
+    track2Notes: [],
+    backingBandNotes: [],
+    allNotes: [],
+    availableHighways: ['vocals'],
+    activeHighwayInstrument: 'vocals',
+    difficulty,
+    backingAudioPath,
+    backingAudioEl,
+    stemAudioEls: null,
+    stems: bundle.stems || null,
+    stemMix: normalizeStemMix(bundle.stemMix),
+    vocalMix: normalizeVocalMix(bundle.vocalMix),
+    lyricsOffsetSec: bundle.lyricsOffsetSec || 0,
+    karaokeKeyShiftSemitones: clampKaraokeKeyShift(bundle.karaokeKeyShiftSemitones || 0),
+    audioOffsetSec: bundle.audioOffsetSec || 0,
+    audioTempoRatio: bundle.audioTempoRatio || 1.0,
+    transposeSemitones: 0,
+    midSideVocalProcessor: null,
+    karaokePitchShiftBus: null
+  };
+
+  btnPlayPause.disabled = false;
+  btnRestart.disabled = false;
+  songProgressSlider.disabled = false;
+  resetPlaybackToStart();
+  if (typeof updateAudioSyncUI === 'function') updateAudioSyncUI();
+  setStageViewMode('karaoke');
+  if (!quietSuccess) {
+    showGrimoireToast(`🎤 Loaded .txt Vocal Chart: "${parsed.title}"`, 'success');
+  }
+  return true;
+}
+
 function loadSongFromBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath = null, { quietSuccess = false } = {}) {
+  if (isTxtFileName(fileName)) {
+    return loadTxtVocalChartFromBuffer(arrayBuffer, fileName, filePath, { quietSuccess });
+  }
   if (isMusicXmlFileName(fileName)) {
     const converted = convertMusicXmlToMidiBuffer(arrayBuffer, fileName);
     const loaded = parseMidiBuffer(converted.midiArrayBuffer, fileName, filePath, converted.metadata);
@@ -1518,6 +1656,14 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
       // Ignore Web Audio teardown errors
     }
     currentSong.midSideVocalProcessor = null;
+  }
+  if (currentSong?.karaokePitchShiftBus) {
+    try {
+      currentSong.karaokePitchShiftBus.dispose();
+    } catch {
+      // Ignore PitchShift teardown errors
+    }
+    currentSong.karaokePitchShiftBus = null;
   }
   if (currentSong?.stemAudioEls) {
     for (const stEl of Object.values(currentSong.stemAudioEls)) {
@@ -1663,7 +1809,9 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     stemMix,
     vocalMix,
     lyricsOffsetSec,
+    karaokeKeyShiftSemitones: clampKaraokeKeyShift(bundle.karaokeKeyShiftSemitones || 0),
     midSideVocalProcessor: null,
+    karaokePitchShiftBus: null,
     stemAudioEls,
     sheetMusicPath: bundle.sheetMusicPath || null,
     youtubeUrl: bundle.youtubeUrl || null,
@@ -4453,7 +4601,7 @@ const { createAudioEngineModule } = require('./modules/audio-engine');
 const audioEngineModule = createAudioEngineModule({
   fs, path, pathToFileURL,
   Tone, playbackState, grimoireSpells,
-  computeVocalMixMatrixGains, isStemAudibleInMix,
+  computeVocalMixMatrixGains, isStemAudibleInMix, createKaraokePitchShiftBus,
   renderGrimoireSidebar: () => renderGrimoireSidebar(),
   getBackingAudioVolumeFromSlider, showGrimoireToast,
   get currentSong() { return currentSong; },
@@ -5237,6 +5385,49 @@ function showGrimoireToast(message, variant = 'success') {
  * as parseMidiBuffer()/assignSongTracksAndDifficulty() so Grimoire cards and the Spell Inspector HUD match 100%.
  */
 function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceTag, preloadedBundleStore = null) {
+  if (isTxtFileName(fileName)) {
+    const info = inspectTxtVocalChartBuffer(arrayBuffer, fileName);
+    if (!info || !info.isTxtVocalChart) return null;
+    const songId = crypto.createHash("sha1").update(Buffer.from(arrayBuffer)).digest("hex");
+    const bundleStore = preloadedBundleStore || loadBundlesStore(BUNDLE_STORE_PATH);
+    const bundle = resolveBundleForSong({
+      filePath,
+      fileName,
+      songId,
+      title: info.title,
+      store: bundleStore,
+      projectRoot: __dirname
+    });
+    const entryId = `${sourceTag.toLowerCase()}::${fileName.toLowerCase()}`;
+    const tierInfo = SPELLBOOK_TIERS[info.difficulty.spellLevel] || SPELLBOOK_TIERS[0];
+    return {
+      id: entryId,
+      songId,
+      fileName,
+      filePath,
+      sourceTag,
+      title: info.title,
+      rawTitle: info.title,
+      artist: info.artist,
+      bpm: info.bpm,
+      duration: info.durationSec,
+      totalNotes: info.noteCount,
+      noteCount: info.noteCount,
+      nps: info.nps,
+      difficulty: info.difficulty,
+      spellLevel: info.difficulty.spellLevel,
+      xpMultiplier: tierInfo.xpMultiplier || 1.0,
+      isFavorite: isGrimoireFavorite(songId, fileName),
+      hasRap: info.hasRap,
+      hasRadiant: info.hasRadiant,
+      isDuet: info.isDuet,
+      isTxtVocalChart: true,
+      hasBackingAudio: Boolean(bundle.backingAudioPath),
+      hasSheetMusic: false,
+      backingAudioPath: bundle.backingAudioPath || null,
+      stems: bundle.stems || null
+    };
+  }
   let effectiveBuffer = arrayBuffer;
   let musicXmlMeta = null;
   if (isMusicXmlFileName(fileName)) {
@@ -5575,7 +5766,7 @@ function scanWatchedDirectories(notifyOnNew = false) {
           showGrimoireToast(`\uD83D\uDCDC Sheet "${f}" detected in Imports/. Use Import Spell or drag-drop to run OMR & Review!`);
         }
       }
-      const files = allEntries.filter((f) => /\.(mid|midi|musicxml|xml|mxl)$/i.test(f));
+      const files = allEntries.filter((f) => /\.(mid|midi|musicxml|xml|mxl|txt)$/i.test(f));
 
       for (const file of files) {
         const key = `${sourceTag.toLowerCase()}::${file.toLowerCase()}`;
@@ -5644,6 +5835,7 @@ function scanWatchedDirectories(notifyOnNew = false) {
           const buf = fs.readFileSync(fullPath);
           const arrayBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
           const entry = extractGrimoireEntryFromBuffer(arrayBuf, file, fullPath, sourceTag, bundleStore);
+          if (!entry) continue;
           entry.mtimeMs = stat.mtimeMs;
           entry.fileSize = stat.size;
 
@@ -5749,8 +5941,8 @@ function initGrimoireAndWatcher() {
       grimoireWatcher.close();
     }
     grimoireWatcher = fs.watch(IMPORTS_DIR, { persistent: false }, (eventType, filename) => {
-      if (filename && /\.(mid|midi|musicxml|xml|mxl|bundle\.json|wav|mp3|ogg|m4a|flac|pdf)$/i.test(filename)) {
-        const isNotes = /\.(mid|midi|musicxml|xml|mxl)$/i.test(filename);
+      if (filename && /\.(mid|midi|musicxml|xml|mxl|txt|bundle\.json|wav|mp3|ogg|m4a|flac|pdf)$/i.test(filename)) {
+        const isNotes = /\.(mid|midi|musicxml|xml|mxl|txt)$/i.test(filename);
         setTimeout(() => scanWatchedDirectories(isNotes), 180);
       }
     });
@@ -5966,7 +6158,7 @@ function saveActiveSpellToGrimoire() {
       safeName = `${safeName.replace(/\.(musicxml|xml|mxl)$/i, '')}.mid`;
     }
     const noteExt = path.extname(safeName) || '.mid';
-    const rawBase = safeName.replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
+    const rawBase = safeName.replace(/\.(mid|midi|musicxml|xml|mxl|txt)$/i, '');
     const directDestPath = path.join(IMPORTS_DIR, safeName);
     const isSavingInPlace = Boolean(
       currentSong.filePath &&
@@ -6264,6 +6456,14 @@ function unloadCurrentSongToEmptyState() {
       // Ignore Web Audio teardown errors
     }
     currentSong.midSideVocalProcessor = null;
+  }
+  if (currentSong?.karaokePitchShiftBus) {
+    try {
+      currentSong.karaokePitchShiftBus.dispose();
+    } catch {
+      // Ignore PitchShift teardown errors
+    }
+    currentSong.karaokePitchShiftBus = null;
   }
   if (currentSong?.stemAudioEls) {
     for (const stEl of Object.values(currentSong.stemAudioEls)) {
@@ -6974,22 +7174,28 @@ function ensureVocalChartForCurrentSong({ forceRebuild = false } = {}) {
     : [];
   const customLyricsText = spellSingingState.customLyricsBySongId[currentSong.songId] || '';
 
-  const chart = buildVocalChart({
-    vocalNotes,
-    musicXmlLyrics,
-    lrcLines,
-    customLyricsText,
-    lyricsOffsetSec: currentSong.lyricsOffsetSec || 0,
-    fallbackMode: 'solfege',
-    simplifyVocalTrack: true
-  });
+  const chart = currentSong.isTxtVocalChart && currentSong.txtVocalChart
+    ? currentSong.txtVocalChart
+    : buildVocalChart({
+        vocalNotes,
+        musicXmlLyrics,
+        lrcLines,
+        customLyricsText,
+        lyricsOffsetSec: currentSong.lyricsOffsetSec || 0,
+        fallbackMode: 'solfege',
+        simplifyVocalTrack: true
+      });
 
   spellSingingState.songId = currentSong.songId;
   spellSingingState.vocalChart = chart;
   spellSingingState.rawLrcLines = lrcLines;
   spellSingingState.scorer = createVocalSessionScorer(chart, {
-    octaveAgnostic: spellSingingState.octaveAgnostic
+    octaveAgnostic: spellSingingState.octaveAgnostic,
+    keyShiftSemitones: currentSong.karaokeKeyShiftSemitones || 0
   });
+  if (typeof syncKaraokeKeyShiftAndDuetUI === 'function') {
+    syncKaraokeKeyShiftAndDuetUI();
+  }
   spellSingingState.lastTeleprompterKey = '';
   spellSingingState.lastAnnouncedPhraseIdx = -1;
   updateKaraokeHudStats();
@@ -7423,6 +7629,9 @@ function processAudioInstrumentFrame(floatBuffer, sampleRate = 44100) {
           scoringActive: Boolean(playbackState.isPlaying)
         })
       : null;
+    if (vocalEval?.phraseRating && typeof showKaraokePhraseRatingPop === 'function') {
+      showKaraokePhraseRatingPop(vocalEval.phraseRating);
+    }
     if (detected) {
       updateLiveTunerReadout(detected.noteName, detected.cents);
     }
@@ -7450,6 +7659,90 @@ function processAudioInstrumentFrame(floatBuffer, sampleRate = 44100) {
     handleNoteOn(foldedMidi, vel, 'audio-pitch');
   }
   return { type: 'pitch', foldedMidi, ...detected };
+}
+
+// Issue #173 & #174: Karaoke Key Shift stepper, Duet Voice toggle & Per-Line Rating Pop
+const btnKaraokeKeyDown = document.getElementById('btn-karaoke-key-down');
+const btnKaraokeKeyUp = document.getElementById('btn-karaoke-key-up');
+const karaokeKeyShiftReadout = document.getElementById('karaoke-key-shift-readout');
+const btnKaraokeDuetVoice = document.getElementById('btn-karaoke-duet-voice');
+const karaokePhraseRatingPop = document.getElementById('karaoke-phrase-rating-pop');
+const karaokePhraseRatingLabel = document.getElementById('karaoke-phrase-rating-label');
+const karaokePhraseRatingXp = document.getElementById('karaoke-phrase-rating-xp');
+let phraseRatingPopTimer = null;
+
+function showKaraokePhraseRatingPop(rating) {
+  if (!rating || !karaokePhraseRatingPop) return;
+  if (karaokePhraseRatingLabel) karaokePhraseRatingLabel.textContent = rating.label;
+  if (karaokePhraseRatingXp) karaokePhraseRatingXp.textContent = `+${rating.xpBonus} Vocal XP`;
+  karaokePhraseRatingPop.classList.remove('hidden');
+  if (phraseRatingPopTimer) clearTimeout(phraseRatingPopTimer);
+  phraseRatingPopTimer = setTimeout(() => {
+    karaokePhraseRatingPop.classList.add('hidden');
+  }, 1500);
+}
+
+function syncKaraokeKeyShiftAndDuetUI() {
+  const shift = clampKaraokeKeyShift(currentSong?.karaokeKeyShiftSemitones || 0);
+  if (karaokeKeyShiftReadout) {
+    karaokeKeyShiftReadout.textContent = formatKeyShiftLabel(shift);
+  }
+  if (btnKaraokeDuetVoice) {
+    const isDuet = Boolean(currentSong?.isDuet && currentSong?.txtParsed);
+    btnKaraokeDuetVoice.classList.toggle('hidden', !isDuet);
+    if (isDuet) {
+      const voice = currentSong.txtVocalChart?.activeVoice || 'P1';
+      btnKaraokeDuetVoice.textContent = `🎤 ${voice}`;
+    }
+  }
+}
+
+function applyKaraokeKeyShiftStep(delta) {
+  if (!currentSong) return;
+  const next = clampKaraokeKeyShift((currentSong.karaokeKeyShiftSemitones || 0) + delta);
+  currentSong.karaokeKeyShiftSemitones = next;
+  if (spellSingingState.scorer && typeof spellSingingState.scorer.setKeyShiftSemitones === 'function') {
+    spellSingingState.scorer.setKeyShiftSemitones(next);
+  }
+  if (typeof audioEngineModule?.applyKaraokeKeyShiftToAudioElements === 'function') {
+    audioEngineModule.applyKaraokeKeyShiftToAudioElements();
+  }
+  syncKaraokeKeyShiftAndDuetUI();
+  if (currentSong.filePath) {
+    try {
+      saveBundleRecord({
+        storePath: BUNDLE_STORE_PATH,
+        projectRoot: __dirname,
+        importsDir: IMPORTS_DIR,
+        record: {
+          notesPath: currentSong.filePath,
+          songId: currentSong.songId,
+          title: currentSong.title,
+          karaokeKeyShiftSemitones: next
+        }
+      });
+    } catch {
+      // ignore bundle save errors
+    }
+  }
+}
+
+if (btnKaraokeKeyDown) {
+  btnKaraokeKeyDown.addEventListener('click', () => applyKaraokeKeyShiftStep(-1));
+}
+if (btnKaraokeKeyUp) {
+  btnKaraokeKeyUp.addEventListener('click', () => applyKaraokeKeyShiftStep(1));
+}
+if (btnKaraokeDuetVoice) {
+  btnKaraokeDuetVoice.addEventListener('click', () => {
+    if (!currentSong?.isDuet || !currentSong?.txtParsed) return;
+    const prevVoice = currentSong.txtVocalChart?.activeVoice || 'P1';
+    const nextVoice = prevVoice === 'P1' ? 'P2' : 'P1';
+    currentSong.txtVocalChart = buildVocalChartFromTxt(currentSong.txtParsed, { voice: nextVoice });
+    spellSingingState.songId = null;
+    ensureVocalChartForCurrentSong();
+    syncKaraokeKeyShiftAndDuetUI();
+  });
 }
 
 // Issue #131: Auto-refresh mic list & Bleed Guard when USB mics or headphones are hot-plugged
@@ -11918,8 +12211,8 @@ window.addEventListener('drop', async (e) => {
     }
     return;
   }
-  if (!/\.(mid|midi|musicxml|xml|mxl)$/i.test(file.name)) {
-    showGrimoireToast('Unsupported file type. Please drop a .mid, .musicxml, .xml, .mxl, .pdf, or sheet image.', 'error');
+  if (!/\.(mid|midi|musicxml|xml|mxl|txt)$/i.test(file.name)) {
+    showGrimoireToast('Unsupported file type. Please drop a .mid, .musicxml, .xml, .mxl, .txt, .pdf, or sheet image.', 'error');
     return;
   }
   try {
@@ -11967,6 +12260,10 @@ window.addEventListener('blur', () => {
 
 // Terminate any active background Python transcription/OMR child process, mic stream & audio audition on close/reload (Issue #17, #76, #130, #139)
 window.addEventListener('beforeunload', () => {
+  if (currentSong?.karaokePitchShiftBus) {
+    try { currentSong.karaokePitchShiftBus.dispose(); } catch {}
+    currentSong.karaokePitchShiftBus = null;
+  }
   flushMidiOutputAllNotesOff();
   stopAudioAudition();
   stopGrimoirePreview();

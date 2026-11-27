@@ -855,16 +855,25 @@ function createSpellbookUI(ctx) {
       spellbookBundleStrip.classList.remove('hidden');
     }
     if (spellbookBundleNotesChip) {
-      const noteType = isMusicXmlFileName(entry.fileName || '') ? 'XML' : 'MIDI';
-      const isClean = entry._appliedCleanupEnabled !== undefined
-        ? Boolean(entry._appliedCleanupEnabled)
-        : Boolean(midiCleanupGlobalEnabled);
-      spellbookBundleNotesChip.textContent = isClean
-        ? `\uD83C\uDFB9 ${noteType} \u2022 Clean`
-        : `\uD83C\uDFB9 ${noteType}`;
-      spellbookBundleNotesChip.title = isClean
-        ? `${noteType} notes with Smart MIDI Hygiene ON`
-        : `${noteType} notes (Raw uncleaned)`;
+      if (entry.isTxtVocalChart) {
+        const tags = ['\uD83C\uDFA4 TXT'];
+        if (entry.hasRadiant) tags.push('\u2728 Radiant');
+        if (entry.hasRap) tags.push('\uD83C\uDFA4 Rap');
+        if (entry.isDuet) tags.push('\uD83D\uDC65 Duet');
+        spellbookBundleNotesChip.textContent = tags.join(' \u2022 ');
+        spellbookBundleNotesChip.title = 'Syllable-timed .txt vocal chart';
+      } else {
+        const noteType = isMusicXmlFileName(entry.fileName || '') ? 'XML' : 'MIDI';
+        const isClean = entry._appliedCleanupEnabled !== undefined
+          ? Boolean(entry._appliedCleanupEnabled)
+          : Boolean(midiCleanupGlobalEnabled);
+        spellbookBundleNotesChip.textContent = isClean
+          ? `\uD83C\uDFB9 ${noteType} \u2022 Clean`
+          : `\uD83C\uDFB9 ${noteType}`;
+        spellbookBundleNotesChip.title = isClean
+          ? `${noteType} notes with Smart MIDI Hygiene ON`
+          : `${noteType} notes (Raw uncleaned)`;
+      }
     }
     if (spellbookBundleSheetChip) {
       if (hasSheet) {

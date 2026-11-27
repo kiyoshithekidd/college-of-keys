@@ -8216,3 +8216,72 @@ body.view-mode-notation .grimoire-toast {
   display: flex;
   gap: 8px;
 }
+
+
+/* ========================================================================== */
+/* v1.12.0: Karaoke Stage & Chart Ecosystem (#172, #173, #174)                */
+/* ========================================================================== */
+
+.karaoke-key-shift-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(212, 175, 55, 0.32);
+}
+
+.karaoke-key-shift-readout {
+  min-width: 44px;
+  text-align: center;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #fde68a;
+}
+
+.karaoke-phrase-rating-pop {
+  position: absolute;
+  top: 18px;
+  right: 26px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(30, 20, 12, 0.94), rgba(55, 36, 16, 0.96));
+  border: 1.5px solid rgba(255, 215, 0, 0.85);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55), 0 0 18px rgba(255, 215, 0, 0.32);
+  pointer-events: none;
+  animation: phraseRatingPopIn 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.karaoke-phrase-rating-pop.hidden {
+  display: none;
+}
+
+.phrase-rating-label {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #ffd700;
+  letter-spacing: 0.04em;
+}
+
+.phrase-rating-xp {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #86efac;
+}
+
+@keyframes phraseRatingPopIn {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.86);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
