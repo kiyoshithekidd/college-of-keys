@@ -1,0 +1,7 @@
+# Optional Pro Audio & Lyrics Pipeline Dependencies (v1.13.0)
+# Base installation (requirements.txt) remains lightweight and zero-config.
+# Install these opt-in packages for Mel-Band RoFormer / Pre-CREPE De-Reverb (#176)
+# and Known-Lyrics Forced Alignment (#175):
+
+audio-separator>=0.24.0
+stable-ts>=2.17.0

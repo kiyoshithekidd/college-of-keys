@@ -1808,7 +1808,7 @@ def transcribe_separated_stems_for_highways(stems_map: dict) -> dict:
         try:
             # Issue #160: Use CREPE / pYIN vocal contour tracker (170ms median vibrato smooth, true vocal register)
             if stem_name == "vocals":
-                lead_or_vocals = stems_map.get("vocals_lead") or wav_p
+                lead_or_vocals = stems_map.get("_vocals_for_pitch") or stems_map.get("vocals_lead") or wav_p
                 vocal_crepe_notes, _ = extract_vocal_melody_crepe(
                     Path(lead_or_vocals),
                     fold_to_rh_piano=False,
@@ -1897,6 +1897,147 @@ def try_split_lead_and_backing_vocals(vocals_wav: Path, stems_dir: Path, tmp_dir
     except Exception as exc:
         log_status("warning", f"Optional Lead/Harmony AI split skipped (using Stereo Mid/Side): {exc}", 57)
     return {}
+
+
+def try_separate_vocals_roformer(source_wav: Path, stems_dir: Path, tmp_dir: Path, include_instrumental: bool = True) -> dict:
+    """
+    Issue #176: Optional high-accuracy Mel-Band RoFormer vocal separation via audio-separator.
+    Uses conservative segment sizing and falls back to CPU/Demucs on VRAM/DirectML errors.
+    """
+    if not source_wav or not Path(source_wav).exists():
+        return {}
+    try:
+        import importlib.util
+        if importlib.util.find_spec("audio_separator") is None:
+            log_status("warning", "audio-separator not installed; falling back to Standard Demucs 6-Stem.", 42)
+            return {}
+        from audio_separator.separator import Separator
+    except Exception:
+        return {}
+
+    roformer_out = tmp_dir / "roformer_split"
+    roformer_out.mkdir(parents=True, exist_ok=True)
+    model_name = "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"
+    for attempt_cpu in (False, True):
+        try:
+            device_label = "CPU (fallback)" if attempt_cpu else "auto"
+            log_status("splitting_stems", f"Separating vocals with {model_name} on {device_label}...", 46)
+            sep_kwargs = {
+                "output_dir": str(roformer_out),
+                "output_format": "WAV",
+                "mdx_params": {"segment_size": 256, "overlap": 0.25},
+            }
+            if attempt_cpu:
+                sep_kwargs["use_autocast"] = False
+            sep = Separator(**sep_kwargs)
+            sep.load_model(model_filename=model_name)
+            outputs = sep.separate(str(source_wav)) or []
+            vocals_src = None
+            inst_src = None
+            for out_f in outputs:
+                p = Path(out_f)
+                if not p.is_absolute():
+                    p = roformer_out / p
+                if not p.exists():
+                    continue
+                low = p.name.lower()
+                if "instrumental" in low or "no_vocal" in low:
+                    inst_src = p
+                elif "vocal" in low:
+                    vocals_src = p
+            if vocals_src:
+                dest_vocals = stems_dir / "vocals.wav"
+                shutil.copy2(vocals_src, dest_vocals)
+                result = {"vocals": dest_vocals}
+                if include_instrumental and inst_src:
+                    dest_other = stems_dir / "other.wav"
+                    shutil.copy2(inst_src, dest_other)
+                    result["other"] = dest_other
+                log_status("splitting_stems", f"RoFormer vocal separation complete ({model_name}, {device_label}).", 54)
+                return result
+        except Exception as exc:
+            log_status("warning", f"RoFormer separation ({'CPU' if attempt_cpu else 'GPU'}) failed: {exc}", 47)
+    return {}
+
+
+def try_dereverb_vocals_for_pitch(vocals_wav: Path, tmp_dir: Path) -> Path:
+    """
+    Issue #176: Optional Pre-CREPE De-Reverb on a temporary copy so CREPE tracks dry vocal pitch
+    without altering the audible vocals.wav stem.
+    """
+    if not vocals_wav or not Path(vocals_wav).exists():
+        return vocals_wav
+    try:
+        import importlib.util
+        if importlib.util.find_spec("audio_separator") is None:
+            return vocals_wav
+        from audio_separator.separator import Separator
+    except Exception:
+        return vocals_wav
+
+    dereverb_dir = tmp_dir / "dereverb_pitch"
+    dereverb_dir.mkdir(parents=True, exist_ok=True)
+    model_name = "UVR-DeEcho-DeReverb.pth"
+    try:
+        log_status("transcribing", f"Applying Pre-CREPE De-Reverb ({model_name})...", 64)
+        sep = Separator(output_dir=str(dereverb_dir), output_format="WAV")
+        sep.load_model(model_filename=model_name)
+        outputs = sep.separate(str(vocals_wav)) or []
+        for out_f in outputs:
+            p = Path(out_f)
+            if not p.is_absolute():
+                p = dereverb_dir / p
+            if p.exists() and "no reverb" in p.name.lower().replace("_", " "):
+                return p
+        for out_f in outputs:
+            p = Path(out_f)
+            if not p.is_absolute():
+                p = dereverb_dir / p
+            if p.exists():
+                return p
+    except Exception as exc:
+        log_status("warning", f"Pre-CREPE De-Reverb skipped (using raw vocals): {exc}", 64)
+    return vocals_wav
+
+
+def measure_audio_loudness_lufs(audio_path: Path) -> float:
+    """
+    Issue #177: Measure integrated loudness (EBU R128 LUFS) via FFmpeg loudnorm pass-1
+    and return clamped gain offset (-12.0 .. +6.0 dB) targeting -14 LUFS with -1.0 dBTP ceiling.
+    """
+    if not audio_path or not Path(audio_path).exists():
+        return 0.0
+    ffmpeg_bin = _find_ffmpeg_bin()
+    if not ffmpeg_bin:
+        return 0.0
+    try:
+        cmd = [
+            ffmpeg_bin,
+            "-hide_banner",
+            "-nostats",
+            "-i", str(audio_path),
+            "-af", "loudnorm=I=-14:TP=-1:LRA=11:print_format=json",
+            "-f", "null",
+            "-"
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        stderr_txt = proc.stderr or ""
+        json_match = re.search(r'\{[\s\S]*?"input_i"[\s\S]*?\}', stderr_txt)
+        if not json_match:
+            return 0.0
+        stats = json.loads(json_match.group(0))
+        input_i = float(stats.get("input_i", -14.0))
+        input_tp = float(stats.get("input_tp", -1.0))
+        if not (-70.0 <= input_i <= 0.0):
+            return 0.0
+        gain_db = -14.0 - input_i
+        if -70.0 <= input_tp <= 12.0:
+            max_safe = -1.0 - input_tp
+            if gain_db > max_safe:
+                gain_db = max_safe
+        return round(max(-12.0, min(6.0, gain_db)), 1)
+    except Exception:
+        return 0.0
 
 
 # ============================================================================
@@ -2285,6 +2426,55 @@ def _estimate_wav_duration_sec(wav_path: Path) -> float:
         return 0.0
 
 
+def _align_known_lyrics_to_vocals(vocals_wav: Path, plain_lyrics_text: str, language: str = "auto") -> str:
+    """
+    Issue #175: Align known plain-text lyrics directly against vocals.wav using optional stable-ts
+    (with automatic CUDA -> CPU fallback and full UTF-8 preservation).
+    """
+    if not vocals_wav or not Path(vocals_wav).exists() or not plain_lyrics_text or not plain_lyrics_text.strip():
+        return ""
+    try:
+        import importlib.util
+        if importlib.util.find_spec("stable_whisper") is None:
+            return ""
+        import stable_whisper
+    except Exception:
+        return ""
+
+    lang_arg = None if (not language or language == "auto") else language
+    for device in ("cuda", "cpu"):
+        try:
+            log_status("lyrics", f"Aligning known lyrics to vocals.wav via stable-ts ({device})...", 92)
+            model = stable_whisper.load_model("base", device=device)
+            result = model.align(str(vocals_wav), plain_lyrics_text, language=lang_arg)
+            lines_out = []
+            for seg in getattr(result, "segments", []) or []:
+                words = getattr(seg, "words", None) or []
+                if words:
+                    seg_start = _format_lrc_ts(float(getattr(words[0], "start", seg.start) or 0.0))
+                    word_tokens = []
+                    for w in words:
+                        w_txt = str(getattr(w, "word", "") or "").strip()
+                        if not w_txt:
+                            continue
+                        w_ts = _format_lrc_ts(float(getattr(w, "start", seg.start) or 0.0), angled=True)
+                        word_tokens.append(f"{w_ts} {w_txt}")
+                    if word_tokens:
+                        lines_out.append(f"{seg_start} {' '.join(word_tokens)}")
+                else:
+                    s_txt = str(getattr(seg, "text", "") or "").strip()
+                    if s_txt:
+                        lines_out.append(f"{_format_lrc_ts(float(getattr(seg, 'start', 0.0) or 0.0))} {s_txt}")
+            if lines_out:
+                return "\n".join(lines_out) + "\n"
+        except Exception as exc:
+            if device == "cuda":
+                log_status("warning", f"CUDA forced alignment fallback to CPU: {exc}", 92)
+                continue
+            return ""
+    return ""
+
+
 def fetch_synced_lyrics_for_import(
     title: str,
     output_lrc_path: Path,
@@ -2292,11 +2482,23 @@ def fetch_synced_lyrics_for_import(
     vocals_wav: Path = None,
     tmp_dir: Path = None,
     duration_sec: float = 0.0,
+    known_lyrics_text: str = None,
+    lyrics_lang: str = "auto",
 ):
-    """Run the 3-tier synced lyrics cascade and persist `<safe_base>.lrc` if found."""
+    """Run the synced lyrics cascade (with optional forced alignment) and persist <safe_base>.lrc."""
     if output_lrc_path.exists():
         return output_lrc_path
-    lrc_text = _fetch_lrclib_lrc_text(title, duration_sec=duration_sec)
+    lrc_text = ""
+    if known_lyrics_text and known_lyrics_text.strip() and vocals_wav:
+        lrc_text = _align_known_lyrics_to_vocals(vocals_wav, known_lyrics_text, language=lyrics_lang)
+        if not lrc_text:
+            lrc_text = known_lyrics_text.strip()
+    if not lrc_text:
+        lrc_text = _fetch_lrclib_lrc_text(title, duration_sec=duration_sec)
+        if lrc_text and vocals_wav and not re.search(r"\[\d{1,3}:\d{2}", lrc_text):
+            aligned = _align_known_lyrics_to_vocals(vocals_wav, lrc_text, language=lyrics_lang)
+            if aligned:
+                lrc_text = aligned
     if not lrc_text and yt_url:
         lrc_text = _extract_youtube_subtitles_lrc(yt_url, tmp_dir)
     if not lrc_text and vocals_wav:
@@ -2588,6 +2790,27 @@ def main():
         help="Do not copy the synced backing audio track into Imports/",
     )
     parser.add_argument(
+        "--vocal-sep-preset",
+        choices=["standard", "roformer"],
+        default="standard",
+        help="Issue #176: Vocal separation preset ('standard' Demucs 6-stem or 'roformer' Mel-Band RoFormer + Lead/Backing)",
+    )
+    parser.add_argument(
+        "--dereverb-vocals",
+        action="store_true",
+        help="Issue #176: Apply Pre-CREPE De-Reverb to a temporary vocal copy before vocal pitch tracking",
+    )
+    parser.add_argument(
+        "--lyrics-file",
+        default=None,
+        help="Issue #175: Optional path to a UTF-8 plain-text lyrics file for forced alignment",
+    )
+    parser.add_argument(
+        "--lyrics-lang",
+        default="auto",
+        help="Issue #175: Lyrics language code for forced alignment (auto, en, ja, es, fr, ko, de)",
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help="Synthesize a polyphonic test audio file, transcribe it to .mid, and output both to ../Imports",
@@ -2702,10 +2925,21 @@ def main():
                 else:
                     stem_source_wav = pcm_wav
                 stems_map = separate_audio_into_6_stems(stem_source_wav, stems_dir, tmp_dir)
+                if args.vocal_sep_preset == "roformer":
+                    roformer_stems = try_separate_vocals_roformer(
+                        stem_source_wav, stems_dir, tmp_dir, include_instrumental=not bool(stems_map)
+                    )
+                    if roformer_stems:
+                        stems_map = stems_map or {}
+                        stems_map.update(roformer_stems)
                 if stems_map and stems_map.get("vocals"):
                     vocal_sub = try_split_lead_and_backing_vocals(Path(stems_map["vocals"]), stems_dir, tmp_dir)
                     if vocal_sub:
                         stems_map.update(vocal_sub)
+                if args.dereverb_vocals and stems_map and stems_map.get("vocals"):
+                    dry_vocals = try_dereverb_vocals_for_pitch(Path(stems_map["vocals"]), tmp_dir)
+                    if dry_vocals and dry_vocals.exists():
+                        stems_map["_vocals_for_pitch"] = dry_vocals
                 stem_tracks = transcribe_separated_stems_for_highways(stems_map)
 
             # 3. Resolve requested engine (Issue #144/#145/#146)
@@ -2815,6 +3049,12 @@ def main():
                 yt_src = args.source.strip() if args.source and re.match(r"^https?://", args.source.strip(), re.I) else None
                 vocals_for_lyrics = Path(stems_map["vocals"]) if stems_map and stems_map.get("vocals") else None
                 dur_est = _estimate_wav_duration_sec(pcm_wav if has_pcm_wav else source_audio_path)
+                known_lyrics_txt = None
+                if args.lyrics_file and Path(args.lyrics_file).exists():
+                    try:
+                        known_lyrics_txt = Path(args.lyrics_file).read_text(encoding="utf-8")
+                    except Exception:
+                        known_lyrics_txt = None
                 dest_lrc_path = fetch_synced_lyrics_for_import(
                     title=title,
                     output_lrc_path=output_dir / f"{safe_base}.lrc",
@@ -2822,13 +3062,20 @@ def main():
                     vocals_wav=vocals_for_lyrics,
                     tmp_dir=tmp_dir,
                     duration_sec=dur_est,
+                    known_lyrics_text=known_lyrics_txt,
+                    lyrics_lang=args.lyrics_lang or "auto",
                 )
 
-            # 6. Write sidecar <safe_base>.bundle.json when stems were separated so the app auto-links all stems
+            # 6. Measure EBU R128 Loudness (#177) & write sidecar <safe_base>.bundle.json
             has_backing_file = bool(dest_backing_path and dest_backing_path.exists())
-            if stems_map:
+            loudness_gain_db = measure_audio_loudness_lufs(dest_backing_path) if has_backing_file else 0.0
+            if stems_map or abs(loudness_gain_db) > 0.05:
                 sidecar_path = output_dir / f"{safe_base}.bundle.json"
-                rel_stems = {k: f"{safe_base}_stems/{Path(v).name}" for k, v in stems_map.items()}
+                rel_stems = (
+                    {k: f"{safe_base}_stems/{Path(v).name}" for k, v in stems_map.items() if not k.startswith("_")}
+                    if stems_map
+                    else None
+                )
                 sidecar_payload = {
                     "version": 1,
                     "title": title,
@@ -2842,12 +3089,13 @@ def main():
                         "vocals": {"muted": False, "solo": False},
                         "guitar": {"muted": False, "solo": False},
                         "other": {"muted": False, "solo": False},
-                    },
+                    } if rel_stems else None,
                     "vocalMix": {
                         "leadVolume": 0.25,
                         "harmoniesEnabled": True,
                     },
                     "lyricsOffsetSec": 0,
+                    "loudnessGainDb": loudness_gain_db,
                     "audioOffsetSec": 0,
                     "audioTempoRatio": 1.0,
                     "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -2857,6 +3105,7 @@ def main():
                 except Exception:
                     pass
 
+            clean_stems = {k: str(v) for k, v in stems_map.items() if not k.startswith("_")} if stems_map else None
             log_status(
                 "complete",
                 f"Spell Scroll ready in Imports/: {dest_midi_path.name}",
@@ -2866,8 +3115,9 @@ def main():
                     "midi_path": str(dest_midi_path),
                     "backing_path": str(dest_backing_path) if has_backing_file else None,
                     "lrc_path": str(dest_lrc_path) if dest_lrc_path and Path(dest_lrc_path).exists() else None,
-                    "stems": {k: str(v) for k, v in stems_map.items()} if stems_map else None,
-                    "split_stems": bool(stems_map),
+                    "stems": clean_stems,
+                    "split_stems": bool(clean_stems),
+                    "loudnessGainDb": loudness_gain_db,
                     "audio_only": False,
                     "arrangement_mode": arrangement_mode,
                     "engine": used_engine,

@@ -25,6 +25,16 @@ const {
   buildVocalChartFromTxt
 } = require('./txt-vocal-chart');
 const {
+  parseEditableLyricLines,
+  createTapSyncSession,
+  formatTapSyncTimestamp
+} = require('./lyrics-sync-editor');
+const {
+  LOUDNESS_NORM_ENABLED_STORAGE_KEY,
+  clampLoudnessGainDb,
+  applyLoudnessGainToVolume
+} = require('./loudness-normalizer');
+const {
   clampKaraokeKeyShift,
   formatKeyShiftLabel,
   createKaraokePitchShiftBus
@@ -1154,10 +1164,34 @@ function getVoicedVelocity(midi, velocity = 100) {
   return Math.max(0.08, rawVel * registerScale);
 }
 
+let loudnessNormEnabled = true;
+try {
+  const savedLn = localStorage.getItem(LOUDNESS_NORM_ENABLED_STORAGE_KEY);
+  if (savedLn !== null) loudnessNormEnabled = savedLn !== 'false';
+} catch {}
+
+const toggleLoudnessNormCheckbox = document.getElementById('toggle-loudness-norm');
+if (toggleLoudnessNormCheckbox) {
+  toggleLoudnessNormCheckbox.checked = loudnessNormEnabled;
+  toggleLoudnessNormCheckbox.addEventListener('change', () => {
+    loudnessNormEnabled = Boolean(toggleLoudnessNormCheckbox.checked);
+    try {
+      localStorage.setItem(LOUDNESS_NORM_ENABLED_STORAGE_KEY, String(loudnessNormEnabled));
+    } catch {}
+    if (currentSong?.backingAudioEl) {
+      currentSong.backingAudioEl.volume = getBackingAudioVolumeFromSlider();
+    }
+    if (typeof applyCurrentStemMixToAudioElements === 'function') {
+      applyCurrentStemMixToAudioElements();
+    }
+  });
+}
+
 function getBackingAudioVolumeFromSlider() {
   const db = Number(masterVolumeSlider?.value ?? -2);
   if (db <= -30) return 0;
-  return Math.max(0, Math.min(1.0, 0.48 * Math.pow(10, db / 20)));
+  const base = Math.max(0, Math.min(1.0, 0.48 * Math.pow(10, db / 20)));
+  return applyLoudnessGainToVolume(base, currentSong?.loudnessGainDb || 0, loudnessNormEnabled);
 }
 
 function applySynthPreset(presetName) {
@@ -1524,6 +1558,7 @@ function loadTxtVocalChartFromBuffer(arrayBuffer, fileName = 'Vocal Chart.txt', 
     vocalMix: normalizeVocalMix(bundle.vocalMix),
     lyricsOffsetSec: bundle.lyricsOffsetSec || 0,
     karaokeKeyShiftSemitones: clampKaraokeKeyShift(bundle.karaokeKeyShiftSemitones || 0),
+    loudnessGainDb: clampLoudnessGainDb(bundle.loudnessGainDb || 0),
     audioOffsetSec: bundle.audioOffsetSec || 0,
     audioTempoRatio: bundle.audioTempoRatio || 1.0,
     transposeSemitones: 0,
@@ -1531,6 +1566,12 @@ function loadTxtVocalChartFromBuffer(arrayBuffer, fileName = 'Vocal Chart.txt', 
     karaokePitchShiftBus: null
   };
 
+  if (currentSong.backingAudioEl) {
+    currentSong.backingAudioEl.volume = getBackingAudioVolumeFromSlider();
+  }
+  if (typeof applyCurrentStemMixToAudioElements === 'function') {
+    applyCurrentStemMixToAudioElements();
+  }
   btnPlayPause.disabled = false;
   btnRestart.disabled = false;
   songProgressSlider.disabled = false;
@@ -1810,6 +1851,7 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     vocalMix,
     lyricsOffsetSec,
     karaokeKeyShiftSemitones: clampKaraokeKeyShift(bundle.karaokeKeyShiftSemitones || 0),
+    loudnessGainDb: clampLoudnessGainDb(bundle.loudnessGainDb || 0),
     midSideVocalProcessor: null,
     karaokePitchShiftBus: null,
     stemAudioEls,
@@ -1841,6 +1883,12 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
   renderTimelineSectionMarkers();
   resetPlaybackToStart();
 
+  if (currentSong.backingAudioEl) {
+    currentSong.backingAudioEl.volume = getBackingAudioVolumeFromSlider();
+  }
+  if (typeof applyCurrentStemMixToAudioElements === 'function') {
+    applyCurrentStemMixToAudioElements();
+  }
   btnPlayPause.disabled = false;
   btnRestart.disabled = false;
   songProgressSlider.disabled = false;
@@ -7771,17 +7819,33 @@ if (chkKaraokeOctaveFree) {
     }
   });
 }
+function closeLyricPasteModal() {
+  if (typeof tapSyncClockTimer !== 'undefined' && tapSyncClockTimer) {
+    clearInterval(tapSyncClockTimer);
+    tapSyncClockTimer = null;
+  }
+  if (typeof activeTapSyncSession !== 'undefined') {
+    activeTapSyncSession = null;
+  }
+  if (lyricPasteModal) {
+    lyricPasteModal.classList.add('hidden');
+  }
+}
+
 if (btnKaraokePasteLyrics && lyricPasteModal) {
   btnKaraokePasteLyrics.addEventListener('click', () => {
     if (lyricPasteTextarea && currentSong) {
       lyricPasteTextarea.value = spellSingingState.customLyricsBySongId[currentSong.songId] || '';
+    }
+    if (typeof setLyricModalTab === 'function') {
+      setLyricModalTab('paste');
     }
     lyricPasteModal.classList.remove('hidden');
   });
 }
 if (btnLyricPasteCancel && lyricPasteModal) {
   btnLyricPasteCancel.addEventListener('click', () => {
-    lyricPasteModal.classList.add('hidden');
+    closeLyricPasteModal();
   });
 }
 if (btnLyricPasteClear && lyricPasteModal) {
@@ -7806,6 +7870,172 @@ if (btnLyricPasteApply && lyricPasteModal) {
     }
     lyricPasteModal.classList.add('hidden');
     showGrimoireToast('🎤 Synced custom lyrics to the Spell-Singing Karaoke Stage!');
+  });
+}
+
+// Issue #175: In-App Tap-to-Sync Lyric Editor tab & Spacebar stamping
+const btnLyricTabPaste = document.getElementById('btn-lyric-tab-paste');
+const btnLyricTabTapsync = document.getElementById('btn-lyric-tab-tapsync');
+const lyricPastePanel = document.getElementById('lyric-paste-panel');
+const lyricTapSyncPanel = document.getElementById('lyric-tap-sync-panel');
+const btnTapSyncPlay = document.getElementById('btn-tapsync-play');
+const btnTapSyncRestart = document.getElementById('btn-tapsync-restart');
+const tapSyncClockReadout = document.getElementById('tapsync-clock-readout');
+const btnTapSyncStamp = document.getElementById('btn-tapsync-stamp');
+const btnTapSyncUndo = document.getElementById('btn-tapsync-undo');
+const tapSyncLineList = document.getElementById('tapsync-line-list');
+const btnTapSyncClose = document.getElementById('btn-tapsync-close');
+const btnTapSyncSave = document.getElementById('btn-tapsync-save');
+let activeTapSyncSession = null;
+let tapSyncClockTimer = null;
+
+function isTapSyncTabActive() {
+  return Boolean(
+    lyricPasteModal &&
+    !lyricPasteModal.classList.contains('hidden') &&
+    lyricTapSyncPanel &&
+    !lyricTapSyncPanel.classList.contains('hidden')
+  );
+}
+
+function renderTapSyncUI() {
+  if (!activeTapSyncSession || !tapSyncLineList) return;
+  const st = activeTapSyncSession.getState();
+  if (tapSyncClockReadout) {
+    tapSyncClockReadout.textContent = formatTapSyncTimestamp(playbackState.currentTime || 0).slice(1, -1);
+  }
+  if (btnTapSyncUndo) btnTapSyncUndo.disabled = !st.canUndo;
+  tapSyncLineList.innerHTML = '';
+  for (const line of st.lines) {
+    const row = document.createElement('div');
+    row.className = 'tap-sync-row' + (line.index === st.activeIndex ? ' active' : '');
+
+    const tsSpan = document.createElement('span');
+    tsSpan.className = 'tap-sync-ts';
+    tsSpan.textContent = line.timeSec !== null ? formatTapSyncTimestamp(line.timeSec) : '[--:--.--]';
+
+    const textSpan = document.createElement('span');
+    textSpan.className = 'tap-sync-text';
+    textSpan.textContent = line.text;
+    textSpan.addEventListener('click', () => {
+      activeTapSyncSession.setActiveIndex(line.index);
+      renderTapSyncUI();
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'tap-sync-row-actions';
+
+    const btnMinus = document.createElement('button');
+    btnMinus.type = 'button';
+    btnMinus.className = 'btn-mini-sim';
+    btnMinus.textContent = '-0.1s';
+    btnMinus.addEventListener('click', () => {
+      activeTapSyncSession.nudgeLine(line.index, -0.1);
+      renderTapSyncUI();
+    });
+
+    const btnPlus = document.createElement('button');
+    btnPlus.type = 'button';
+    btnPlus.className = 'btn-mini-sim';
+    btnPlus.textContent = '+0.1s';
+    btnPlus.addEventListener('click', () => {
+      activeTapSyncSession.nudgeLine(line.index, 0.1);
+      renderTapSyncUI();
+    });
+
+    const btnReanchor = document.createElement('button');
+    btnReanchor.type = 'button';
+    btnReanchor.className = 'btn-mini-sim';
+    btnReanchor.title = 'Re-anchor this line & all following lines to current playback time';
+    btnReanchor.textContent = '🎯';
+    btnReanchor.addEventListener('click', () => {
+      activeTapSyncSession.reanchorFromLine(line.index, playbackState.currentTime || 0);
+      renderTapSyncUI();
+    });
+
+    actions.appendChild(btnMinus);
+    actions.appendChild(btnPlus);
+    actions.appendChild(btnReanchor);
+    row.appendChild(tsSpan);
+    row.appendChild(textSpan);
+    row.appendChild(actions);
+    tapSyncLineList.appendChild(row);
+  }
+}
+
+function setLyricModalTab(tabName) {
+  const isTap = tabName === 'tapsync';
+  if (lyricPastePanel) lyricPastePanel.classList.toggle('hidden', isTap);
+  if (lyricTapSyncPanel) lyricTapSyncPanel.classList.toggle('hidden', !isTap);
+  if (btnLyricTabPaste) {
+    btnLyricTabPaste.classList.toggle('tavern-btn-primary', !isTap);
+    btnLyricTabPaste.setAttribute('aria-selected', String(!isTap));
+  }
+  if (btnLyricTabTapsync) {
+    btnLyricTabTapsync.classList.toggle('tavern-btn-primary', isTap);
+    btnLyricTabTapsync.setAttribute('aria-selected', String(isTap));
+  }
+  if (isTap) {
+    const seedText = (lyricPasteTextarea && lyricPasteTextarea.value.trim())
+      ? lyricPasteTextarea.value
+      : (spellSingingState.vocalChart?.phrases || []).map((p) => p.text).join('\n');
+    activeTapSyncSession = createTapSyncSession(seedText);
+    renderTapSyncUI();
+    if (!tapSyncClockTimer) {
+      tapSyncClockTimer = setInterval(() => {
+        if (isTapSyncTabActive() && tapSyncClockReadout) {
+          tapSyncClockReadout.textContent = formatTapSyncTimestamp(playbackState.currentTime || 0).slice(1, -1);
+        }
+      }, 60);
+    }
+  } else if (tapSyncClockTimer) {
+    clearInterval(tapSyncClockTimer);
+    tapSyncClockTimer = null;
+  }
+}
+
+if (btnLyricTabPaste) btnLyricTabPaste.addEventListener('click', () => setLyricModalTab('paste'));
+if (btnLyricTabTapsync) btnLyricTabTapsync.addEventListener('click', () => setLyricModalTab('tapsync'));
+if (btnTapSyncPlay) btnTapSyncPlay.addEventListener('click', () => btnPlayPause && btnPlayPause.click());
+if (btnTapSyncRestart) btnTapSyncRestart.addEventListener('click', () => btnRestart && btnRestart.click());
+if (btnTapSyncStamp) {
+  btnTapSyncStamp.addEventListener('click', () => {
+    if (!activeTapSyncSession) return;
+    activeTapSyncSession.tapCurrentLine(playbackState.currentTime || 0);
+    renderTapSyncUI();
+  });
+}
+if (btnTapSyncUndo) {
+  btnTapSyncUndo.addEventListener('click', () => {
+    if (!activeTapSyncSession) return;
+    activeTapSyncSession.undoLastTap();
+    renderTapSyncUI();
+  });
+}
+if (btnTapSyncClose && lyricPasteModal) {
+  btnTapSyncClose.addEventListener('click', () => closeLyricPasteModal());
+}
+if (btnTapSyncSave && lyricPasteModal) {
+  btnTapSyncSave.addEventListener('click', () => {
+    if (!activeTapSyncSession || !currentSong) {
+      lyricPasteModal.classList.add('hidden');
+      return;
+    }
+    const lrcText = activeTapSyncSession.serializeToLrc();
+    if (lyricPasteTextarea) lyricPasteTextarea.value = lrcText;
+    spellSingingState.customLyricsBySongId[currentSong.songId] = lrcText;
+    bardProfile.customLyricsBySongId = { ...spellSingingState.customLyricsBySongId };
+    saveBardProfile();
+    if (currentSong.filePath && currentSong.filePath !== 'BUILTIN_DEMO') {
+      try {
+        saveLrcNextToSong(currentSong.filePath, lrcText);
+      } catch {}
+    }
+    ensureVocalChartForCurrentSong({ forceRebuild: true });
+    updateKaraokeTeleprompter(playbackState.currentTime || 0);
+    renderKaraokeFrame();
+    closeLyricPasteModal();
+    showGrimoireToast('Saved Tap-to-Sync .LRC lyrics!');
   });
 }
 
@@ -8576,6 +8806,14 @@ window.addEventListener('keydown', (e) => {
     }
   }
   // Close open popovers and modals on Escape (Issue #33, #76, #77, #129)
+  if (e.code === 'Space' && isTapSyncTabActive()) {
+    e.preventDefault();
+    if (activeTapSyncSession) {
+      activeTapSyncSession.tapCurrentLine(playbackState.currentTime || 0);
+      renderTapSyncUI();
+    }
+    return;
+  }
   if (e.key === 'Escape') {
     if (closeAllConservatoryPopovers({ returnFocus: true })) {
       e.preventDefault();
@@ -8588,7 +8826,7 @@ window.addEventListener('keydown', (e) => {
     }
     if (lyricPasteModal && !lyricPasteModal.classList.contains('hidden')) {
       e.preventDefault();
-      lyricPasteModal.classList.add('hidden');
+      closeLyricPasteModal();
       return;
     }
     if (deleteSpellConfirmModal && !deleteSpellConfirmModal.classList.contains('hidden')) {
@@ -11357,6 +11595,18 @@ function runQuestBoardTranscriber({ selfTest = false, queuedJob = null } = {}) {
   }
   if (splitStems) {
     args.push('--split-stems');
+  }
+  const vocalSepPresetEl = document.getElementById('quest-vocal-sep-preset');
+  const dereverbCheckboxEl = document.getElementById('quest-dereverb-checkbox');
+  const lyricsLangEl = document.getElementById('quest-lyrics-lang-select');
+  if (vocalSepPresetEl && vocalSepPresetEl.value && vocalSepPresetEl.value !== 'standard') {
+    args.push('--vocal-sep-preset', vocalSepPresetEl.value);
+  }
+  if (dereverbCheckboxEl && dereverbCheckboxEl.checked) {
+    args.push('--dereverb-vocals');
+  }
+  if (lyricsLangEl && lyricsLangEl.value && lyricsLangEl.value !== 'auto') {
+    args.push('--lyrics-lang', lyricsLangEl.value);
   }
 
   if (isSelfTest) {

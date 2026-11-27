@@ -40,7 +40,8 @@ const MANAGED_LOCAL_STORAGE_KEYS = [
   'collegeOfKeys.midiOutputDeviceId.v1',
   'collegeOfKeys.midiOutputChannel.v1',
   'collegeOfKeys.midiOutputMuteLocal.v1',
-  'collegeOfKeys.arcaneDrills.v1'
+  'collegeOfKeys.arcaneDrills.v1',
+  'collegeOfKeys.loudnessNormEnabled.v1'
 ];
 
 function buildSaveBackupPayload({
