@@ -2705,15 +2705,17 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll, rh
   if (!songSessionStats.crowdFailState) {
     songSessionStats.crowdFailState = createCrowdFailState();
   }
-  const hitFailRes = advanceCrowdFailOnHit(songSessionStats.crowdFailState, {
-    noteCount,
-    active: isCrowdFailCurrentlyActive()
-  });
-  songSessionStats.crowdFailState = hitFailRes.nextState;
-  if (hitFailRes.event === 'recovered') {
-    songSessionStats.crowdEnergy = applyCrowdEnergyDelta(songSessionStats.crowdEnergy, 12);
-    spawnFloatingCanvasRune(MIDDLE_C, '\u2728 CROWD WON BACK!', '#4ade80');
-    showGrimoireToast('\u2728 You won the Tavern Crowd back!', 'success');
+  if (rhythmTier !== 'miss' && !group.wrongKeyDuringRoll) {
+    const hitFailRes = advanceCrowdFailOnHit(songSessionStats.crowdFailState, {
+      noteCount,
+      active: isCrowdFailCurrentlyActive()
+    });
+    songSessionStats.crowdFailState = hitFailRes.nextState;
+    if (hitFailRes.event === 'recovered') {
+      songSessionStats.crowdEnergy = applyCrowdEnergyDelta(songSessionStats.crowdEnergy, 12);
+      spawnFloatingCanvasRune(MIDDLE_C, '\u2728 CROWD WON BACK!', '#4ade80');
+      showGrimoireToast('\u2728 You won the Tavern Crowd back!', 'success');
+    }
   }
   const crowdMood = getCrowdMoodForEnergy(songSessionStats.crowdEnergy);
   if (
@@ -2854,6 +2856,16 @@ function updateCrowdWarningBannerUI() {
       crowdRecoveryFill.style.width = `${Math.round((hits / CROWD_RECOVERY_HIT_TARGET) * 100)}%`;
     }
   }
+}
+
+function syncCrowdFailStateForModeChange({ clearWarning = false } = {}) {
+  if (clearWarning && songSessionStats.crowdFailState && songSessionStats.crowdFailState.status === 'warning') {
+    songSessionStats.crowdFailState.status = 'normal';
+    songSessionStats.crowdFailState.missStreak = 0;
+    songSessionStats.crowdFailState.warningMissStreak = 0;
+    songSessionStats.crowdFailState.recoveryHitStreak = 0;
+  }
+  updateCrowdWarningBannerUI();
 }
 
 function closeBooOffModal() {
@@ -4305,7 +4317,12 @@ async function startPlayback() {
     return;
   }
 
-  if (playbackState.currentTime >= currentSong.duration) {
+  const endedByBooOff = Boolean(
+    songSessionStats.crowdFailState &&
+    songSessionStats.crowdFailState.hasBooedOffThisRun &&
+    normalizeCrowdFailPolicy(crowdFailPolicy) === 'end'
+  );
+  if (playbackState.currentTime >= currentSong.duration || endedByBooOff) {
     playbackState.currentTime = -playbackState.leadInSeconds;
     resetSongProgressFlags(-playbackState.leadInSeconds);
     resetSongSessionStats();
@@ -5716,6 +5733,7 @@ function toggleRehearsalLoop() {
   }
 
   updateRehearsalUI();
+  syncCrowdFailStateForModeChange({ clearWarning: Boolean(rehearsalLoopState.enabled) });
   showGrimoireToast(
     rehearsalLoopState.enabled
       ? `\uD83D\uDD01 Rehearsal Loop ON (${formatSeconds(rehearsalLoopState.startTime)} \u2192 ${formatSeconds(rehearsalLoopState.endTime)})`
@@ -11143,6 +11161,7 @@ function applyPracticeMode(mode) {
   if (handIsolationSelect) handIsolationSelect.value = playbackState.handIsolation;
   if (accompanimentSelect) accompanimentSelect.value = playbackState.accompanimentMode;
   resetSongProgressFlags(playbackState.currentTime, { preserveTriggeredAtTarget: true });
+  syncCrowdFailStateForModeChange({ clearWarning: !isCrowdFailCurrentlyActive() });
 }
 
 function syncPracticeTimingModeUI() {
@@ -11157,13 +11176,7 @@ function syncPracticeTimingModeUI() {
 
 btnWaitMode.addEventListener('click', () => {
   playbackState.waitMode = !playbackState.waitMode;
-  if (playbackState.waitMode && songSessionStats.crowdFailState && songSessionStats.crowdFailState.status === 'warning') {
-    songSessionStats.crowdFailState.status = 'normal';
-    songSessionStats.crowdFailState.missStreak = 0;
-    songSessionStats.crowdFailState.warningMissStreak = 0;
-    songSessionStats.crowdFailState.recoveryHitStreak = 0;
-  }
-  updateCrowdWarningBannerUI();
+  syncCrowdFailStateForModeChange({ clearWarning: Boolean(playbackState.waitMode) });
   if (playbackState.waitMode) {
     playbackState.rhythmMode = false;
   }
@@ -11220,6 +11233,7 @@ if (btnRhythmMode) {
       resetSongProgressFlags(playbackState.currentTime, { preserveTriggeredAtTarget: true });
       setStrikeStatusBadge('ready', 'Wait Mode Active (100ms Chord Grace)');
     }
+    syncCrowdFailStateForModeChange({ clearWarning: Boolean(playbackState.waitMode) });
     syncPracticeTimingModeUI();
     syncBackingAudioElement(playbackState.currentTime);
   });
@@ -14072,7 +14086,9 @@ function updatePerformanceModalSetlistUI({ recordPlay = false, totalAttempts = 0
 
   if (!canCompleteCurrentSong) {
     modalSetlistStatus.textContent = `\uD83C\uDFB6 Setlist In Progress: ${activeSetlistState.name} (${idx + 1}/${total})`;
-    modalSetlistNext.textContent = 'Finish playing this song to advance or complete the setlist.';
+    modalSetlistNext.textContent = songSessionStats.crowdFailState && songSessionStats.crowdFailState.hasBooedOffThisRun
+      ? 'Booed off stage \u2014 retry this song to advance the setlist.'
+      : 'Finish playing this song to advance or complete the setlist.';
     btnModalNextSetlist.classList.add('hidden');
     return;
   }

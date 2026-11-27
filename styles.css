@@ -7924,3 +7924,9 @@ body.view-mode-notation .grimoire-toast {
   justify-content: flex-end;
   gap: 10px;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .crowd-meter-pill.crowd-warning {
+    animation: none;
+  }
+}
