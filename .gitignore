@@ -16,7 +16,9 @@ Imports/*.mid
 Imports/*.midi
 bard_profile.json
 grimoire_library.json
+grimoire_bundles.json
 song_stats.json
+save_backups/
 Midi Test Files/
 Archive/
 

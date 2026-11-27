@@ -8004,3 +8004,30 @@ body.view-mode-notation .grimoire-toast {
   background: #fff3b0;
   outline: none;
 }
+
+/* ============================================================================
+   Issue #185: 1-Click Bard Save Backup (Export & Import)
+   ============================================================================ */
+.save-backup-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.import-save-summary-box {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(24, 17, 11, 0.8);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  font-size: 0.82rem;
+  color: var(--text-parchment);
+}
+
+.import-save-summary-box div strong {
+  display: block;
+  font-size: 0.92rem;
+  color: #ffe38e;
+}

@@ -167,6 +167,11 @@ const {
   findMetronomeClicksInWindow,
   extractTimelineSectionMarkers
 } = require('./highway-practice-tools');
+const {
+  buildSaveBackupPayload,
+  validateAndSummarizeSaveBackup,
+  applySaveBackupPayload
+} = require('./save-backup');
 
 const MIN_MIDI = 36; // C2
 const MAX_MIDI = 96; // C7
@@ -3106,834 +3111,70 @@ function updateLitrpgHUD() {
 /**
  * Issue #62: Build 4-section phrase accuracy & top 3 weakest measures from songSessionStats.measureStats
  */
-function buildPostSongBreakdown() {
-  if (!currentSong || !currentSong.duration) {
-    return { sections: [], weakMeasures: [], totalMeasures: 0 };
-  }
-
-  const measureBounds = getSongMeasureBounds();
-  const totalMeasures = Math.max(1, measureBounds.length);
-  const sectionCount = Math.min(4, totalMeasures);
-  const sections = [];
-
-  for (let i = 0; i < sectionCount; i++) {
-    const startIdx = Math.floor((i * totalMeasures) / sectionCount);
-    const endIdx = Math.max(startIdx, Math.floor(((i + 1) * totalMeasures) / sectionCount) - 1);
-    const startBar = Number(measureBounds[startIdx]?.number) || (startIdx + 1);
-    const endBar = Number(measureBounds[endIdx]?.number) || (endIdx + 1);
-    let clean = 0;
-    let fumbled = 0;
-    let missed = 0;
-    for (let idx = startIdx; idx <= endIdx; idx++) {
-      const mNum = Number(measureBounds[idx]?.number) || (idx + 1);
-      const st = songSessionStats.measureStats[mNum];
-      if (st) {
-        clean += st.clean;
-        fumbled += st.fumbled;
-        missed += st.missed;
-      }
-    }
-    const attempts = clean + fumbled + missed;
-    const accuracyPct = attempts > 0
-      ? Math.round(((clean + fumbled * 0.5) / attempts) * 100)
-      : null;
-    const startSec = Math.max(0, measureBounds[startIdx]?.startTime ?? 0);
-    const endSec = Math.min(currentSong.duration, measureBounds[endIdx]?.endTime ?? currentSong.duration);
-    const label = startBar === endBar ? `Bar ${startBar}` : `Bars ${startBar}–${endBar}`;
-    sections.push({
-      label,
-      startBar,
-      endBar,
-      startSec,
-      endSec,
-      attempts,
-      mistakes: fumbled + missed,
-      accuracyPct
-    });
-  }
-
-  const weakMeasures = [];
-  for (const [mStr, st] of Object.entries(songSessionStats.measureStats)) {
-    const measure = Number(mStr);
-    const mistakes = st.fumbled + st.missed;
-    if (mistakes <= 0) continue;
-    const attempts = st.clean + st.fumbled + st.missed;
-    const accuracyPct = attempts > 0
-      ? Math.round(((st.clean + st.fumbled * 0.5) / attempts) * 100)
-      : 0;
-    const { startSec, endSec } = getMeasureTimeRange(measure);
-    weakMeasures.push({
-      measure,
-      startSec,
-      endSec,
-      clean: st.clean,
-      fumbled: st.fumbled,
-      missed: st.missed,
-      mistakes,
-      attempts,
-      accuracyPct
-    });
-  }
-
-  weakMeasures.sort((a, b) => a.accuracyPct - b.accuracyPct || b.mistakes - a.mistakes || a.measure - b.measure);
-
-  return {
-    sections,
-    weakMeasures: weakMeasures.slice(0, 3),
-    totalMeasures
-  };
-}
-
-function updateEncoreDrillBadge() {
-  if (!encoreDrillBadge) return;
-  if (!encoreDrillQueue.active || encoreDrillQueue.items.length === 0) {
-    encoreDrillBadge.classList.add('hidden');
-    encoreDrillBadge.textContent = '';
-    return;
-  }
-  const cur = encoreDrillQueue.items[encoreDrillQueue.activeIndex];
-  const total = encoreDrillQueue.items.length;
-  encoreDrillBadge.classList.remove('hidden');
-  encoreDrillBadge.textContent = `⚔️ Encore ${encoreDrillQueue.activeIndex + 1}/${total}: ${cur ? cur.label : ''}`;
-}
-
-function armRehearsalLoopWindow(startSec, endSec) {
-  let a = Math.max(0, Math.min(currentSong.duration, startSec));
-  let b = Math.max(a, Math.min(currentSong.duration, endSec));
-
-  if ((b - a) < 2.0) {
-    b = Math.min(currentSong.duration, a + 2.0);
-  }
-  if ((b - a) < 2.0) {
-    a = Math.max(0, b - 2.0);
-  }
-
-  rehearsalLoopState.startTime = a;
-  rehearsalLoopState.endTime = b;
-  rehearsalLoopState.enabled = (b - a) >= MIN_REHEARSAL_LOOP_SPAN_SEC;
-  rehearsalLoopState.passMistakes = 0;
-  rehearsalLoopState.cleanPasses = 0;
-  rehearsalLoopState.totalPasses = 0;
-
-  const jumpTime = Math.max(0, a - REHEARSAL_PREROLL_SEC);
-  playbackState.currentTime = jumpTime;
-  playbackState.isWaitingForStrike = false;
-  playbackState.waitStartedAtMs = null;
-  playbackState.activeStrikeGroup = null;
-  resetSongProgressFlags(jumpTime);
-
-  seekBackingAudioToSongTime(jumpTime);
-  syncBackingAudioElement(jumpTime);
-  updateTimelineUI();
-  updateRehearsalUI();
-  return { a, b };
-}
-
-function startEncoreDrill(weakMeasures) {
-  if (!currentSong || !currentSong.duration || !Array.isArray(weakMeasures) || weakMeasures.length === 0) return;
-  const sorted = [...weakMeasures].sort((a, b) => a.measure - b.measure);
-  encoreDrillQueue.active = true;
-  encoreDrillQueue.items = sorted.map((wm) => ({
-    measure: wm.measure,
-    label: `Bar ${wm.measure}`,
-    startSec: wm.startSec,
-    endSec: wm.endSec
-  }));
-  encoreDrillQueue.activeIndex = 0;
-  encoreDrillQueue.totalCleared = 0;
-
-  closePerformanceCheckModal();
-  pausePlayback();
-  const first = encoreDrillQueue.items[0];
-  armRehearsalLoopWindow(first.startSec, first.endSec);
-  updateEncoreDrillBadge();
-  showGrimoireToast(`⚔️ Encore Drill armed (${encoreDrillQueue.items.length} weak bar${encoreDrillQueue.items.length === 1 ? '' : 's'}) — Starting ${first.label}`);
-}
-
-/**
- * Issue #62: 1-tap jump from Post-Song Breakdown into Rehearsal Loop Mode (Issue #30).
- * Pads single short bars to at least 2.0s, arms A->B loop, jumps to A - 0.8s pre-roll, and pauses.
- */
-function practiceWeakRegion(startSec, endSec, label = 'Weak Measure') {
-  if (!currentSong || !currentSong.duration) return;
-
-  encoreDrillQueue.active = false;
-  encoreDrillQueue.items = [];
-  encoreDrillQueue.activeIndex = 0;
-  updateEncoreDrillBadge();
-
-  closePerformanceCheckModal();
-  pausePlayback();
-
-  const { a, b } = armRehearsalLoopWindow(startSec, endSec);
-  showGrimoireToast(`\uD83D\uDD01 Loop armed for ${label} (${formatSeconds(a)} \u2192 ${formatSeconds(b)}) \u2014 Press Space when ready`);
-}
-
-function getSongHistoryKey(song) {
-  if (!song) return 'demo spell';
-  return song.songId || (song.filePath || song.title || 'Demo Spell').toLowerCase();
-}
-
-function renderPostSongBreakdown(totalAttempts, priorWeakBarHistory = null) {
-  if (!modalBreakdownSection || !modalBreakdownSummary || !modalSectionBars || !modalWeakMeasures) return;
-
-  if (!currentSong || totalAttempts === 0) {
-    modalBreakdownSection.classList.add('hidden');
-    if (btnEncoreDrill) btnEncoreDrill.classList.add('hidden');
-    return;
-  }
-
-  const { sections, weakMeasures } = buildPostSongBreakdown();
-  if (sections.length === 0) {
-    modalBreakdownSection.classList.add('hidden');
-    if (btnEncoreDrill) btnEncoreDrill.classList.add('hidden');
-    return;
-  }
-
-  modalBreakdownSection.classList.remove('hidden');
-
-  const totalMistakes = songSessionStats.fumbledNotesHit + songSessionStats.wrongOrMissedNotes;
-  modalBreakdownSummary.textContent = totalMistakes === 0
-    ? 'Flawless Run!'
-    : `${totalMistakes} trip${totalMistakes === 1 ? '' : 's'} across ${weakMeasures.length} key bar${weakMeasures.length === 1 ? '' : 's'}`;
-
-  if (btnEncoreDrill) {
-    if (weakMeasures.length > 0) {
-      btnEncoreDrill.classList.remove('hidden');
-      btnEncoreDrill.textContent = `⚔️ Encore Drill (${weakMeasures.length} Weak Bar${weakMeasures.length === 1 ? '' : 's'})`;
-      btnEncoreDrill.onclick = () => startEncoreDrill(weakMeasures);
-    } else {
-      btnEncoreDrill.classList.add('hidden');
-      btnEncoreDrill.onclick = null;
-    }
-  }
-
-  const prevHistory = priorWeakBarHistory || songPlayHistory[getSongHistoryKey(currentSong)]?.weakBarHistory || {};
-
-  while (modalSectionBars.firstChild) {
-    modalSectionBars.removeChild(modalSectionBars.firstChild);
-  }
-  for (const sec of sections) {
-    const pill = document.createElement('button');
-    pill.type = 'button';
-    pill.className = 'breakdown-section-pill';
-    if (sec.accuracyPct !== null) {
-      if (sec.accuracyPct < 70) pill.classList.add('tier-weak');
-      else if (sec.accuracyPct < 90) pill.classList.add('tier-warn');
-    }
-    pill.title = sec.attempts > 0
-      ? `Click to practice ${sec.label} (${sec.accuracyPct}% accuracy)`
-      : `${sec.label} (No player notes)`;
-
-    const lblEl = document.createElement('span');
-    lblEl.className = 'breakdown-section-label';
-    lblEl.textContent = sec.label;
-
-    const pctEl = document.createElement('span');
-    pctEl.className = 'breakdown-section-pct';
-    pctEl.textContent = sec.accuracyPct === null ? '—' : `${sec.accuracyPct}%`;
-
-    const barEl = document.createElement('div');
-    barEl.className = 'breakdown-section-bar';
-    barEl.style.width = `${sec.accuracyPct === null ? 0 : Math.max(8, sec.accuracyPct)}%`;
-
-    pill.appendChild(lblEl);
-    pill.appendChild(pctEl);
-    pill.appendChild(barEl);
-
-    if (sec.attempts > 0) {
-      pill.addEventListener('click', () => {
-        practiceWeakRegion(sec.startSec, sec.endSec, sec.label);
-      });
-    } else {
-      pill.disabled = true;
-      pill.style.opacity = '0.55';
-      pill.style.cursor = 'default';
-    }
-
-    modalSectionBars.appendChild(pill);
-  }
-
-  while (modalWeakMeasures.firstChild) {
-    modalWeakMeasures.removeChild(modalWeakMeasures.firstChild);
-  }
-
-  // Celebrate previously weak bars that were conquered (100%) in this run (Issue #108)
-  const conqueredBars = [];
-  for (const [mStr, prevPct] of Object.entries(prevHistory)) {
-    if (prevPct >= 100) continue;
-    const st = songSessionStats.measureStats[mStr];
-    if (st && (st.clean + st.fumbled + st.missed) > 0 && st.fumbled === 0 && st.missed === 0) {
-      conqueredBars.push({ measure: Number(mStr), prevPct });
-    }
-  }
-  conqueredBars.sort((a, b) => a.measure - b.measure);
-
-  if (weakMeasures.length === 0) {
-    const flawless = document.createElement('div');
-    flawless.className = 'breakdown-flawless';
-    flawless.textContent = conqueredBars.length > 0
-      ? `✨ Conquered ${conqueredBars.map((b) => `Bar ${b.measure} (${b.prevPct}% → 100%)`).join(', ')}!`
-      : '✨ No weak bars detected — every measure was clean!';
-    modalWeakMeasures.appendChild(flawless);
-    return;
-  }
-
-  for (const cb of conqueredBars.slice(0, 2)) {
-    const row = document.createElement('div');
-    row.className = 'breakdown-weak-row';
-    const info = document.createElement('div');
-    info.className = 'breakdown-weak-info';
-    const badge = document.createElement('span');
-    badge.className = 'breakdown-bar-badge';
-    badge.textContent = `Bar ${cb.measure}`;
-    const tag = document.createElement('span');
-    tag.className = 'breakdown-delta-tag conquered';
-    tag.textContent = `✨ Conquered! (${cb.prevPct}% → 100%)`;
-    info.appendChild(badge);
-    info.appendChild(tag);
-    row.appendChild(info);
-    modalWeakMeasures.appendChild(row);
-  }
-
-  for (const wm of weakMeasures) {
-    const row = document.createElement('div');
-    row.className = 'breakdown-weak-row';
-
-    const info = document.createElement('div');
-    info.className = 'breakdown-weak-info';
-
-    const badge = document.createElement('span');
-    badge.className = 'breakdown-bar-badge';
-    badge.textContent = `Bar ${wm.measure}`;
-
-    const parts = [];
-    if (wm.missed > 0) parts.push(`${wm.missed} miss${wm.missed === 1 ? '' : 'es'}`);
-    if (wm.fumbled > 0) parts.push(`${wm.fumbled} fumbled`);
-    const detail = document.createElement('span');
-    detail.className = 'breakdown-weak-detail';
-    detail.textContent = `${wm.accuracyPct}% • ${parts.join(', ')}`;
-
-    info.appendChild(badge);
-    info.appendChild(detail);
-
-    const prevAcc = prevHistory[String(wm.measure)];
-    if (Number.isFinite(prevAcc)) {
-      const delta = wm.accuracyPct - prevAcc;
-      if (delta > 0) {
-        const deltaEl = document.createElement('span');
-        deltaEl.className = 'breakdown-delta-tag';
-        deltaEl.textContent = `${prevAcc}% → ${wm.accuracyPct}% (+${delta}%)`;
-        info.appendChild(deltaEl);
-      }
-    }
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'btn-practice-measure';
-    btn.textContent = '🔁 Practice This';
-    btn.title = `Loop Bar ${wm.measure} (${formatSeconds(wm.startSec)}–${formatSeconds(wm.endSec)})`;
-    btn.addEventListener('click', () => {
-      practiceWeakRegion(wm.startSec, wm.endSec, `Bar ${wm.measure}`);
-    });
-
-    row.appendChild(info);
-    row.appendChild(btn);
-    modalWeakMeasures.appendChild(row);
-  }
-}
-
-let diceBounceSynth = null;
-
-function playDiceBounceSound(impactSpeed = 3) {
-  try {
-    if (typeof Tone === 'undefined') return;
-    if (Tone.context.state !== 'running') {
-      Tone.context.resume().catch(() => {});
-    }
-    if (!diceBounceSynth) {
-      diceBounceSynth = new Tone.Synth({
-        oscillator: { type: 'triangle' },
-        envelope: { attack: 0.002, decay: 0.04, sustain: 0, release: 0.02 }
-      });
-      if (masterVol) {
-        diceBounceSynth.connect(masterVol);
-      } else {
-        diceBounceSynth.toDestination();
-      }
-    }
-    const db = Math.max(-28, Math.min(-8, -24 + impactSpeed * 1.4));
-    diceBounceSynth.volume.value = db;
-    const freq = 150 + Math.random() * 95;
-    diceBounceSynth.triggerAttackRelease(freq, 0.045, Tone.now());
-  } catch {
-    // Ignore audio errors
-  }
-}
-
-function playNat20Flourish() {
-  try {
-    const inst = getActiveInstrument();
-    if (!inst || typeof Tone === 'undefined') return;
-    const now = Tone.now();
-    ['C5', 'E5', 'G5', 'C6'].forEach((note, idx) => {
-      inst.triggerAttackRelease(note, 0.35, now + idx * 0.08, 0.8);
-    });
-  } catch {
-    // Ignore audio errors
-  }
-}
-
-function playNat1TomatoSound() {
-  try {
-    const inst = getActiveInstrument();
-    if (!inst || typeof Tone === 'undefined') return;
-    const now = Tone.now();
-    inst.triggerAttackRelease('F#3', 0.25, now, 0.7);
-    inst.triggerAttackRelease('C3', 0.45, now + 0.18, 0.75);
-  } catch {
-    // Ignore audio errors
-  }
-}
-
-function computeBardicAccuracyMod(accuracyPct) {
-  if (accuracyPct >= 95) return 5;
-  if (accuracyPct >= 90) return 4;
-  if (accuracyPct >= 80) return 3;
-  if (accuracyPct >= 70) return 2;
-  if (accuracyPct >= 60) return 1;
-  return 0;
-}
-
-function getSongPerformanceDC(song) {
-  const mult = song?.difficulty?.xpMultiplier ?? 1.0;
-  if (mult >= 2.0) return 17;
-  if (mult >= 1.7) return 15;
-  if (mult >= 1.4) return 13;
-  if (mult >= 1.2) return 12;
-  return 10;
-}
-
-function buildD20Outcome(dieRoll, accuracyPct, song) {
-  const mod = computeBardicAccuracyMod(accuracyPct);
-  const dc = getSongPerformanceDC(song);
-  const total = dieRoll + mod;
-  const modSign = mod >= 0 ? `+${mod}` : String(mod);
-  const mathText = `d20 (${dieRoll}) ${modSign} Accuracy = ${total} vs DC ${dc}`;
-
-  if (dieRoll === 20) {
-    return {
-      dieRoll,
-      mod,
-      total,
-      dc,
-      tier: 'nat-20',
-      bonusXp: 150,
-      mathText: `${mathText} — CRITICAL! (+150 XP)`,
-      gradeTitle: 'Natural 20 — The Tavern Erupts!',
-      gradeFlavor: 'Thunderous applause! Patrons toss a shower of gold coins onto the stage (+150 Bonus XP).'
-    };
-  }
-  if (dieRoll === 1) {
-    return {
-      dieRoll,
-      mod,
-      total,
-      dc,
-      tier: 'nat-1',
-      bonusXp: 5,
-      mathText: `${mathText} — FUMBLE! (+5 XP)`,
-      gradeTitle: 'Natural 1 — A Tomato Hits the Stage!',
-      gradeFlavor: 'Splat! A heckler in the back row has terrible aim, but you earn +5 Consolation XP.'
-    };
-  }
-  if (total >= dc + 5) {
-    return {
-      dieRoll,
-      mod,
-      total,
-      dc,
-      tier: 'crit-success',
-      bonusXp: 75,
-      mathText: `${mathText} — Standing Ovation! (+75 XP)`,
-      gradeTitle: `Total ${total} vs DC ${dc} — Masterful Encore!`,
-      gradeFlavor: 'The barkeep pours celebratory honey-mead for the whole table (+75 Bonus XP).'
-    };
-  }
-  if (total >= dc) {
-    return {
-      dieRoll,
-      mod,
-      total,
-      dc,
-      tier: 'success',
-      bonusXp: 35,
-      mathText: `${mathText} — Success! (+35 XP)`,
-      gradeTitle: `Total ${total} vs DC ${dc} — Solid Tavern Performance`,
-      gradeFlavor: 'Patrons raise their silver flagons and cheer your arcane melody (+35 Bonus XP).'
-    };
-  }
-  return {
-    dieRoll,
-    mod,
-    total,
-    dc,
-    tier: 'miss',
-    bonusXp: 10,
-    mathText: `${mathText} — Missed DC (+10 XP)`,
-    gradeTitle: `Total ${total} vs DC ${dc} — Tough Crowd`,
-    gradeFlavor: 'A few murmurs in the tavern, but every rehearsal sharpens your craft (+10 Consolation XP).'
-  };
-}
-
-function refreshModalXpSection() {
-  const leveledUp = bardProfile.level > songSessionStats.startingLevel;
-  modalLevelupBanner.classList.toggle('hidden', !leveledUp);
-  if (leveledUp) {
-    modalNewLevel.textContent = `Level ${bardProfile.level}`;
-    modalNewTitle.textContent = bardProfile.title;
-  }
-
-  modalBardLevel.textContent = `LVL ${bardProfile.level}`;
-  modalBardTitle.textContent = bardProfile.title;
-  modalXpNumbers.textContent = `${bardProfile.xpIntoLevel.toLocaleString()} / ${bardProfile.xpForNextLevel.toLocaleString()} XP (Total: ${bardProfile.totalXp.toLocaleString()} XP)`;
-
-  const pct = bardProfile.xpForNextLevel > 0
-    ? Math.min(100, Math.max(0, (bardProfile.xpIntoLevel / bardProfile.xpForNextLevel) * 100))
-    : 0;
-  modalXpBarFill.style.width = `${pct.toFixed(1)}%`;
-  modalStatXp.textContent = `+${songSessionStats.songXpEarned.toLocaleString()} XP`;
-}
-
-function applyD20OutcomeToModal(outcome, isPreview = false) {
-  if (d20GradeBanner) {
-    d20GradeBanner.classList.toggle('nat-20', !isPreview && outcome?.tier === 'nat-20');
-    d20GradeBanner.classList.toggle('nat-1', !isPreview && outcome?.tier === 'nat-1');
-  }
-  if (modalD20Badge) {
-    modalD20Badge.classList.toggle('nat-20', !isPreview && outcome?.tier === 'nat-20');
-    modalD20Badge.classList.toggle('nat-1', !isPreview && outcome?.tier === 'nat-1');
-    modalD20Badge.classList.toggle('preview-ghost', isPreview);
-    modalD20Badge.textContent = isPreview ? '10' : String(outcome.dieRoll);
-  }
-  if (modalD20Math) {
-    if (isPreview || !outcome) {
-      modalD20Math.classList.add('hidden');
-    } else {
-      modalD20Math.textContent = outcome.mathText;
-      modalD20Math.classList.remove('hidden');
-    }
-  }
-  if (isPreview) {
-    modalGradeTitle.textContent = 'Preview Mode — Uncast Scroll';
-    modalGradeFlavor.textContent = 'Strike notes on the Spell Highway to roll a real 3D d20 Performance Check!';
-  } else if (outcome) {
-    modalGradeTitle.textContent = outcome.gradeTitle;
-    modalGradeFlavor.textContent = outcome.gradeFlavor;
-  }
-}
-
-let d20DisposeTimer = null;
-
-function disposeActiveD20Roller() {
-  if (d20DisposeTimer !== null) {
-    clearTimeout(d20DisposeTimer);
-    d20DisposeTimer = null;
-  }
-  if (activeD20Roller) {
-    activeD20Roller.dispose();
-    activeD20Roller = null;
-  }
-  if (d20TrayOverlay) {
-    d20TrayOverlay.classList.add('hidden');
-  }
-}
-
-/**
- * Open the Post-Song "Performance Check" Modal with 3D Physics D20 Roll & LitRPG Breakdown (Issue #25)
- */
-function openPerformanceCheckModal({ recordPlay = false } = {}) {
-  pausePlayback();
-  closeAllConservatoryPopovers();
-  disposeActiveD20Roller();
-
-  const totalAttempts =
-    songSessionStats.cleanNotesHit +
-    songSessionStats.fumbledNotesHit +
-    songSessionStats.wrongOrMissedNotes;
-
-  const accuracyRatio = totalAttempts > 0
-    ? (songSessionStats.cleanNotesHit + songSessionStats.fumbledNotesHit * 0.5) / totalAttempts
-    : 1.0;
-  const accuracyPct = Math.round(accuracyRatio * 100);
-
-  const songName = currentSong ? currentSong.title : 'Practice Session';
-  const diffLabel = currentSong?.difficulty?.label || 'Cantrip (1.0x XP)';
-  modalSongSubtitle.textContent = `${songName} • ${diffLabel}`;
-
-  // Capture prior weakBarHistory before recordSongPerformance updates it (Issue #108)
-  const priorWeakBarHistory = currentSong
-    ? { ...(songPlayHistory[getSongHistoryKey(currentSong)]?.weakBarHistory || {}) }
-    : {};
-
-  // Record song play history & Daily Quests BEFORE rendering XP/Level-Up banner (Issue #52, #53, #67, #162)
-  // Only the natural end-of-song path records play history; the manual button does not (Issue #67)
-  let questOutcome = { newlyCompletedQuests: [], totalBonusXp: 0 };
-  let recordOutcome = { qualified: false, beatAccuracy: false, beatXp: false, bonusXp: 0, beatenRecords: [] };
-  if (recordPlay && currentSong && totalAttempts > 0) {
-    const priorRecord = songPlayHistory[getSongHistoryKey(currentSong)] || null;
-    const runXpBeforeBonus = Math.max(0, Number(songSessionStats.songXpEarned) || 0);
-    const totalSongNotes = Array.isArray(currentSong.notes)
-      ? currentSong.notes.length
-      : (Number(currentSong.totalNotes) || 0);
-    const qualifiedForLegends = isQualifyingLegendRun({
-      stageViewMode,
-      waitMode: Boolean(playbackState.waitMode),
-      playbackSpeed: playbackState.playbackSpeed,
-      handIsolation: playbackState.handIsolation,
-      accompanimentMode: playbackState.accompanimentMode,
-      rehearsalLoopEnabled: Boolean(rehearsalLoopState?.enabled),
-      encoreDrillActive: Boolean(encoreDrillQueue?.active),
-      totalAttempts,
-      totalNotes: totalSongNotes
-    });
-
-    recordOutcome = evaluatePersonalRecordUpdate(priorRecord, {
-      accuracyPct,
-      runXp: runXpBeforeBonus,
-      qualified: qualifiedForLegends
-    });
-
-    questOutcome = recordSongPerformance(
-      currentSong,
-      accuracyPct,
-      songSessionStats.maxSpellChain,
-      runXpBeforeBonus,
-      {
-        waitMode: Boolean(playbackState.waitMode),
-        cleanNotesHit: songSessionStats.cleanNotesHit,
-        cleanChordRolls: songSessionStats.cleanChordRolls,
-        recordOutcome
-      }
-    ) || questOutcome;
-
-    if (recordOutcome.bonusXp > 0) {
-      awardBardXp(recordOutcome.bonusXp, { skipSongXp: true });
-      const labels = recordOutcome.beatenRecords.map((r) =>
-        r.kind === 'accuracy' ? `Best Accuracy (${r.current}%)` : `Biggest XP (${r.current.toLocaleString()} XP)`
-      );
-      showGrimoireToast(`\uD83C\uDFC6 New Personal Record: ${labels.join(' & ')} (+${recordOutcome.bonusXp} Bonus XP)`, 'success');
-    }
-
-    const isFullDifficulty =
-      (!playbackState.waitMode && playbackState.playbackSpeed >= 1.0 && playbackState.handIsolation === 'both') ||
-      Number(currentSong?.difficulty?.index) >= 9;
-    checkAndUnlockAchievements({
-      songsCompleted: bardProfile.songsCompleted,
-      accuracyPct,
-      totalAttempts,
-      isFullDifficulty
-    });
-
-    if (typeof updateTutorialProgress === 'function') {
-      updateTutorialProgress({ type: 'song-completed' });
-    }
-    if (typeof updateCollegeProgress === 'function') {
-      updateCollegeProgress({
-        songCompleted: true,
-        waitMode: Boolean(playbackState.waitMode),
-        playbackSpeed: playbackState.playbackSpeed,
-        accuracyPct,
-        cleanChordRolls: songSessionStats.cleanChordRolls,
-        cleanNotesHit: songSessionStats.cleanNotesHit,
-        maxSpellChain: songSessionStats.maxSpellChain
-      });
-    }
-  }
-
-  if (modalQuestsBanner && modalQuestsList && modalQuestsXpPill) {
-    const completedList = questOutcome.newlyCompletedQuests || [];
-    modalQuestsBanner.classList.toggle('hidden', completedList.length === 0);
-    while (modalQuestsList.firstChild) {
-      modalQuestsList.removeChild(modalQuestsList.firstChild);
-    }
-    if (completedList.length > 0) {
-      modalQuestsXpPill.textContent = `+${questOutcome.totalBonusXp.toLocaleString()} Bonus XP`;
-      for (const q of completedList) {
-        const li = document.createElement('li');
-        const nameSpan = document.createElement('span');
-        nameSpan.textContent = `✓ ${q.title} — ${q.desc}`;
-        const xpStrong = document.createElement('strong');
-        xpStrong.textContent = `+${q.xpReward} XP`;
-        li.appendChild(nameSpan);
-        li.appendChild(xpStrong);
-        modalQuestsList.appendChild(li);
-      }
-    }
-  }
-
-  if (modalRecordsBanner && modalRecordsList && modalRecordsXpPill) {
-    const beaten = recordOutcome.beatenRecords || [];
-    modalRecordsBanner.classList.toggle('hidden', beaten.length === 0);
-    while (modalRecordsList.firstChild) {
-      modalRecordsList.removeChild(modalRecordsList.firstChild);
-    }
-    if (beaten.length > 0) {
-      modalRecordsXpPill.textContent = `+${recordOutcome.bonusXp.toLocaleString()} Bonus XP`;
-      for (const rec of beaten) {
-        const li = document.createElement('li');
-        const descSpan = document.createElement('span');
-        if (rec.kind === 'accuracy') {
-          descSpan.textContent = `\uD83C\uDFAF Best Accuracy: ${rec.previous}% \u2192 ${rec.current}%`;
-        } else {
-          descSpan.textContent = `\u2728 Biggest XP: ${rec.previous.toLocaleString()} \u2192 ${rec.current.toLocaleString()} XP`;
-        }
-        const xpStrong = document.createElement('strong');
-        xpStrong.textContent = `+${rec.bonusXp} XP`;
-        li.appendChild(descSpan);
-        li.appendChild(xpStrong);
-        modalRecordsList.appendChild(li);
-      }
-    }
-  }
-
-  refreshModalXpSection();
-
-  modalStatAccuracy.textContent = totalAttempts === 0 ? '—' : `${accuracyPct}%`;
-  const inspiredSuffix = songSessionStats.maxSpellChain >= BARDIC_INSPIRATION_STREAK ? ' 🔥' : '';
-  modalStatChain.textContent = `${songSessionStats.maxSpellChain}${inspiredSuffix}`;
-  modalStatClean.textContent = String(songSessionStats.cleanNotesHit);
-  modalStatFumbled.textContent = String(songSessionStats.fumbledNotesHit);
-  modalStatRolls.textContent = `${songSessionStats.cleanChordRolls} Rolls • ${songSessionStats.wrongOrMissedNotes} Off-Key`;
-
-  if (modalTimingSpreadPill) {
-    const errs = songSessionStats.timingErrorsMs || [];
-    if (!playbackState.waitMode && errs.length > 0) {
-      const meanMs = Math.round(errs.reduce((acc, v) => acc + v, 0) / errs.length);
-      const within35Pct = Math.round((errs.filter((v) => Math.abs(v) <= 35).length / errs.length) * 100);
-      const earlyCnt = errs.filter((v) => v < -35).length;
-      const onTimeCnt = errs.filter((v) => Math.abs(v) <= 35).length;
-      const lateCnt = errs.filter((v) => v > 35).length;
-      const biasLabel = Math.abs(meanMs) <= 12
-        ? 'On Time'
-        : (meanMs < 0 ? 'Slightly Early' : 'Slightly Late');
-      const sign = meanMs > 0 ? '+' : '';
-      const rhythmSummary = playbackState.rhythmMode
-        ? ` • ✨ ${songSessionStats.rhythmPerfect} Perf / ${songSessionStats.rhythmGreat} Grt / ${songSessionStats.rhythmGood} Good`
-        : '';
-      modalTimingSpreadPill.innerHTML = '';
-      const leftSpan = document.createElement('span');
-      leftSpan.innerHTML = `⏱ Timing: <strong>${sign}${meanMs}ms (${biasLabel})</strong> • ${within35Pct}% Within ±35ms${rhythmSummary}`;
-      const rightSpan = document.createElement('span');
-      rightSpan.textContent = `Early ${earlyCnt} • Perfect ${onTimeCnt} • Late ${lateCnt}`;
-      modalTimingSpreadPill.appendChild(leftSpan);
-      modalTimingSpreadPill.appendChild(rightSpan);
-      modalTimingSpreadPill.classList.remove('hidden');
-      drawModalTimingScatter(errs);
-    } else {
-      modalTimingSpreadPill.classList.add('hidden');
-      modalTimingSpreadPill.textContent = '';
-      if (modalTimingScatterCanvas) modalTimingScatterCanvas.classList.add('hidden');
-    }
-  }
-
-  if (modalCampaignResult) {
-    modalCampaignResult.classList.add('hidden');
-    modalCampaignResult.classList.remove('passed', 'failed');
-  }
-  renderPostSongBreakdown(totalAttempts, priorWeakBarHistory);
-  updatePerformanceModalSetlistUI({ recordPlay, totalAttempts });
-  performanceCheckModal.classList.remove('hidden');
-
-  if (totalAttempts === 0) {
-    applyD20OutcomeToModal(null, true);
-    return;
-  }
-
-  // One roll per song: if already rolled this session, show settled outcome without re-rolling
-  if (songSessionStats.d20Outcome) {
-    applyD20OutcomeToModal(songSessionStats.d20Outcome, false);
-    return;
-  }
-
-  // Show pending state while the 3D physics die tumbles
-  if (modalD20Badge) {
-    modalD20Badge.textContent = '?';
-    modalD20Badge.classList.remove('nat-20', 'nat-1', 'preview-ghost');
-  }
-  if (modalD20Math) {
-    modalD20Math.classList.add('hidden');
-  }
-  if (d20GradeBanner) {
-    d20GradeBanner.classList.remove('nat-20', 'nat-1');
-  }
-  modalGradeTitle.textContent = 'Rolling Performance Check...';
-  modalGradeFlavor.textContent = 'The golden d20 tumbles across the tavern felt...';
-
-  const reducedMotion = Boolean(
-    typeof window !== 'undefined' &&
-    window.matchMedia &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  );
-
-  if (!reducedMotion && d20TrayOverlay) {
-    d20TrayOverlay.classList.remove('hidden');
-  }
-
-  if (d20TrayCanvasHost) {
-    let settledSynchronously = false;
-    activeD20Roller = createD20TrayRoller(d20TrayCanvasHost, {
-      reducedMotion,
-      onBounce: (impact) => playDiceBounceSound(impact),
-      onSettled: (rolledFace) => {
-        settledSynchronously = true;
-        const outcome = buildD20Outcome(rolledFace, accuracyPct, currentSong);
-        songSessionStats.d20Outcome = outcome;
-        if (outcome.bonusXp > 0) {
-          awardBardXp(outcome.bonusXp);
-          refreshModalXpSection();
-        }
-        applyD20OutcomeToModal(outcome, false);
-        if (typeof updateCollegeProgress === 'function') {
-          updateCollegeProgress({ d20Total: outcome.total });
-        }
-        if (
-          recordPlay &&
-          totalAttempts > 0 &&
-          typeof resolveCampaignVenueCheck === 'function' &&
-          activeCampaignVenueId &&
-          !activeSetlistState.active
-        ) {
-          resolveCampaignVenueCheck(outcome.total);
-        }
-        if (outcome.tier === 'nat-20') {
-          playNat20Flourish();
-          checkAndUnlockAchievements({ rolledFace });
-          refreshModalXpSection();
-        } else if (outcome.tier === 'nat-1') {
-          playNat1TomatoSound();
-        }
-        if (reducedMotion && d20TrayOverlay) {
-          d20TrayOverlay.classList.add('hidden');
-        }
-        d20DisposeTimer = setTimeout(() => {
-          d20DisposeTimer = null;
-          disposeActiveD20Roller();
-        }, reducedMotion ? 0 : 450);
-      }
-    });
-    if (settledSynchronously && activeD20Roller?.isFallback && d20TrayOverlay) {
-      d20TrayOverlay.classList.add('hidden');
-    }
-  }
-}
-
-function closePerformanceCheckModal() {
-  disposeActiveD20Roller();
-  performanceCheckModal.classList.add('hidden');
-}
-
-// ============================================================================
+// Issue #184: Performance Check Modal & Post-Song Breakdown extracted to ./modules/performance-modal.js
+const { createPerformanceModalModule } = require('./modules/performance-modal');
+const performanceModalModule = createPerformanceModalModule({
+  fs, path, crypto, createD20TrayRoller,
+  bardProfile, songSessionStats, songPlayHistory, playbackState, rehearsalLoopState, encoreDrillQueue,
+  get stageViewMode() { return stageViewMode; },
+  isQualifyingLegendRun, evaluatePersonalRecordUpdate,
+  getBardicTitleForLevel, getXpRequiredForLevel,
+  awardBardXp, saveBardProfile,
+  recordSongPerformance: (...args) => recordSongPerformance(...args),
+  checkAndUnlockAchievements,
+  updateTutorialProgress: (...args) => updateTutorialProgress(...args),
+  updateCollegeProgress: (...args) => updateCollegeProgress(...args),
+  updateLitrpgHUD,
+  updatePerformanceModalSetlistUI: (...args) => updatePerformanceModalSetlistUI(...args),
+  updatePerformanceModalCampaignUI: (...args) => updatePerformanceModalCampaignUI(...args),
+  drawModalTimingScatter: (errs) => drawModalTimingScatter(errs),
+  closeAllConservatoryPopovers,
+  pausePlayback: () => pausePlayback(),
+  resetPlaybackToStart: () => resetPlaybackToStart(),
+  startPlayback: () => startPlayback(),
+  seekBackingAudioToSongTime: (t) => seekBackingAudioToSongTime(t),
+  syncBackingAudioElement: (t) => syncBackingAudioElement(t),
+  resetSongProgressFlags: (...args) => resetSongProgressFlags(...args),
+  updateTimelineUI: () => updateTimelineUI(),
+  updateRehearsalUI: () => updateRehearsalUI(),
+  updateEncoreDrillBadge: () => updateEncoreDrillBadge(),
+  showGrimoireToast, formatSeconds,
+  setWaitModeEnabled: (v) => setWaitModeEnabled(v),
+  get currentSong() { return currentSong; },
+  set currentSong(v) { currentSong = v; },
+  get activeD20Roller() { return activeD20Roller; },
+  set activeD20Roller(v) { activeD20Roller = v; },
+  get activeCampaignVenueId() { return activeCampaignVenueId; },
+  set activeCampaignVenueId(v) { activeCampaignVenueId = v; },
+  performanceCheckModal, d20TrayOverlay, d20TrayCanvasHost,
+  modalSongSubtitle, modalLevelupBanner, modalNewLevel, modalNewTitle,
+  modalQuestsBanner, modalQuestsList, modalQuestsXpPill,
+  modalRecordsBanner, modalRecordsList, modalRecordsXpPill,
+  modalBardLevel, modalBardTitle, modalXpNumbers, modalXpBarFill,
+  modalStatAccuracy, modalStatChain, modalStatClean, modalStatFumbled, modalStatRolls,
+  modalTimingSpreadPill, modalBreakdownSection, modalBreakdownSummary,
+  modalSectionBars, modalWeakMeasures, btnEncoreDrill, btnModalClose
+});
+const {
+  buildPostSongBreakdown,
+  updateEncoreDrillBadge,
+  armRehearsalLoopWindow,
+  startEncoreDrill,
+  practiceWeakRegion,
+  getSongHistoryKey,
+  renderPostSongBreakdown,
+  playDiceBounceSound,
+  playNat20Flourish,
+  playNat1TomatoSound,
+  computeBardicAccuracyMod,
+  getSongPerformanceDC,
+  buildD20Outcome,
+  refreshModalXpSection,
+  applyD20OutcomeToModal,
+  disposeActiveD20Roller,
+  openPerformanceCheckModal,
+  closePerformanceCheckModal
+} = performanceModalModule;
 // PHASE 3 & 4: THE SPELL HIGHWAY, WAIT MODE & 100MS CHORD ROLL FORGIVENESS
 // ============================================================================
 
@@ -5159,578 +4400,42 @@ function persistCurrentSongCalibration() {
   }
 }
 
-function applyCurrentStemMixToAudioElements() {
-  if (!currentSong?.stemAudioEls) return;
-  const mix = normalizeStemMix(currentSong.stemMix);
-  currentSong.stemMix = mix;
-  const vMix = normalizeVocalMix(currentSong.vocalMix);
-  currentSong.vocalMix = vMix;
-  const vol = getBackingAudioVolumeFromSlider();
-
-  const hasDiscreteVocalStems = Boolean(
-    currentSong.stemAudioEls.vocals_lead && currentSong.stemAudioEls.vocals_backing
-  );
-  const isVocalModeActive = stageViewMode === 'karaoke' || currentSong.activeHighwayInstrument === 'vocals';
-  const vocalStemAudible = isStemAudibleInMix('vocals', mix, playbackState.backingBandEnabled);
-
-  for (const stemName of STEM_NAMES) {
-    const stEl = currentSong.stemAudioEls[stemName];
-
-    if (stemName === 'vocals') {
-      if (hasDiscreteVocalStems) {
-        // Discrete AI Lead + Backing stems drive the voice; mute combined vocals.wav if present
-        if (stEl) stEl.muted = true;
-        const gains = computeVocalMixMatrixGains({
-          leadVolume: isVocalModeActive ? vMix.leadVolume : 1.0,
-          harmoniesEnabled: isVocalModeActive ? vMix.harmoniesEnabled : true,
-          masterVolume: vol,
-          backingBandEnabled: playbackState.backingBandEnabled,
-          vocalStemAudible
-        });
-        const leadEl = currentSong.stemAudioEls.vocals_lead;
-        const backEl = currentSong.stemAudioEls.vocals_backing;
-        leadEl.volume = gains.discreteLeadGain;
-        leadEl.muted = !vocalStemAudible || gains.discreteLeadGain <= 0.001;
-        backEl.volume = gains.discreteBackingGain;
-        backEl.muted = !vocalStemAudible || gains.discreteBackingGain <= 0.001;
-        continue;
-      }
-      if (!stEl) continue;
-
-      // Single stereo vocals.wav stem: apply Lead Vocal % & Harmonies ON/OFF via Stereo Mid/Side Matrix
-      const effectiveLead = isVocalModeActive ? vMix.leadVolume : 1.0;
-      const effectiveHarm = isVocalModeActive ? vMix.harmoniesEnabled : true;
-      const gains = computeVocalMixMatrixGains({
-        leadVolume: effectiveLead,
-        harmoniesEnabled: effectiveHarm,
-        masterVolume: vol,
-        backingBandEnabled: playbackState.backingBandEnabled,
-        vocalStemAudible
-      });
-      const needsMatrix = isVocalModeActive && (effectiveLead < 0.99 || !effectiveHarm);
-      if (needsMatrix && !currentSong.midSideVocalProcessor && typeof Tone !== 'undefined' && Tone.context?.rawContext) {
-        currentSong.midSideVocalProcessor = createMidSideVocalProcessor(Tone.context.rawContext, stEl);
-      }
-      if (currentSong.midSideVocalProcessor) {
-        stEl.volume = 1.0;
-        stEl.muted = !vocalStemAudible || (gains.midGain <= 0.001 && gains.sideGain <= 0.001);
-        currentSong.midSideVocalProcessor.updateGains(gains.midGain, gains.sideGain);
-      } else {
-        stEl.volume = gains.discreteLeadGain;
-        stEl.muted = !vocalStemAudible || gains.discreteLeadGain <= 0.001;
-      }
-      continue;
-    }
-
-    if (!stEl) continue;
-    stEl.volume = vol;
-    stEl.muted = !isStemAudibleInMix(stemName, mix, playbackState.backingBandEnabled);
-  }
-}
-
-function renderStemMixerUI() {
-  if (!stemMixerSection) return;
-  const hasStems = Boolean(
-    currentSong?.stems &&
-    currentSong?.stemAudioEls &&
-    Object.keys(currentSong.stemAudioEls).length > 0
-  );
-  stemMixerSection.classList.toggle('hidden', !hasStems);
-  if (!hasStems || !stemMixerGrid) return;
-
-  const mix = normalizeStemMix(currentSong.stemMix);
-  for (const stemName of STEM_NAMES) {
-    const row = stemMixerGrid.querySelector(`.stem-mixer-row[data-stem="${stemName}"]`);
-    const muteBtn = stemMixerGrid.querySelector(`[data-stem-mute="${stemName}"]`);
-    const soloBtn = stemMixerGrid.querySelector(`[data-stem-solo="${stemName}"]`);
-    const hasFile = Boolean(currentSong.stemAudioEls[stemName]);
-    const stState = mix[stemName] || { muted: false, solo: false };
-    const audible = hasFile && isStemAudibleInMix(stemName, mix, true);
-
-    if (row) {
-      row.classList.toggle('stem-unavailable', !hasFile);
-      row.classList.toggle('stem-inaudible', hasFile && !audible);
-    }
-    if (muteBtn) {
-      muteBtn.disabled = !hasFile;
-      muteBtn.classList.toggle('active', Boolean(stState.muted));
-      muteBtn.setAttribute('aria-pressed', stState.muted ? 'true' : 'false');
-    }
-    if (soloBtn) {
-      soloBtn.disabled = !hasFile;
-      soloBtn.classList.toggle('active', Boolean(stState.solo));
-      soloBtn.setAttribute('aria-pressed', stState.solo ? 'true' : 'false');
-    }
-  }
-}
-
-function toggleStemMute(stemName) {
-  if (!currentSong?.stems || !STEM_NAMES.includes(stemName)) return;
-  const mix = normalizeStemMix(currentSong.stemMix);
-  mix[stemName].muted = !mix[stemName].muted;
-  if (mix[stemName].muted) {
-    mix[stemName].solo = false;
-  }
-  currentSong.stemMix = mix;
-  applyCurrentStemMixToAudioElements();
-  persistCurrentSongCalibration();
-  renderStemMixerUI();
-}
-
-function toggleStemSolo(stemName) {
-  if (!currentSong?.stems || !STEM_NAMES.includes(stemName)) return;
-  const mix = normalizeStemMix(currentSong.stemMix);
-  mix[stemName].solo = !mix[stemName].solo;
-  if (mix[stemName].solo) {
-    mix[stemName].muted = false;
-  }
-  currentSong.stemMix = mix;
-  applyCurrentStemMixToAudioElements();
-  persistCurrentSongCalibration();
-  renderStemMixerUI();
-}
-
-function resetStemMixToDefault() {
-  if (!currentSong?.stems) return;
-  const activeInst = currentSong.activeHighwayInstrument || 'piano';
-  const nextMix = createDefaultStemMix();
-  for (const st of STEM_NAMES) {
-    nextMix[st] = { muted: st === activeInst, solo: false };
-  }
-  currentSong.stemMix = normalizeStemMix(nextMix);
-  applyCurrentStemMixToAudioElements();
-  persistCurrentSongCalibration();
-  renderStemMixerUI();
-}
-
-function applyLiveAudioSyncCalibration({ nextOffsetSec, nextTempoRatio, statusMessage = null } = {}) {
-  if (!currentSong) return;
-  if (nextOffsetSec !== undefined) {
-    currentSong.audioOffsetSec = clampAudioOffsetSec(nextOffsetSec);
-  }
-  if (nextTempoRatio !== undefined) {
-    currentSong.audioTempoRatio = clampAudioTempoRatio(nextTempoRatio);
-  }
-  currentSong.hasCustomBundle = Boolean(
-    currentSong.sheetMusicPath ||
-    currentSong.backingAudioPath ||
-    currentSong.stems ||
-    currentSong.youtubeUrl ||
-    currentSong.spotifyUrl ||
-    Math.abs(currentSong.audioOffsetSec || 0) > 0.0001 ||
-    Math.abs((currentSong.audioTempoRatio ?? 1.0) - 1.0) > 0.0001 ||
-    typeof currentSong.midiCleanupOverride === 'boolean'
-  );
-
-  const effRate = getEffectiveBackingPlaybackRate(
-    playbackState.playbackSpeed,
-    currentSong.audioTempoRatio
-  );
-  if (currentSong.backingAudioEl) {
-    currentSong.backingAudioEl.preservesPitch = true;
-    currentSong.backingAudioEl.webkitPreservesPitch = true;
-    currentSong.backingAudioEl.playbackRate = effRate;
-  }
-  if (currentSong.stemAudioEls) {
-    for (const stEl of Object.values(currentSong.stemAudioEls)) {
-      if (!stEl) continue;
-      stEl.preservesPitch = true;
-      stEl.webkitPreservesPitch = true;
-      stEl.playbackRate = effRate;
-    }
-  }
-  seekBackingAudioToSongTime(playbackState.currentTime);
-
-  persistCurrentSongCalibration();
-  updateAudioSyncUI(statusMessage);
-  syncBackingAudioElement(playbackState.currentTime);
-}
-
-function updateAudioSyncUI(customHint = null) {
-  const hasStems = Boolean(
-    currentSong?.stems &&
-    currentSong?.stemAudioEls &&
-    Object.keys(currentSong.stemAudioEls).length > 0
-  );
-  const hasAudio = Boolean((currentSong?.backingAudioPath && currentSong?.backingAudioEl) || hasStems);
-  if (audioSyncAnchor) {
-    audioSyncAnchor.classList.toggle('hidden', !hasAudio);
-  }
-  if (settingsSyncRow) {
-    settingsSyncRow.classList.toggle('hidden', !hasAudio);
-  }
-  if (!hasAudio) {
-    stopAudioAudition();
-    if (audioSyncPopover) audioSyncPopover.classList.add('hidden');
-    if (btnAudioSync) {
-      btnAudioSync.classList.remove('active', 'sync-non-zero');
-      btnAudioSync.setAttribute('aria-expanded', 'false');
-    }
-    return;
-  }
-
-  renderStemMixerUI();
-  if (typeof syncVocalMixUI === 'function') {
-    syncVocalMixUI();
-  }
-
-  const off = clampAudioOffsetSec(currentSong.audioOffsetSec || 0);
-  const ratio = clampAudioTempoRatio(currentSong.audioTempoRatio ?? 1.0);
-  const offsetText = `${off >= 0 ? '+' : ''}${off.toFixed(2)}s`;
-  const driftText = `${(ratio * 100).toFixed(1)}%`;
-  const isNonZero = Math.abs(off) >= 0.005 || Math.abs(ratio - 1.0) >= 0.0005;
-
-  if (syncBadgePill) {
-    syncBadgePill.textContent = hasStems ? `6-Stem • ${offsetText}` : offsetText;
-  }
-  if (syncOffsetReadout) syncOffsetReadout.textContent = offsetText;
-  if (syncDriftReadout) syncDriftReadout.textContent = driftText;
-  if (btnAudioSync) btnAudioSync.classList.toggle('sync-non-zero', isNonZero || hasStems);
-
-  if (syncStatusHint) {
-    if (customHint) {
-      syncStatusHint.textContent = customHint;
-    } else if (!audioAuditionEl && !isAuditionPending) {
-      const firstNoteSec = getFirstPlayableNoteSec(currentSong);
-      syncStatusHint.textContent = `First note at ${firstNoteSec.toFixed(2)}s • Offset ${offsetText} • Drift ${driftText}. Saves automatically per song.`;
-    }
-  }
-}
-
-function stopAudioAudition() {
-  auditionRequestSeq += 1;
-  isAuditionPending = false;
-  if (audioAuditionTimer) {
-    clearInterval(audioAuditionTimer);
-    audioAuditionTimer = null;
-  }
-  audioAuditionStartedAtMs = null;
-  if (audioAuditionEl) {
-    try {
-      audioAuditionEl._disposed = true;
-      audioAuditionEl.pause();
-      audioAuditionEl.removeAttribute('src');
-      audioAuditionEl.load();
-    } catch {
-      // Ignore audition cleanup error
-    }
-    audioAuditionEl = null;
-  }
-  if (btnSyncAudition) {
-    btnSyncAudition.textContent = '\uD83D\uDD0A Audition 0:00';
-  }
-  if (btnSyncMarkBeat1) {
-    btnSyncMarkBeat1.textContent = '\uD83C\uDFAF Mark Beat 1';
-  }
-}
-
-async function startAudioAudition() {
-  if (audioAuditionEl || isAuditionPending) {
-    stopAudioAudition();
-    updateAudioSyncUI('Audition stopped.');
-    return;
-  }
-  const targetSong = currentSong;
-  if (!targetSong?.backingAudioPath || !fs.existsSync(targetSong.backingAudioPath)) return;
-
-  const seq = ++auditionRequestSeq;
-  isAuditionPending = true;
-  pausePlayback();
-  if (btnSyncAudition) btnSyncAudition.textContent = '\u23F9 Stop Audition';
-  if (syncStatusHint) syncStatusHint.textContent = 'Starting audition from 0:00\u2026';
-
-  let el = null;
-  const disposeEl = (targetEl) => {
-    if (!targetEl) return;
-    try {
-      targetEl._disposed = true;
-      targetEl.pause();
-      targetEl.removeAttribute('src');
-      targetEl.load();
-    } catch {
-      // Ignore audition cleanup error
-    }
-  };
-
-  try {
-    await ensureAudioReady();
-    if (seq !== auditionRequestSeq || currentSong !== targetSong || !fs.existsSync(targetSong.backingAudioPath)) {
-      isAuditionPending = false;
-      if (!audioAuditionEl && btnSyncAudition) {
-        btnSyncAudition.textContent = '\uD83D\uDD0A Audition 0:00';
-      }
-      return;
-    }
-
-    el = new Audio(pathToFileURL(targetSong.backingAudioPath).href);
-    el.preload = 'auto';
-    el.volume = getBackingAudioVolumeFromSlider();
-    el.preservesPitch = true;
-    el.webkitPreservesPitch = true;
-    el.playbackRate = 1.0;
-
-    el.addEventListener('ended', () => {
-      if (el._disposed) return;
-      stopAudioAudition();
-      updateAudioSyncUI('Audition finished.');
-    });
-    el.addEventListener('error', () => {
-      if (el._disposed) return;
-      stopAudioAudition();
-      showGrimoireToast('Could not audition backing audio file.', 'warning');
-    });
-
-    audioAuditionEl = el;
-    audioAuditionStartedAtMs = performance.now();
-    if (btnSyncAudition) btnSyncAudition.textContent = '\u23F9 Stop Audition';
-
-    await el.play();
-    if (seq !== auditionRequestSeq || el._disposed || currentSong !== targetSong) {
-      disposeEl(el);
-      if (audioAuditionEl === el) audioAuditionEl = null;
-      isAuditionPending = false;
-      return;
-    }
-
-    isAuditionPending = false;
-    if (btnSyncMarkBeat1) btnSyncMarkBeat1.textContent = '\uD83C\uDFAF Tap Beat 1 Now!';
-    if (syncStatusHint) {
-      syncStatusHint.textContent = 'Listening from 0:00… click "🎯 Tap Beat 1 Now!" when Measure 1 / Beat 1 hits.';
-    }
-    audioAuditionTimer = setInterval(() => {
-      if (!audioAuditionEl || audioAuditionEl._disposed) return;
-      const elapsed = Number(audioAuditionEl.currentTime) || 0;
-      if (syncStatusHint) {
-        syncStatusHint.textContent = `Auditioning: ${elapsed.toFixed(2)}s — Tap "🎯 Tap Beat 1 Now!" on Beat 1`;
-      }
-    }, 80);
-  } catch (err) {
-    disposeEl(el);
-    if (seq === auditionRequestSeq) {
-      stopAudioAudition();
-      showGrimoireToast(`Could not play audition audio: ${err?.message || err}`, 'warning');
-    } else {
-      isAuditionPending = false;
-    }
-  }
-}
-
-function handleMarkBeat1Click() {
-  if (!currentSong?.backingAudioPath) return;
-  const isActivelyPlaying = Boolean(audioAuditionEl && !audioAuditionEl.paused && audioAuditionEl.currentTime > 0);
-  if (isAuditionPending && !isActivelyPlaying) return;
-  if (!audioAuditionEl || audioAuditionEl.paused) {
-    startAudioAudition();
-    return;
-  }
-
-  const heardSec = Math.max(0, Number(audioAuditionEl.currentTime) || 0);
-  const firstNoteSec = getFirstPlayableNoteSec(currentSong);
-  const nextOffset = computeAudioOffsetForBeat1(heardSec, firstNoteSec, currentSong.audioTempoRatio);
-  stopAudioAudition();
-
-  applyLiveAudioSyncCalibration({
-    nextOffsetSec: nextOffset,
-    statusMessage: `Beat 1 locked at ${heardSec.toFixed(2)}s (Start Offset ${nextOffset >= 0 ? '+' : ''}${nextOffset.toFixed(2)}s).`
-  });
-  showGrimoireToast(`\uD83C\uDFAF Beat 1 locked (${heardSec.toFixed(2)}s \u2192 Offset ${nextOffset >= 0 ? '+' : ''}${nextOffset.toFixed(2)}s)`);
-}
-
-async function runAutoAlignFirstOnset() {
-  const targetSong = currentSong;
-  if (!targetSong?.backingAudioPath || !fs.existsSync(targetSong.backingAudioPath)) return;
-  pausePlayback();
-  stopAudioAudition();
-
-  if (btnSyncAutoAlign) {
-    btnSyncAutoAlign.disabled = true;
-    btnSyncAutoAlign.textContent = '\u23F3 Analyzing...';
-  }
-  updateAudioSyncUI('Scanning backing audio waveform for first musical onset...');
-
-  let audioCtx = null;
-  try {
-    const fileBuf = await fs.promises.readFile(targetSong.backingAudioPath);
-    if (currentSong !== targetSong) return;
-    const arrayBuf = fileBuf.buffer.slice(fileBuf.byteOffset, fileBuf.byteOffset + fileBuf.byteLength);
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) {
-      throw new Error('Web Audio API unavailable for decoding.');
-    }
-    audioCtx = new AudioCtx();
-    const decoded = await audioCtx.decodeAudioData(arrayBuf);
-    if (currentSong !== targetSong) return;
-
-    const numChannels = Math.max(1, decoded.numberOfChannels || 1);
-    const maxSamples = Math.min(decoded.length, Math.floor(decoded.sampleRate * 40));
-    const mono = new Float32Array(maxSamples);
-    for (let ch = 0; ch < numChannels; ch++) {
-      const chData = decoded.getChannelData(ch);
-      for (let i = 0; i < maxSamples; i++) {
-        mono[i] += chData[i] / numChannels;
-      }
-    }
-
-    const onsetSec = detectFirstAudioOnsetSec(mono, decoded.sampleRate, 35);
-    if (currentSong !== targetSong) return;
-    if (onsetSec === null) {
-      updateAudioSyncUI('No distinct onset detected automatically. Try Audition 0:00 + Mark Beat 1.');
-      showGrimoireToast('Could not detect Beat 1 automatically — tap Mark Beat 1 while auditioning.', 'warning');
-      return;
-    }
-
-    const firstNoteSec = getFirstPlayableNoteSec(targetSong);
-    const nextOffset = computeAudioOffsetForBeat1(onsetSec, firstNoteSec, targetSong.audioTempoRatio);
-    applyLiveAudioSyncCalibration({
-      nextOffsetSec: nextOffset,
-      statusMessage: `Auto-Aligned! First onset at ${onsetSec.toFixed(2)}s \u2192 Offset ${nextOffset >= 0 ? '+' : ''}${nextOffset.toFixed(2)}s.`
-    });
-    showGrimoireToast(`\u26A1 Auto-Aligned! Onset ${onsetSec.toFixed(2)}s \u2192 Offset ${nextOffset >= 0 ? '+' : ''}${nextOffset.toFixed(2)}s`);
-  } catch (err) {
-    if (currentSong === targetSong) {
-      updateAudioSyncUI(`Auto-Align failed: ${err?.message || err}`);
-      showGrimoireToast(`Auto-Align failed: ${err?.message || err}`, 'warning');
-    }
-  } finally {
-    if (audioCtx) {
-      audioCtx.close().catch(() => {});
-    }
-    if (btnSyncAutoAlign) {
-      btnSyncAutoAlign.disabled = false;
-      btnSyncAutoAlign.textContent = '\u26A1 Auto-Align';
-    }
-  }
-}
-
-/**
- * Synchronize paired .wav / .mp3 backing audio element or 6-stem audio elements (Issue #31, #76, #41).
- * Called independently of `audioTriggerEnd >= prevTime` so backing audio immediately
- * pauses when Wait Mode freezes at a chord or when Backing Band is toggled OFF.
- */
-function syncBackingAudioElement(currentTime = playbackState.currentTime) {
-  if (!currentSong) return;
-  const stemEntries = currentSong.stemAudioEls ? Object.entries(currentSong.stemAudioEls) : [];
-  const hasActiveStems = stemEntries.length > 0;
-  if (!currentSong.backingAudioEl && !hasActiveStems) return;
-
-  const mapped = getMappedBackingAudioTime(currentTime, {
-    audioOffsetSec: currentSong.audioOffsetSec,
-    audioTempoRatio: currentSong.audioTempoRatio
-  });
-  const effRate = getEffectiveBackingPlaybackRate(
-    playbackState.playbackSpeed,
-    currentSong.audioTempoRatio
-  );
-
-  const syncSingleAudioEl = (audioEl, forceMuteOrPause = false, mutedFlag = false) => {
-    if (!audioEl) return;
-    const nextMuted = Boolean(mutedFlag);
-    if (audioEl.muted !== nextMuted) {
-      audioEl.muted = nextMuted;
-    }
-    const audioDur = audioEl.duration;
-    const pastAudioEnd = Number.isFinite(audioDur) && audioDur > 0 && mapped.clampedAudioTime >= audioDur - 0.02;
-
-    const shouldPlay =
-      !forceMuteOrPause &&
-      playbackState.isPlaying &&
-      playbackState.backingBandEnabled &&
-      !playbackState.isWaitingForStrike &&
-      !mapped.isBeforeAudioStart &&
-      !pastAudioEnd &&
-      currentTime < currentSong.duration;
-
-    if (shouldPlay) {
-      if (!audioEl.preservesPitch) audioEl.preservesPitch = true;
-      if (!audioEl.webkitPreservesPitch) audioEl.webkitPreservesPitch = true;
-      if (Math.abs((Number(audioEl.playbackRate) || 1) - effRate) > 0.0005) {
-        audioEl.playbackRate = effRate;
-      }
-      const targetAudioTime = Number.isFinite(audioDur) && audioDur > 0
-        ? Math.min(mapped.clampedAudioTime, Math.max(0, audioDur - 0.02))
-        : mapped.clampedAudioTime;
-
-      if (audioEl.paused) {
-        if (!audioEl._playPending) {
-          if (Math.abs((Number(audioEl.currentTime) || 0) - targetAudioTime) > 0.05) {
-            try {
-              audioEl.currentTime = targetAudioTime;
-            } catch {
-              // Ignore seek errors before audio metadata is ready
-            }
-          }
-          audioEl._playPending = true;
-          Promise.resolve(audioEl.play())
-            .catch(() => {})
-            .finally(() => {
-              audioEl._playPending = false;
-            });
-        }
-      } else if (Math.abs(audioEl.currentTime - targetAudioTime) > 0.28) {
-        try {
-          audioEl.currentTime = targetAudioTime;
-        } catch {
-          // Ignore seek errors
-        }
-      }
-    } else if (!audioEl.paused || audioEl._playPending) {
-      audioEl.pause();
-    }
-  };
-
-  if (hasActiveStems) {
-    // Pause full mix backingAudioEl when 6-stem audio elements are active so it doesn't double-play
-    if (currentSong.backingAudioEl && !currentSong.backingAudioEl.paused) {
-      currentSong.backingAudioEl.pause();
-    }
-    const mix = currentSong.stemMix || normalizeStemMix(null);
-    const vMix = normalizeVocalMix(currentSong.vocalMix);
-    const hasDiscreteVocalStems = Boolean(
-      currentSong.stemAudioEls.vocals_lead && currentSong.stemAudioEls.vocals_backing
-    );
-    const isVocalModeActive = stageViewMode === 'karaoke' || currentSong.activeHighwayInstrument === 'vocals';
-    const vocalStemAudible = isStemAudibleInMix('vocals', mix, playbackState.backingBandEnabled);
-    const vocalGains = computeVocalMixMatrixGains({
-      leadVolume: isVocalModeActive ? vMix.leadVolume : 1.0,
-      harmoniesEnabled: isVocalModeActive ? vMix.harmoniesEnabled : true,
-      masterVolume: 1.0,
-      backingBandEnabled: playbackState.backingBandEnabled,
-      vocalStemAudible
-    });
-
-    const stemsPlaying =
-      playbackState.isPlaying &&
-      playbackState.backingBandEnabled &&
-      !playbackState.isWaitingForStrike &&
-      !mapped.isBeforeAudioStart &&
-      currentTime < currentSong.duration;
-
-    if (stemsPlaying && currentSong.midSideVocalProcessor && typeof currentSong.midSideVocalProcessor.resumeContext === 'function') {
-      currentSong.midSideVocalProcessor.resumeContext();
-    }
-
-    for (const [stemName, stEl] of stemEntries) {
-      let forceMute = false;
-      if (stemName === 'vocals') {
-        if (hasDiscreteVocalStems) {
-          forceMute = true;
-        } else {
-          forceMute = !vocalStemAudible || (vocalGains.midGain <= 0.001 && vocalGains.sideGain <= 0.001);
-        }
-      } else if (stemName === 'vocals_lead') {
-        forceMute = !vocalStemAudible || vocalGains.discreteLeadGain <= 0.001;
-      } else if (stemName === 'vocals_backing') {
-        forceMute = !vocalStemAudible || vocalGains.discreteBackingGain <= 0.001;
-      } else {
-        forceMute = !isStemAudibleInMix(stemName, mix, playbackState.backingBandEnabled);
-      }
-      syncSingleAudioEl(stEl, false, forceMute);
-    }
-  } else if (currentSong.backingAudioEl) {
-    syncSingleAudioEl(currentSong.backingAudioEl, false, false);
-  }
-}
-
+// Issue #184: 6-Stem Mixer, Live Audio Sync & Audition extracted to ./modules/audio-engine.js
+const { createAudioEngineModule } = require('./modules/audio-engine');
+const audioEngineModule = createAudioEngineModule({
+  fs, path, pathToFileURL,
+  Tone, playbackState, grimoireSpells,
+  computeVocalMixMatrixGains, isStemAudibleInMix,
+  renderGrimoireSidebar: () => renderGrimoireSidebar(),
+  getBackingAudioVolumeFromSlider, showGrimoireToast,
+  get currentSong() { return currentSong; },
+  set currentSong(v) { currentSong = v; },
+  get stageViewMode() { return stageViewMode; },
+  set stageViewMode(v) { stageViewMode = v; },
+  get audioAuditionEl() { return audioAuditionEl; },
+  set audioAuditionEl(v) { audioAuditionEl = v; },
+  get audioAuditionTimer() { return audioAuditionTimer; },
+  set audioAuditionTimer(v) { audioAuditionTimer = v; },
+  get auditionRequestSeq() { return auditionRequestSeq; },
+  set auditionRequestSeq(v) { auditionRequestSeq = v; },
+  get isAuditionPending() { return isAuditionPending; },
+  set isAuditionPending(v) { isAuditionPending = v; },
+  audioSyncPopover
+});
+const {
+  applyCurrentStemMixToAudioElements,
+  renderStemMixerUI,
+  toggleStemMute,
+  toggleStemSolo,
+  resetStemMixToDefault,
+  applyLiveAudioSyncCalibration,
+  updateAudioSyncUI,
+  stopAudioAudition,
+  startAudioAudition,
+  handleMarkBeat1Click,
+  runAutoAlignFirstOnset,
+  syncBackingAudioElement
+} = audioEngineModule;
 /**
  * Trigger Accompaniment & Backing Band notes that cross currentTime during this frame
  */
@@ -7074,969 +5779,79 @@ function playSpellbookPageTurnSound() {
   }
 }
 
-function openGrimoireSpellbook(origin = 'highway') {
-  pausePlayback();
-  closeAllConservatoryPopovers();
-  closeStreakPopover();
-  previousSpellbookOrigin = origin;
-
-  // Default to the currently loaded song's tier if active (and not in Attuned filter)
-  if (currentSong && currentSong.difficulty) {
-    if (!spellbookFavoritesOnly) {
-      currentSpellbookTierIndex = getSpellbookTierIndexForLevel(currentSong.difficulty.spellLevel);
-    }
-    selectedSpellbookEntryId = currentSong.songId || null;
-  }
-
-  if (grimoireCountBadge) {
-    grimoireCountBadge.textContent = String(grimoireSpells.size);
-  }
-
-  if (grimoireSpellbookModal) {
-    grimoireSpellbookModal.classList.remove('hidden');
-  }
-
-  if (spellbookSearchInput) {
-    spellbookSearchInput.value = '';
-  }
-
-  renderSpellbookSpread();
-
-  if (btnCloseSpellbook) {
-    btnCloseSpellbook.focus();
-  }
-}
-
-let previewMenuEntryId = null;
-
-async function extractPreviewNotesForGrimoireEntry(entry) {
-  if (!entry) return [];
-  let arrayBuf = null;
-  if (entry.filePath === 'BUILTIN_DEMO') {
-    const bytes = buildDemoSpellMidiBytes();
-    arrayBuf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-  } else if (entry.filePath && fs.existsSync(entry.filePath)) {
-    const rawBuf = fs.readFileSync(entry.filePath);
-    if (isMusicXmlFileName(entry.fileName || entry.filePath)) {
-      const converted = convertMusicXmlToMidiBuffer(rawBuf, entry.fileName || path.basename(entry.filePath));
-      if (converted && converted.midiBytes) {
-        arrayBuf = converted.midiBytes.buffer.slice(
-          converted.midiBytes.byteOffset,
-          converted.midiBytes.byteOffset + converted.midiBytes.byteLength
-        );
-      }
-    } else {
-      arrayBuf = rawBuf.buffer.slice(rawBuf.byteOffset, rawBuf.byteOffset + rawBuf.byteLength);
-    }
-  }
-  if (!arrayBuf) return [];
-
-  const midi = new Midi(arrayBuf);
-  const extracted = [];
-  for (const track of midi.tracks) {
-    if (track.channel === 9) continue;
-    for (const note of track.notes) {
-      const folded = foldMidiNoteDetails(note.midi);
-      extracted.push({
-        midi: note.midi,
-        foldedMidi: folded.foldedMidi,
-        name: midiToNoteName(folded.foldedMidi),
-        foldedName: midiToNoteName(folded.foldedMidi),
-        time: note.time,
-        duration: note.duration,
-        velocity: note.velocity
-      });
-    }
-  }
-  return extracted;
-}
-
-const grimoirePreviewController = createGrimoirePreviewController({
-  Tone,
-  AudioCtor: typeof Audio !== 'undefined' ? Audio : null,
-  pathToFileURL,
-  getBackingVolume: () => getBackingAudioVolumeFromSlider(),
-  ensureAudioReady,
-  getPianoInstrument: () => getActiveInstrument(),
-  extractNotesForEntry: extractPreviewNotesForGrimoireEntry,
-  onStateChange: (state) => updateGrimoirePreviewUI(state),
-  onError: (msg) => showGrimoireToast(msg, 'warning')
+// Issue #184: Grimoire Spellbook UI extracted to ./modules/spellbook-ui.js
+const { createSpellbookUI } = require('./modules/spellbook-ui');
+const spellbookUI = createSpellbookUI({
+  fs, path, pathToFileURL, Midi, Tone, shell,
+  SPELLBOOK_TIERS,
+  grimoireSpells, songPlayHistory,
+  hasPreviewBackingAudio, getAvailablePreviewSources, createGrimoirePreviewController,
+  computeHallOfLegends, formatLegendDate,
+  isMusicXmlFileName, convertMusicXmlToMidiBuffer, buildDemoSpellMidiBytes,
+  foldMidiNoteDetails, midiToNoteName, formatSeconds, formatAnnalsDate,
+  getSpellbookTierIndexForLevel, getSongHistoryRecord, isGrimoireEntryDeletable,
+  toggleGrimoireFavorite, openDeleteSpellConfirmModal, saveSpellbookFavoritesFilter,
+  playSpellbookPageTurnSound, showTavernMenu, hideTavernMenu,
+  computeKeyGeometry: () => computeKeyGeometry(),
+  pausePlayback, closeAllConservatoryPopovers, closeStreakPopover,
+  ensureAudioReady, getActiveInstrument, getBackingAudioVolumeFromSlider,
+  showGrimoireToast,
+  loadGrimoireEntry: (entry) => loadGrimoireEntry(entry),
+  resetPlaybackToStart, updateTavernMenuStats,
+  openSongBundleModal: (entry) => openSongBundleModal(entry),
+  get currentSong() { return currentSong; },
+  set currentSong(v) { currentSong = v; },
+  get currentSpellbookTierIndex() { return currentSpellbookTierIndex; },
+  set currentSpellbookTierIndex(v) { currentSpellbookTierIndex = v; },
+  get selectedSpellbookEntryId() { return selectedSpellbookEntryId; },
+  set selectedSpellbookEntryId(v) { selectedSpellbookEntryId = v; },
+  get spellbookFavoritesOnly() { return spellbookFavoritesOnly; },
+  set spellbookFavoritesOnly(v) { spellbookFavoritesOnly = v; },
+  get isSpellbookFlipping() { return isSpellbookFlipping; },
+  set isSpellbookFlipping(v) { isSpellbookFlipping = v; },
+  get previousSpellbookOrigin() { return previousSpellbookOrigin; },
+  set previousSpellbookOrigin(v) { previousSpellbookOrigin = v; },
+  grimoireSpellbookModal, grimoireCountBadge, spellbookSearchInput, spellbookSearchRow,
+  btnSpellbookFavoritesFilter, spellbookFavCount, spellbookSongList, spellbookEmptyState,
+  spellbookPageNumLeft, spellbookPageNumRight, spellbookDetailPanel,
+  spellbookLegendsLeftPanel, spellbookLegendsRightPanel,
+  spellbookLegendsAccList, spellbookLegendsAccEmpty,
+  spellbookLegendsXpList, spellbookLegendsXpEmpty,
+  spellbookTierBadge, spellbookTierXp, spellbookTierName, spellbookTierDesc,
+  spellbookSpread, spellbookTierPips,
+  btnCloseSpellbook, btnSpellbookPrevPage, btnSpellbookNextPage,
+  spellbookDetailTierChip, spellbookDetailKeySig, spellbookDetailSource,
+  spellbookDetailTitle, spellbookDetailFile, spellbookDetailBpm,
+  spellbookDetailDuration, spellbookDetailNps, spellbookDetailNotes,
+  spellbookDetailPlays, spellbookDetailBestAcc, spellbookDetailLastAcc,
+  spellbookDetailTotalXp, spellbookDetailLastPlayed, spellbookDetailAudioBadge,
+  spellbookBundleNotesChip, spellbookBundleSheetChip, spellbookBundleAudioChip,
+  spellbookBundleSpotifyLink, btnSpellbookBundle,
+  btnSpellbookLoadSong, btnSpellbookPreviewSong, btnSpellbookFavoriteSong, btnSpellbookDeleteSong,
+  spellbookPreviewMenu, btnPreviewSourceRecording, btnPreviewSourceMidi, btnPlayPause
 });
-
-function closeSpellbookPreviewMenu() {
-  previewMenuEntryId = null;
-  if (spellbookPreviewMenu) {
-    spellbookPreviewMenu.classList.add('hidden');
-  }
-}
-
-function stopGrimoirePreview() {
-  closeSpellbookPreviewMenu();
-  grimoirePreviewController.stopPreview();
-}
-
-function updateGrimoirePreviewUI(state = grimoirePreviewController.getState()) {
-  const activeId = state && state.isPlaying ? state.entryId : null;
-  const pct = state && state.isPlaying ? Math.round((state.progress || 0) * 100) : 0;
-
-  if (spellbookSongList) {
-    spellbookSongList.querySelectorAll('.spellbook-card-preview-btn').forEach((btn) => {
-      const isThis = Boolean(activeId && btn.dataset.entryId === activeId);
-      btn.classList.toggle('is-previewing', isThis);
-      btn.style.setProperty('--preview-pct', `${isThis ? pct : 0}%`);
-      btn.textContent = isThis ? '\u25A0' : '\u25B6';
-      btn.setAttribute('aria-pressed', isThis ? 'true' : 'false');
-      const title = btn.dataset.entryTitle || 'spell';
-      btn.title = isThis
-        ? `Stop 30s preview of "${title}"`
-        : `Preview 30s of "${title}"`;
-      btn.setAttribute('aria-label', isThis ? `Stop preview of ${title}` : `Preview ${title}`);
-    });
-  }
-
-  if (btnSpellbookPreviewSong) {
-    const selectedId = selectedSpellbookEntryId;
-    const isSelectedPreviewing = Boolean(activeId && selectedId && activeId === selectedId);
-    btnSpellbookPreviewSong.classList.toggle('is-previewing', isSelectedPreviewing);
-    btnSpellbookPreviewSong.setAttribute('aria-pressed', isSelectedPreviewing ? 'true' : 'false');
-    if (isSelectedPreviewing) {
-      const remaining = Math.max(0, Math.ceil((state.durationSec || PREVIEW_DURATION_SEC) - (state.elapsedSec || 0)));
-      const srcLabel = state.source === 'recording' ? 'Recording' : 'Piano';
-      btnSpellbookPreviewSong.textContent = `\u25A0 Stop (${srcLabel} ${remaining}s)`;
-    } else {
-      btnSpellbookPreviewSong.textContent = '\uD83C\uDFA7 Preview';
-    }
-  }
-}
-
-function openSpellbookPreviewMenu(entry, anchorEl) {
-  if (!spellbookPreviewMenu || !entry) return;
-  const hasRecording = hasPreviewBackingAudio(entry);
-  previewMenuEntryId = entry.id;
-
-  if (btnPreviewSourceRecording) {
-    btnPreviewSourceRecording.classList.toggle('hidden', !hasRecording);
-    btnPreviewSourceRecording.disabled = !hasRecording;
-  }
-
-  spellbookPreviewMenu.classList.remove('hidden');
-
-  const container = grimoireSpellbookModal?.querySelector('.spellbook-container');
-  if (container && anchorEl) {
-    const cRect = container.getBoundingClientRect();
-    const aRect = anchorEl.getBoundingClientRect();
-    const menuW = spellbookPreviewMenu.offsetWidth || 184;
-    const menuH = spellbookPreviewMenu.offsetHeight || 110;
-    let left = aRect.right - cRect.left - menuW;
-    if (left < 12) left = aRect.left - cRect.left;
-    if (left + menuW > cRect.width - 12) left = Math.max(12, cRect.width - menuW - 12);
-    let top = aRect.bottom - cRect.top + 6;
-    if (top + menuH > cRect.height - 12) {
-      top = Math.max(12, aRect.top - cRect.top - menuH - 6);
-    }
-    spellbookPreviewMenu.style.left = `${Math.round(left)}px`;
-    spellbookPreviewMenu.style.top = `${Math.round(top)}px`;
-  }
-}
-
-function handleGrimoirePreviewButtonClick(entry, anchorEl) {
-  if (!entry) return;
-  if (grimoirePreviewController.isPreviewingEntry(entry.id)) {
-    stopGrimoirePreview();
-    return;
-  }
-  const sources = getAvailablePreviewSources(entry);
-  if (sources.length === 1) {
-    closeSpellbookPreviewMenu();
-    void grimoirePreviewController.startPreview(entry, sources[0]);
-    return;
-  }
-  if (previewMenuEntryId === entry.id && spellbookPreviewMenu && !spellbookPreviewMenu.classList.contains('hidden')) {
-    closeSpellbookPreviewMenu();
-    return;
-  }
-  openSpellbookPreviewMenu(entry, anchorEl);
-}
-
-if (btnPreviewSourceRecording) {
-  btnPreviewSourceRecording.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const entry = previewMenuEntryId ? grimoireSpells.get(previewMenuEntryId) : null;
-    closeSpellbookPreviewMenu();
-    if (entry) {
-      void grimoirePreviewController.startPreview(entry, 'recording');
-    }
-  });
-}
-
-if (btnPreviewSourceMidi) {
-  btnPreviewSourceMidi.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const entry = previewMenuEntryId ? grimoireSpells.get(previewMenuEntryId) : null;
-    closeSpellbookPreviewMenu();
-    if (entry) {
-      void grimoirePreviewController.startPreview(entry, 'midi');
-    }
-  });
-}
-
-if (btnSpellbookPreviewSong) {
-  btnSpellbookPreviewSong.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const entry = selectedSpellbookEntryId ? grimoireSpells.get(selectedSpellbookEntryId) : null;
-    if (!entry) return;
-    handleGrimoirePreviewButtonClick(entry, btnSpellbookPreviewSong);
-  });
-}
-
-document.addEventListener('click', (e) => {
-  if (!spellbookPreviewMenu || spellbookPreviewMenu.classList.contains('hidden')) return;
-  if (spellbookPreviewMenu.contains(e.target)) return;
-  if (e.target && e.target.closest && (e.target.closest('.spellbook-card-preview-btn') || e.target.closest('#btn-spellbook-preview-song'))) {
-    return;
-  }
-  closeSpellbookPreviewMenu();
-});
-
-function closeGrimoireSpellbook() {
-  stopGrimoirePreview();
-  if (grimoireSpellbookModal) {
-    grimoireSpellbookModal.classList.add('hidden');
-  }
-  if (previousSpellbookOrigin === 'tavern') {
-    showTavernMenu();
-  } else {
-    hideTavernMenu();
-    if (btnPlayPause) {
-      btnPlayPause.focus();
-    }
-    setTimeout(() => {
-      computeKeyGeometry();
-    }, 40);
-  }
-}
-
-const HALL_OF_LEGENDS_SPREAD_INDEX = SPELLBOOK_TIERS.length;
-const TOTAL_SPELLBOOK_SPREADS = SPELLBOOK_TIERS.length + 1;
-
-function flipSpellbookPage(direction) {
-  if (isSpellbookFlipping || spellbookFavoritesOnly) return;
-  const targetIndex = currentSpellbookTierIndex + direction;
-  if (targetIndex < 0 || targetIndex >= TOTAL_SPELLBOOK_SPREADS) return;
-  navigateToSpellbookTier(targetIndex, direction > 0 ? 'forward' : 'backward');
-}
-
-function navigateToSpellbookTier(targetIndex, animDirection = 'forward') {
-  if (isSpellbookFlipping) return;
-  if (targetIndex < 0 || targetIndex >= TOTAL_SPELLBOOK_SPREADS) return;
-  if (targetIndex === currentSpellbookTierIndex && !spellbookFavoritesOnly) return;
-
-  stopGrimoirePreview();
-  if (spellbookFavoritesOnly) {
-    spellbookFavoritesOnly = false;
-    saveSpellbookFavoritesFilter();
-  }
-  isSpellbookFlipping = true;
-  playSpellbookPageTurnSound();
-
-  const animClass = animDirection === 'forward' ? 'flipping-forward' : 'flipping-backward';
-  if (spellbookSpread) {
-    spellbookSpread.classList.remove('flipping-forward', 'flipping-backward');
-    void spellbookSpread.offsetWidth; // Force reflow
-    spellbookSpread.classList.add(animClass);
-  }
-
-  setTimeout(() => {
-    currentSpellbookTierIndex = targetIndex;
-    renderSpellbookSpread();
-    if (spellbookSpread) {
-      spellbookSpread.classList.remove(animClass);
-    }
-    isSpellbookFlipping = false;
-  }, 240);
-}
-
-function renderSpellbookTierPips() {
-  if (!spellbookTierPips) return;
-  spellbookTierPips.innerHTML = '';
-  SPELLBOOK_TIERS.forEach((tier, idx) => {
-    const isActive = !spellbookFavoritesOnly && idx === currentSpellbookTierIndex;
-    const pip = document.createElement('button');
-    pip.type = 'button';
-    pip.className = `tier-pip${isActive ? ' active' : ''}`;
-    pip.textContent = tier.pipLabel;
-    pip.title = `${tier.title} (${tier.xp}) \u2014 Click to view`;
-    pip.setAttribute('role', 'tab');
-    pip.setAttribute('aria-selected', isActive ? 'true' : 'false');
-    pip.addEventListener('click', (e) => {
-      e.stopPropagation();
-      navigateToSpellbookTier(idx, idx > currentSpellbookTierIndex ? 'forward' : 'backward');
-    });
-    spellbookTierPips.appendChild(pip);
-  });
-
-  // Issue #162: 11th Bookmark Tab — Hall of Legends (Personal Records)
-  const isLegendsActive = !spellbookFavoritesOnly && currentSpellbookTierIndex === HALL_OF_LEGENDS_SPREAD_INDEX;
-  const legendsPip = document.createElement('button');
-  legendsPip.type = 'button';
-  legendsPip.id = 'tier-pip-hall-of-legends';
-  legendsPip.className = `tier-pip tier-pip-legends${isLegendsActive ? ' active' : ''}`;
-  legendsPip.textContent = '\uD83C\uDFC6';
-  legendsPip.title = 'Hall of Legends \u2014 Personal Piano Records (Best Accuracy & Biggest XP)';
-  legendsPip.setAttribute('role', 'tab');
-  legendsPip.setAttribute('aria-label', 'Hall of Legends');
-  legendsPip.setAttribute('aria-selected', isLegendsActive ? 'true' : 'false');
-  legendsPip.addEventListener('click', (e) => {
-    e.stopPropagation();
-    navigateToSpellbookTier(
-      HALL_OF_LEGENDS_SPREAD_INDEX,
-      HALL_OF_LEGENDS_SPREAD_INDEX > currentSpellbookTierIndex ? 'forward' : 'backward'
-    );
-  });
-  spellbookTierPips.appendChild(legendsPip);
-}
-
-function findGrimoireEntryForLegendRecord(rec) {
-  if (!rec) return null;
-  const entries = Array.from(grimoireSpells.values());
-  if (rec.songId) {
-    const byId = entries.find((e) => e.songId === rec.songId || e.id === rec.songId);
-    if (byId) return byId;
-  }
-  if (rec.filePath) {
-    try {
-      const targetResolved = path.resolve(rec.filePath).toLowerCase();
-      const byPath = entries.find((e) => e.filePath && path.resolve(e.filePath).toLowerCase() === targetResolved);
-      if (byPath) return byPath;
-    } catch {
-      // Ignore path resolution errors
-    }
-  }
-  if (rec.title) {
-    const targetTitle = rec.title.toLowerCase();
-    const byTitle = entries.find((e) => e.title && e.title.toLowerCase() === targetTitle);
-    if (byTitle) return byTitle;
-  }
-  return null;
-}
-
-function renderHallOfLegendsList(listEl, emptyEl, records, kind) {
-  if (!listEl) return;
-  listEl.innerHTML = '';
-  const hasRecords = Array.isArray(records) && records.length > 0;
-  if (emptyEl) {
-    emptyEl.classList.toggle('hidden', hasRecords);
-  }
-  if (!hasRecords) return;
-
-  records.forEach((rec, idx) => {
-    const grimoireEntry = findGrimoireEntryForLegendRecord(rec);
-    const isLoadable = Boolean(
-      grimoireEntry &&
-      (grimoireEntry.isBuiltin ||
-        grimoireEntry.filePath === 'BUILTIN_DEMO' ||
-        (grimoireEntry.filePath && fs.existsSync(grimoireEntry.filePath)))
-    );
-
-    const li = document.createElement('li');
-    li.className = `legends-record-row${idx < 3 ? ` legends-rank-${idx + 1}` : ''}${isLoadable ? '' : ' legends-row-missing'}`;
-    li.dataset.songId = rec.songId;
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'legends-record-btn';
-    btn.disabled = !isLoadable;
-    btn.title = isLoadable
-      ? `Load "${rec.title}" onto the Spell Highway`
-      : `"${rec.title}" scroll file is not currently in your Grimoire`;
-
-    const rankSpan = document.createElement('span');
-    rankSpan.className = 'legends-rank-badge';
-    rankSpan.textContent = idx === 0 ? '\uD83E\uDD47' : idx === 1 ? '\uD83E\uDD48' : idx === 2 ? '\uD83E\uDD49' : `#${idx + 1}`;
-
-    const infoDiv = document.createElement('div');
-    infoDiv.className = 'legends-song-info';
-    const titleSpan = document.createElement('span');
-    titleSpan.className = 'legends-song-title';
-    titleSpan.textContent = rec.title;
-    const dateSpan = document.createElement('span');
-    dateSpan.className = 'legends-song-date';
-    dateSpan.textContent = isLoadable
-      ? formatLegendDate(rec.setAt)
-      : `${formatLegendDate(rec.setAt)} \u2022 Scroll missing`;
-    infoDiv.appendChild(titleSpan);
-    infoDiv.appendChild(dateSpan);
-
-    const valSpan = document.createElement('span');
-    valSpan.className = `legends-record-value ${kind === 'accuracy' ? 'legends-val-acc' : 'legends-val-xp'}`;
-    valSpan.textContent = kind === 'accuracy' ? `${rec.value}%` : `${Number(rec.value).toLocaleString()} XP`;
-
-    btn.appendChild(rankSpan);
-    btn.appendChild(infoDiv);
-    btn.appendChild(valSpan);
-
-    if (isLoadable) {
-      btn.addEventListener('click', () => {
-        grimoireEntry.newlyIngested = false;
-        selectedSpellbookEntryId = grimoireEntry.id;
-        loadSelectedSpellbookSong();
-      });
-    }
-
-    li.appendChild(btn);
-    listEl.appendChild(li);
-  });
-}
-
-function renderHallOfLegendsSpread() {
-  if (spellbookTierBadge) {
-    spellbookTierBadge.textContent = '\uD83C\uDFC6 Hall of Legends';
-    spellbookTierBadge.className = 'tier-ribbon-badge tier-legends';
-  }
-  if (spellbookTierXp) {
-    spellbookTierXp.textContent = 'Piano Records';
-  }
-  if (spellbookTierName) spellbookTierName.textContent = 'Hall of Legends';
-  if (spellbookTierDesc) spellbookTierDesc.textContent = 'Your top 10 personal piano records \u2022 Beat a record for +50 Bonus XP';
-  if (spellbookPageNumLeft) spellbookPageNumLeft.textContent = 'Page XI \u2022 Best Accuracy';
-  if (spellbookPageNumRight) spellbookPageNumRight.textContent = 'Page XIb \u2022 Biggest XP';
-
-  if (spellbookSearchRow) spellbookSearchRow.classList.add('hidden');
-  if (spellbookSongList) spellbookSongList.classList.add('hidden');
-  if (spellbookEmptyState) spellbookEmptyState.classList.add('hidden');
-  if (spellbookDetailPanel) spellbookDetailPanel.classList.add('hidden');
-  if (spellbookLegendsLeftPanel) spellbookLegendsLeftPanel.classList.remove('hidden');
-  if (spellbookLegendsRightPanel) spellbookLegendsRightPanel.classList.remove('hidden');
-
-  const board = computeHallOfLegends(songPlayHistory);
-  renderHallOfLegendsList(spellbookLegendsAccList, spellbookLegendsAccEmpty, board.accuracy, 'accuracy');
-  renderHallOfLegendsList(spellbookLegendsXpList, spellbookLegendsXpEmpty, board.xp, 'xp');
-
-  if (btnSpellbookPrevPage) {
-    btnSpellbookPrevPage.disabled = false;
-  }
-  if (btnSpellbookNextPage) {
-    btnSpellbookNextPage.disabled = true;
-  }
-  renderSpellbookTierPips();
-}
-
-function renderSpellbookSpread() {
-  if (!grimoireSpellbookModal) return;
-
-  const isLegendsSpread = !spellbookFavoritesOnly && currentSpellbookTierIndex === HALL_OF_LEGENDS_SPREAD_INDEX;
-  if (isLegendsSpread) {
-    renderHallOfLegendsSpread();
-    return;
-  }
-
-  // Restore standard tier / Attuned panels when leaving Hall of Legends
-  if (spellbookSearchRow) spellbookSearchRow.classList.remove('hidden');
-  if (spellbookSongList) spellbookSongList.classList.remove('hidden');
-  if (spellbookDetailPanel) spellbookDetailPanel.classList.remove('hidden');
-  if (spellbookLegendsLeftPanel) spellbookLegendsLeftPanel.classList.add('hidden');
-  if (spellbookLegendsRightPanel) spellbookLegendsRightPanel.classList.add('hidden');
-
-  const tier = SPELLBOOK_TIERS[currentSpellbookTierIndex] || SPELLBOOK_TIERS[0];
-  const allEntries = Array.from(grimoireSpells.values());
-  const favoriteEntries = allEntries.filter((e) => Boolean(e.isFavorite));
-
-  // Update Favorites filter toggle button & count badge
-  if (btnSpellbookFavoritesFilter) {
-    btnSpellbookFavoritesFilter.classList.toggle('active', spellbookFavoritesOnly);
-    btnSpellbookFavoritesFilter.setAttribute('aria-pressed', spellbookFavoritesOnly ? 'true' : 'false');
-    const starEl = btnSpellbookFavoritesFilter.querySelector('.fav-filter-star');
-    if (starEl) {
-      starEl.textContent = spellbookFavoritesOnly ? '\u2605' : '\u2606';
-    }
-  }
-  if (spellbookFavCount) {
-    spellbookFavCount.textContent = String(favoriteEntries.length);
-  }
-  if (spellbookSearchInput) {
-    spellbookSearchInput.placeholder = spellbookFavoritesOnly
-      ? '\uD83D\uDD0D Search attuned...'
-      : '\uD83D\uDD0D Search tier...';
-  }
-
-  // Left Page: Header (Attuned view vs Tier view)
-  if (spellbookFavoritesOnly) {
-    if (spellbookTierBadge) {
-      spellbookTierBadge.textContent = '\u2605 Attuned';
-      spellbookTierBadge.className = 'tier-ribbon-badge tier-favorites';
-    }
-    if (spellbookTierXp) {
-      spellbookTierXp.textContent = `${favoriteEntries.length} Attuned`;
-    }
-    if (spellbookTierName) spellbookTierName.textContent = 'Attuned Spells';
-    if (spellbookTierDesc) spellbookTierDesc.textContent = 'Spells bound to your bard across all tiers';
-    if (spellbookPageNumLeft) spellbookPageNumLeft.textContent = 'Attuned \u2022 All Tiers';
-    if (spellbookPageNumRight) spellbookPageNumRight.textContent = 'Attuned \u2022 Details';
-  } else {
-    if (spellbookTierBadge) {
-      spellbookTierBadge.textContent = tier.title;
-      spellbookTierBadge.className = `tier-ribbon-badge ${tier.badgeClass}`;
-    }
-    if (spellbookTierXp) spellbookTierXp.textContent = tier.xp;
-    if (spellbookTierName) spellbookTierName.textContent = tier.subtitle;
-    if (spellbookTierDesc) spellbookTierDesc.textContent = tier.desc;
-    if (spellbookPageNumLeft) spellbookPageNumLeft.textContent = `Page ${tier.roman} \u2022 ${tier.title}`;
-    if (spellbookPageNumRight) spellbookPageNumRight.textContent = `Page ${tier.roman}b \u2022 Details`;
-  }
-
-  // Filter songs for Attuned or current tier
-  const query = (spellbookSearchInput?.value || '').trim().toLowerCase();
-  const basePool = spellbookFavoritesOnly
-    ? favoriteEntries
-    : allEntries.filter((e) => getSpellbookTierIndexForLevel(e.spellLevel) === currentSpellbookTierIndex);
-
-  const matchingSongs = basePool.filter((e) => {
-    if (!query) return true;
-    return e.title.toLowerCase().includes(query) || e.fileName.toLowerCase().includes(query);
-  });
-
-  // Alphabetical sort by title
-  matchingSongs.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
-
-  // Capture focused star button entry ID so keyboard focus survives re-render
-  const activeStarEntryId = document.activeElement?.classList?.contains('spellbook-card-star-btn')
-    ? document.activeElement.dataset.entryId || null
-    : null;
-
-  // Render Left Page Song List or Empty State
-  if (spellbookSongList) {
-    spellbookSongList.innerHTML = '';
-  }
-
-  if (matchingSongs.length === 0) {
-    selectedSpellbookEntryId = null;
-    if (spellbookEmptyState) {
-      spellbookEmptyState.classList.remove('hidden');
-      const emptyHeading = spellbookEmptyState.querySelector('.empty-tier-heading');
-      if (emptyHeading) {
-        if (spellbookFavoritesOnly) {
-          emptyHeading.textContent = query ? 'No Matching Attuned Spells' : 'No Attuned Spells Yet';
-        } else {
-          emptyHeading.textContent = query ? 'No Matching Spells in this Tier' : `No ${tier.title} Yet`;
-        }
-      }
-      const emptyText = spellbookEmptyState.querySelector('.empty-tier-text');
-      if (emptyText) {
-        if (spellbookFavoritesOnly) {
-          emptyText.textContent = query
-            ? `No attuned spells matched "${query}". Clear the search box to see all attuned spells.`
-            : 'Tap the \u2606 star on any spell card or detail panel to attune your focus songs here.';
-        } else {
-          emptyText.textContent = query
-            ? `No songs matched "${query}". Clear the search box or check other tiers.`
-            : `No ${tier.title.toLowerCase()} cataloged in your grimoire yet. Visit the Quest Board to forge new spells!`;
-        }
-      }
-    }
-    renderSpellbookDetails(null);
-  } else {
-    if (spellbookEmptyState) {
-      spellbookEmptyState.classList.add('hidden');
-    }
-
-    // Determine currently selected entry
-    let selectedEntry = matchingSongs.find((e) => e.id === selectedSpellbookEntryId);
-    if (!selectedEntry && currentSong) {
-      selectedEntry = matchingSongs.find((e) => {
-        return (
-          (currentSong.filePath && e.filePath && path.resolve(String(currentSong.filePath)) === path.resolve(String(e.filePath))) ||
-          currentSong.fileName.toLowerCase() === e.fileName.toLowerCase()
-        );
-      });
-    }
-    if (!selectedEntry) {
-      selectedEntry = matchingSongs[0];
-    }
-    selectedSpellbookEntryId = selectedEntry.id;
-
-    let starBtnToRefocus = null;
-
-    for (const entry of matchingSongs) {
-      const isSelected = entry.id === selectedSpellbookEntryId;
-      const isActiveHighway = Boolean(
-        currentSong &&
-        ((currentSong.filePath && entry.filePath && path.resolve(String(currentSong.filePath)) === path.resolve(String(entry.filePath))) ||
-         currentSong.fileName.toLowerCase() === entry.fileName.toLowerCase())
-      );
-
-      const item = document.createElement('div');
-      item.className = `spellbook-song-item${isSelected ? ' selected' : ''}${entry.newlyIngested ? ' newly-ingested' : ''}`;
-      item.setAttribute('role', 'option');
-      item.setAttribute('aria-selected', isSelected ? 'true' : 'false');
-      item.tabIndex = 0;
-
-      const titleWrap = document.createElement('div');
-      titleWrap.className = 'spellbook-song-item-title';
-      titleWrap.title = entry.title;
-
-      if (isActiveHighway) {
-        const activeIndicator = document.createElement('span');
-        activeIndicator.className = 'song-active-indicator';
-        activeIndicator.title = 'Currently Loaded on Spell Highway';
-        activeIndicator.textContent = '\u25B6 ';
-        titleWrap.appendChild(activeIndicator);
-      }
-
-      const titleText = document.createElement('span');
-      titleText.textContent = entry.title;
-      titleWrap.appendChild(titleText);
-
-      const metaSpan = document.createElement('span');
-      metaSpan.className = 'spellbook-song-item-meta';
-      metaSpan.title = `${entry.spellLevel} \u2022 ${entry.bpm} BPM \u2022 ${formatSeconds(entry.duration)}`;
-      metaSpan.textContent = spellbookFavoritesOnly
-        ? `${entry.spellLevel} \u2022 ${formatSeconds(entry.duration)}`
-        : `${entry.bpm} \u2022 ${formatSeconds(entry.duration)}`;
-
-      const isPreviewingThis = grimoirePreviewController.isPreviewingEntry(entry.id);
-      const cardPreviewBtn = document.createElement('button');
-      cardPreviewBtn.type = 'button';
-      cardPreviewBtn.className = `spellbook-card-preview-btn${isPreviewingThis ? ' is-previewing' : ''}`;
-      cardPreviewBtn.dataset.entryId = entry.id;
-      cardPreviewBtn.dataset.entryTitle = entry.title;
-      cardPreviewBtn.textContent = isPreviewingThis ? '\u25A0' : '\u25B6';
-      cardPreviewBtn.title = isPreviewingThis
-        ? `Stop 30s preview of "${entry.title}"`
-        : `Preview 30s of "${entry.title}"`;
-      cardPreviewBtn.setAttribute('aria-label', isPreviewingThis ? `Stop preview of ${entry.title}` : `Preview ${entry.title}`);
-      cardPreviewBtn.setAttribute('aria-pressed', isPreviewingThis ? 'true' : 'false');
-      cardPreviewBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        handleGrimoirePreviewButtonClick(entry, cardPreviewBtn);
-      });
-      cardPreviewBtn.addEventListener('dblclick', (e) => {
-        e.stopPropagation();
-      });
-
-      const cardStarBtn = document.createElement('button');
-      cardStarBtn.type = 'button';
-      cardStarBtn.className = `spellbook-card-star-btn${entry.isFavorite ? ' is-favorite' : ''}`;
-      cardStarBtn.dataset.entryId = entry.id;
-      cardStarBtn.textContent = entry.isFavorite ? '\u2605' : '\u2606';
-      cardStarBtn.title = entry.isFavorite ? `Unattune "${entry.title}"` : `Attune "${entry.title}"`;
-      cardStarBtn.setAttribute('aria-label', entry.isFavorite ? `Unattune ${entry.title}` : `Attune ${entry.title}`);
-      cardStarBtn.setAttribute('aria-pressed', entry.isFavorite ? 'true' : 'false');
-      cardStarBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleGrimoireFavorite(entry.id);
-      });
-
-      if (activeStarEntryId && activeStarEntryId === entry.id) {
-        starBtnToRefocus = cardStarBtn;
-      }
-
-      item.appendChild(titleWrap);
-      item.appendChild(metaSpan);
-      item.appendChild(cardPreviewBtn);
-      item.appendChild(cardStarBtn);
-
-      if (isGrimoireEntryDeletable(entry)) {
-        const cardDeleteBtn = document.createElement('button');
-        cardDeleteBtn.type = 'button';
-        cardDeleteBtn.className = 'spellbook-card-delete-btn';
-        cardDeleteBtn.textContent = '\uD83D\uDDD1';
-        cardDeleteBtn.title = `Remove "${entry.title}" and move to ./Archive`;
-        cardDeleteBtn.setAttribute('aria-label', `Archive ${entry.title}`);
-        cardDeleteBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          openDeleteSpellConfirmModal(entry);
-        });
-        item.appendChild(cardDeleteBtn);
-      }
-
-      item.addEventListener('click', () => {
-        entry.newlyIngested = false;
-        selectedSpellbookEntryId = entry.id;
-        // Update selection UI & aria-selected
-        spellbookSongList.querySelectorAll('.spellbook-song-item').forEach((el) => {
-          el.classList.remove('selected');
-          el.setAttribute('aria-selected', 'false');
-        });
-        item.classList.add('selected');
-        item.setAttribute('aria-selected', 'true');
-        renderSpellbookDetails(entry);
-      });
-
-      item.addEventListener('dblclick', () => {
-        entry.newlyIngested = false;
-        selectedSpellbookEntryId = entry.id;
-        loadSelectedSpellbookSong();
-      });
-
-      item.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          entry.newlyIngested = false;
-          selectedSpellbookEntryId = entry.id;
-          loadSelectedSpellbookSong();
-        }
-      });
-
-      spellbookSongList.appendChild(item);
-    }
-
-    if (starBtnToRefocus) {
-      starBtnToRefocus.focus();
-    }
-
-    renderSpellbookDetails(selectedEntry);
-  }
-
-  // Navigation button states & Bookmark Tabs / Tier Pips (including Hall of Legends)
-  if (btnSpellbookPrevPage) {
-    btnSpellbookPrevPage.disabled = spellbookFavoritesOnly || currentSpellbookTierIndex <= 0;
-  }
-  if (btnSpellbookNextPage) {
-    btnSpellbookNextPage.disabled = spellbookFavoritesOnly || currentSpellbookTierIndex >= TOTAL_SPELLBOOK_SPREADS - 1;
-  }
-
-  renderSpellbookTierPips();
-}
-
-function renderSpellbookDetails(entry) {
-  const tier = SPELLBOOK_TIERS[currentSpellbookTierIndex] || SPELLBOOK_TIERS[0];
-
-  if (!entry) {
-    if (spellbookDetailTierChip) spellbookDetailTierChip.textContent = spellbookFavoritesOnly ? 'Attuned' : tier.levelName;
-    if (spellbookDetailKeySig) spellbookDetailKeySig.classList.add('hidden');
-    if (spellbookDetailSource) spellbookDetailSource.textContent = '\u2014';
-    if (spellbookDetailTitle) spellbookDetailTitle.textContent = 'No Spell Selected';
-    if (spellbookDetailFile) spellbookDetailFile.textContent = '\u2014';
-    if (spellbookDetailBpm) spellbookDetailBpm.textContent = '\u2014 BPM';
-    if (spellbookDetailDuration) spellbookDetailDuration.textContent = '\u2014';
-    if (spellbookDetailNps) spellbookDetailNps.textContent = '\u2014 NPS';
-    if (spellbookDetailNotes) spellbookDetailNotes.textContent = '\u2014';
-    if (spellbookDetailPlays) spellbookDetailPlays.textContent = '0';
-    if (spellbookDetailBestAcc) spellbookDetailBestAcc.textContent = '\u2014';
-    if (spellbookDetailLastAcc) spellbookDetailLastAcc.textContent = '\u2014';
-    if (spellbookDetailTotalXp) spellbookDetailTotalXp.textContent = '0 XP';
-    if (spellbookDetailLastPlayed) spellbookDetailLastPlayed.textContent = 'Never performed on stage';
-    if (spellbookDetailAudioBadge) spellbookDetailAudioBadge.classList.add('hidden');
-    if (spellbookBundleStrip) spellbookBundleStrip.classList.add('hidden');
-    if (spellbookBundleSheetChip) spellbookBundleSheetChip.classList.add('hidden');
-    if (spellbookBundleSpotifyLink) spellbookBundleSpotifyLink.classList.add('hidden');
-    if (btnSpellbookBundle) btnSpellbookBundle.disabled = true;
-    if (btnSpellbookLoadSong) btnSpellbookLoadSong.disabled = true;
-    if (btnSpellbookFavoriteSong) {
-      btnSpellbookFavoriteSong.disabled = true;
-      btnSpellbookFavoriteSong.classList.remove('is-favorite');
-      btnSpellbookFavoriteSong.textContent = '\u2606';
-      btnSpellbookFavoriteSong.setAttribute('aria-pressed', 'false');
-      btnSpellbookFavoriteSong.title = 'Attune this spell';
-    }
-    if (btnSpellbookPreviewSong) {
-      btnSpellbookPreviewSong.disabled = true;
-      btnSpellbookPreviewSong.classList.remove('is-previewing');
-      btnSpellbookPreviewSong.textContent = '\uD83C\uDFA7 Preview';
-      btnSpellbookPreviewSong.setAttribute('aria-pressed', 'false');
-    }
-    if (btnSpellbookDeleteSong) btnSpellbookDeleteSong.classList.add('hidden');
-    return;
-  }
-
-  if (spellbookDetailTierChip) {
-    spellbookDetailTierChip.textContent = `${entry.spellLevel} (${entry.xpMultiplier.toFixed(1)}x XP)`;
-  }
-  if (spellbookDetailKeySig) {
-    if (entry.keySignature) {
-      spellbookDetailKeySig.textContent = entry.keySignature;
-      spellbookDetailKeySig.classList.remove('hidden');
-    } else {
-      spellbookDetailKeySig.classList.add('hidden');
-    }
-  }
-  if (spellbookDetailSource) {
-    spellbookDetailSource.textContent = entry.filePath === 'BUILTIN_DEMO' ? 'Built-In Conservatory Spell' : entry.sourceTag;
-  }
-  if (spellbookDetailTitle) {
-    spellbookDetailTitle.textContent = entry.title;
-  }
-  if (spellbookDetailFile) {
-    spellbookDetailFile.textContent = entry.fileName;
-  }
-  if (spellbookDetailBpm) {
-    spellbookDetailBpm.textContent = `${entry.bpm} BPM`;
-  }
-  if (spellbookDetailDuration) {
-    spellbookDetailDuration.textContent = formatSeconds(entry.duration);
-  }
-  if (spellbookDetailNps) {
-    spellbookDetailNps.textContent = `${entry.nps.toFixed(2)} NPS`;
-  }
-  if (spellbookDetailNotes) {
-    spellbookDetailNotes.textContent = String(entry.totalNotes || '\u2014');
-  }
-
-  // Issue #76: Populate compact 1-row Grimoire Song Bundle strip
-  const hasSheet = Boolean(entry.sheetMusicPath && fs.existsSync(entry.sheetMusicPath));
-  const hasAudio = Boolean(entry.backingAudioPath && fs.existsSync(entry.backingAudioPath));
-  const validSpotify = Boolean(entry.spotifyUrl && /^https?:\/\/\S+$/i.test(entry.spotifyUrl));
-  const validYoutube = Boolean(entry.youtubeUrl && /^https?:\/\/\S+$/i.test(entry.youtubeUrl));
-  const isBuiltInDemo = entry.filePath === 'BUILTIN_DEMO';
-
-  if (spellbookBundleStrip) {
-    spellbookBundleStrip.classList.remove('hidden');
-  }
-  if (spellbookBundleNotesChip) {
-    const noteType = isMusicXmlFileName(entry.fileName || '') ? 'XML' : 'MIDI';
-    const isClean = entry._appliedCleanupEnabled !== undefined
-      ? Boolean(entry._appliedCleanupEnabled)
-      : Boolean(midiCleanupGlobalEnabled);
-    spellbookBundleNotesChip.textContent = isClean
-      ? `\uD83C\uDFB9 ${noteType} \u2022 Clean`
-      : `\uD83C\uDFB9 ${noteType}`;
-    spellbookBundleNotesChip.title = isClean
-      ? `${noteType} notes with Smart MIDI Hygiene ON`
-      : `${noteType} notes (Raw uncleaned)`;
-  }
-  if (spellbookBundleSheetChip) {
-    if (hasSheet) {
-      const sheetExt = (path.extname(entry.sheetMusicPath) || '.SHEET').replace(/^\./, '').toUpperCase();
-      spellbookBundleSheetChip.textContent = `\uD83D\uDCDC ${sheetExt}`;
-      spellbookBundleSheetChip.title = `Open sheet music ref: ${path.basename(entry.sheetMusicPath)}`;
-      spellbookBundleSheetChip.classList.remove('hidden');
-    } else {
-      spellbookBundleSheetChip.classList.add('hidden');
-    }
-  }
-  if (spellbookBundleAudioChip) {
-    spellbookBundleAudioChip.classList.toggle('chip-missing', !hasAudio);
-    if (hasAudio) {
-      const off = clampAudioOffsetSec(entry.audioOffsetSec || 0);
-      const offBadge = Math.abs(off) >= 0.005 ? ` (${off >= 0 ? '+' : ''}${off.toFixed(2)}s)` : '';
-      spellbookBundleAudioChip.textContent = `\uD83C\uDFB5 Audio${offBadge}`;
-      spellbookBundleAudioChip.title = `Backing audio: ${path.basename(entry.backingAudioPath)}${offBadge ? ` \u2022 Offset ${offBadge.trim()}` : ''}`;
-    } else {
-      spellbookBundleAudioChip.textContent = '\uD83D\uDD07 No Audio';
-      spellbookBundleAudioChip.title = 'No paired backing audio attached yet';
-    }
-  }
-  if (spellbookBundleSpotifyLink) {
-    if (validSpotify) {
-      spellbookBundleSpotifyLink.textContent = '\u2197 Spotify';
-      spellbookBundleSpotifyLink.title = entry.spotifyUrl;
-      spellbookBundleSpotifyLink.classList.remove('hidden');
-    } else if (validYoutube) {
-      spellbookBundleSpotifyLink.textContent = '\u2197 YouTube';
-      spellbookBundleSpotifyLink.title = entry.youtubeUrl;
-      spellbookBundleSpotifyLink.classList.remove('hidden');
-    } else {
-      spellbookBundleSpotifyLink.classList.add('hidden');
-    }
-  }
-  if (btnSpellbookBundle) {
-    btnSpellbookBundle.disabled = isBuiltInDemo;
-    const hasExtras = hasSheet || hasAudio || validSpotify || validYoutube;
-    btnSpellbookBundle.textContent = hasExtras ? '\u2699 Bundle' : '+ Bundle';
-    btnSpellbookBundle.title = isBuiltInDemo
-      ? 'Song Bundle editor is unavailable for the Built-In Demo Spell'
-      : 'Attach or manage Backing Audio, Sheet Music & Bundle Sync';
-  }
-
-  // Load rehearsal history from songPlayHistory store
-  const hist = getSongHistoryRecord(entry);
-  if (spellbookDetailPlays) {
-    const plays = hist ? Number(hist.plays) || 0 : 0;
-    spellbookDetailPlays.textContent = `${plays}`;
-  }
-  if (spellbookDetailBestAcc) {
-    const bestAcc = hist && typeof hist.bestAccuracy === 'number' && hist.bestAccuracy > 0 ? hist.bestAccuracy : null;
-    spellbookDetailBestAcc.textContent = bestAcc !== null ? `${bestAcc}%` : '\u2014';
-  }
-  if (spellbookDetailLastAcc) {
-    const lastAcc = hist && typeof hist.lastAccuracy === 'number' && hist.lastAccuracy > 0 ? hist.lastAccuracy : null;
-    spellbookDetailLastAcc.textContent = lastAcc !== null ? `${lastAcc}%` : '\u2014';
-  }
-  if (spellbookDetailTotalXp) {
-    const xp = hist ? Number(hist.totalXpEarned) || 0 : 0;
-    spellbookDetailTotalXp.textContent = `${xp.toLocaleString()} XP`;
-  }
-  if (spellbookDetailLastPlayed) {
-    spellbookDetailLastPlayed.textContent = hist && hist.lastPlayed
-      ? `Last played: ${formatAnnalsDate(hist.lastPlayed)}`
-      : 'Never performed on stage';
-  }
-
-  // Backing audio badge
-  if (spellbookDetailAudioBadge) {
-    if (hasAudio) {
-      spellbookDetailAudioBadge.classList.remove('hidden');
-      spellbookDetailAudioBadge.textContent = '\uD83C\uDFB5 Backing Audio Synced';
-    } else {
-      spellbookDetailAudioBadge.classList.add('hidden');
-    }
-  }
-
-  if (btnSpellbookLoadSong) {
-    btnSpellbookLoadSong.disabled = false;
-  }
-  if (btnSpellbookPreviewSong) {
-    btnSpellbookPreviewSong.disabled = false;
-    updateGrimoirePreviewUI();
-  }
-
-  if (btnSpellbookFavoriteSong) {
-    btnSpellbookFavoriteSong.disabled = false;
-    const isFav = Boolean(entry.isFavorite);
-    btnSpellbookFavoriteSong.classList.toggle('is-favorite', isFav);
-    btnSpellbookFavoriteSong.textContent = isFav ? '\u2605' : '\u2606';
-    btnSpellbookFavoriteSong.setAttribute('aria-pressed', isFav ? 'true' : 'false');
-    btnSpellbookFavoriteSong.title = isFav ? `Unattune "${entry.title}"` : `Attune "${entry.title}"`;
-    btnSpellbookFavoriteSong.setAttribute('aria-label', isFav ? `Unattune ${entry.title}` : `Attune ${entry.title}`);
-  }
-
-  // Delete button available for all file-backed Grimoire entries (Imports/ & Test Library)
-  if (btnSpellbookDeleteSong) {
-    if (isGrimoireEntryDeletable(entry)) {
-      btnSpellbookDeleteSong.classList.remove('hidden');
-      btnSpellbookDeleteSong.title = `Remove "${entry.title}" and move files to ./Archive`;
-      btnSpellbookDeleteSong.setAttribute('aria-label', `Archive ${entry.title}`);
-    } else {
-      btnSpellbookDeleteSong.classList.add('hidden');
-    }
-  }
-}
-
-function loadSelectedSpellbookSong() {
-  const entry = (selectedSpellbookEntryId && grimoireSpells.get(selectedSpellbookEntryId)) || null;
-  if (!entry) return;
-
-  stopGrimoirePreview();
-  loadGrimoireEntry(entry);
-  closeGrimoireSpellbook();
-  hideTavernMenu();
-  resetPlaybackToStart();
-  showGrimoireToast(`\uD83D\uDCD6 Inscribed "${entry.title}" (${entry.spellLevel}) on Spell Highway!`);
-}
-
-function deleteSelectedSpellbookSong() {
-  const entry = (selectedSpellbookEntryId && grimoireSpells.get(selectedSpellbookEntryId)) || null;
-  if (!entry || !isGrimoireEntryDeletable(entry)) return;
-  openDeleteSpellConfirmModal(entry);
-}
-
-/**
- * Backward-compatible helper called across the codebase to update Grimoire stats
- * and refresh the open spellbook spread
- */
-function renderGrimoireSidebar() {
-  if (grimoireCountBadge) {
-    grimoireCountBadge.textContent = String(grimoireSpells.size);
-  }
-  updateTavernMenuStats();
-  if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
-    renderSpellbookSpread();
-  }
-}
-
-/**
- * Load a selected Spell Card from The Grimoire onto the Spell Highway
- */
+const {
+  HALL_OF_LEGENDS_SPREAD_INDEX,
+  grimoirePreviewController,
+  openGrimoireSpellbook,
+  closeSpellbookPreviewMenu,
+  stopGrimoirePreview,
+  updateGrimoirePreviewUI,
+  openSpellbookPreviewMenu,
+  handleGrimoirePreviewButtonClick,
+  closeGrimoireSpellbook,
+  flipSpellbookPage,
+  navigateToSpellbookTier,
+  renderSpellbookTierPips,
+  findGrimoireEntryForLegendRecord,
+  renderHallOfLegendsList,
+  renderHallOfLegendsSpread,
+  renderSpellbookSpread,
+  renderSpellbookDetails,
+  loadSelectedSpellbookSong,
+  deleteSelectedSpellbookSong,
+  renderGrimoireSidebar
+} = spellbookUI;
 function loadGrimoireEntry(entry) {
   stopGrimoirePreview();
   if (entry.filePath === 'BUILTIN_DEMO') {
@@ -8849,917 +6664,52 @@ let cachedKeyGradients = null;
  * Compute exact 61-key geometry lookup table (keyGeometry[36..96])
  * and pre-allocate shared vertical CanvasGradient objects on resize.
  */
-function computeKeyGeometry() {
-  const dpr = window.devicePixelRatio || 1;
-  const rect = canvas.getBoundingClientRect();
-  canvas.width = Math.max(1, Math.floor(rect.width * dpr));
-  canvas.height = Math.max(1, Math.floor(rect.height * dpr));
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-  const width = Math.max(1, rect.width);
-  const height = Math.max(1, rect.height);
-  cachedCanvasWidth = width;
-  cachedCanvasHeight = height;
-
-  const keyboardHeight = Math.max(145, Math.min(210, Math.round(height * 0.22)));
-  const keyboardY = Math.max(1, height - keyboardHeight);
-
-  let notationHeight = 0;
-  let highwayTopY = 0;
-  if (stageViewMode === 'score') {
-    notationHeight = Math.max(0, keyboardY);
-    highwayTopY = keyboardY;
-  } else if (stageViewMode === 'split') {
-    const maxSplitNotation = Math.max(120, keyboardY - 90);
-    notationHeight = Math.max(
-      0,
-      Math.min(
-        keyboardY,
-        Math.max(Math.min(175, maxSplitNotation), Math.min(maxSplitNotation, Math.round(keyboardY * 0.52)))
-      )
-    );
-    highwayTopY = notationHeight;
-  }
-  cachedNotationPaneHeight = notationHeight;
-  cachedHighwayTopY = highwayTopY;
-
-  if (stageContainer) {
-    stageContainer.style.setProperty('--notation-pane-height', `${notationHeight}px`);
-    stageContainer.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
-  }
-
-  whiteKeys.length = 0;
-  blackKeys.length = 0;
-
-  const totalWhiteKeys = 36;
-  const whiteKeyWidth = width / totalWhiteKeys;
-
-  let whiteIdx = 0;
-  for (let midi = MIN_MIDI; midi <= MAX_MIDI; midi++) {
-    const semitone = midi % 12;
-    const isBlack = BLACK_SEMITONES.has(semitone);
-    if (!isBlack) {
-      const keyObj = {
-        midi,
-        name: midiToNoteName(midi),
-        isBlack: false,
-        x: whiteIdx * whiteKeyWidth,
-        y: keyboardY,
-        width: whiteKeyWidth,
-        height: keyboardHeight,
-        whiteIndex: whiteIdx
-      };
-      keyGeometry[midi] = keyObj;
-      whiteKeys.push(keyObj);
-      whiteIdx++;
-    }
-  }
-
-  const blackKeyWidth = whiteKeyWidth * 0.62;
-  const blackKeyHeight = keyboardHeight * 0.62;
-
-  for (let midi = MIN_MIDI; midi <= MAX_MIDI; midi++) {
-    const semitone = midi % 12;
-    if (BLACK_SEMITONES.has(semitone)) {
-      const prevWhite = keyGeometry[midi - 1];
-      const offsetRatio = BLACK_KEY_OFFSETS[semitone] || 0.5;
-      const boundaryX = prevWhite.x + prevWhite.width;
-      const x = boundaryX - blackKeyWidth * offsetRatio;
-
-      const keyObj = {
-        midi,
-        name: midiToNoteName(midi),
-        isBlack: true,
-        x,
-        y: keyboardY,
-        width: blackKeyWidth,
-        height: blackKeyHeight
-      };
-      keyGeometry[midi] = keyObj;
-      blackKeys.push(keyObj);
-    }
-  }
-
-  // Pre-build shared vertical LinearGradients for the 36 white keys and 25 black keys
-  const makeVGrad = (y0, h, stops) => {
-    const g = ctx.createLinearGradient(0, y0, 0, y0 + h);
-    for (const [offset, color] of stops) {
-      g.addColorStop(offset, color);
-    }
-    return g;
-  };
-
-  cachedKeyGradients = {
-    whiteIdle: makeVGrad(keyboardY, keyboardHeight, [[0, '#e8e2d5'], [0.88, '#f7f3eb'], [1, '#cfc6b4']]),
-    whitePressed: makeVGrad(keyboardY, keyboardHeight, [[0, '#fff3b0'], [0.35, '#ffd700'], [1, '#c59b27']]),
-    whiteLocked: makeVGrad(keyboardY, keyboardHeight, [[0, '#a7f3d0'], [0.4, '#34d399'], [1, '#059669']]),
-    whiteGuideT1: makeVGrad(keyboardY, keyboardHeight, [[0, '#fff5b8'], [0.4, '#f5d76e'], [1, '#d9c589']]),
-    whiteGuideT2: makeVGrad(keyboardY, keyboardHeight, [[0, '#b3f8ff'], [0.4, '#67e8f9'], [1, '#99d5e0']]),
-    blackIdle: makeVGrad(keyboardY, blackKeyHeight, [[0, '#332920'], [0.8, '#18130e'], [1, '#0c0907']]),
-    blackPressed: makeVGrad(keyboardY, blackKeyHeight, [[0, '#ffd700'], [0.5, '#e5a900'], [1, '#9c6f00']]),
-    blackLocked: makeVGrad(keyboardY, blackKeyHeight, [[0, '#34d399'], [1, '#065f46']]),
-    blackGuideT1: makeVGrad(keyboardY, blackKeyHeight, [[0, '#ffd700'], [1, '#6e5200']]),
-    blackGuideT2: makeVGrad(keyboardY, blackKeyHeight, [[0, '#00e5ff'], [1, '#005662']])
-  };
-}
-
-/**
- * Draw the 60 FPS falling glowing rectangles ("The Spell Highway")
- * Track 1 = Radiant Gold (#ffd700), Track 2 = Eldritch Blue (#00e5ff)
- * Also collects active strike-line notes so the 61-key piano can show guide highlights.
- */
-const reusableStrikeLineGuides = new Map();
-
-function drawFallingSpellHighway(strikeLineY, width, highwayTopY = 0, collectOnly = false) {
-  reusableStrikeLineGuides.clear();
-  const strikeLineGuides = reusableStrikeLineGuides; // midi -> { handTrack, lockedInWait }
-  if (!currentSong) return strikeLineGuides;
-
-  const laneTopY = Math.max(0, highwayTopY);
-  const laneHeight = Math.max(120, strikeLineY - laneTopY);
-  playbackState.lastHighwayHeight = laneHeight;
-  const curTime = playbackState.currentTime;
-  const fallSpeed = getEffectiveHighwayPxPerSec(laneHeight);
-  const visibleTimeWindow = collectOnly
-    ? 0.5
-    : Math.max(0.25, (laneHeight + 40) / fallSpeed);
-
-  // Issue #179: Sustain Pedal (CC 64) left-edge hold ribbon & live indicator
-  if (!collectOnly && playbackState.sustainLaneEnabled) {
-    const spans = Array.isArray(currentSong.sustainSpans) ? currentSong.sustainSpans : [];
-    const railX = 2;
-    const railW = 8;
-    ctx.save();
-    ctx.fillStyle = 'rgba(212, 175, 55, 0.08)';
-    ctx.fillRect(railX, laneTopY, railW, laneHeight);
-    for (const sp of spans) {
-      if (sp.endTime < curTime) continue;
-      if (sp.startTime > curTime + visibleTimeWindow) break;
-      const yBottom = Math.min(strikeLineY, strikeLineY - (sp.startTime - curTime) * fallSpeed);
-      const yTop = Math.max(laneTopY, strikeLineY - (sp.endTime - curTime) * fallSpeed);
-      const h = yBottom - yTop;
-      if (h > 1) {
-        ctx.fillStyle = 'rgba(250, 204, 21, 0.58)';
-        ctx.beginPath();
-        ctx.roundRect(railX + 1, yTop, railW - 2, h, 3);
-        ctx.fill();
-      }
-    }
-    if (sustainPedalDown) {
-      ctx.fillStyle = '#ffd700';
-      ctx.beginPath();
-      ctx.arc(railX + railW / 2, strikeLineY - 6, 4, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-
-  // Resolve key signature & transposition once per frame for Scale Degrees label mode (#179, #186)
-  // notationScore.primaryKeySpec is already transposed by song.transposeSemitones
-  const labelMode = playbackState.fallingNoteLabelMode || 'notes';
-  let tonicPitchClass = 0;
-  let keyIsMinor = false;
-  if (labelMode === 'degrees') {
-    if (currentSong.notationScore?.primaryKeySpec) {
-      const parsedKey = parseKeySpecForDegrees(currentSong.notationScore.primaryKeySpec);
-      tonicPitchClass = parsedKey.tonicPc;
-      keyIsMinor = parsedKey.isMinor;
-    } else {
-      const rawKey = currentSong.headerKeySignatures?.[0]?.key || currentSong.keySignature || 'C';
-      const parsedKey = parseKeySpecForDegrees(rawKey);
-      tonicPitchClass = (parsedKey.tonicPc + (Number(currentSong.transposeSemitones) || 0) + 120) % 12;
-      keyIsMinor = parsedKey.isMinor;
-    }
-  }
-
-  // 1. Draw scrolling horizontal beat/measure grid lines (honoring mid-song tempo/meter changes & pickup bars)
-  if (!collectOnly && laneHeight > 0) {
-    const scoreMeasures = currentSong.notationScore?.measures;
-    const windowEnd = curTime + visibleTimeWindow;
-    ctx.save();
-
-    if (Array.isArray(scoreMeasures) && scoreMeasures.length > 0) {
-      const drawGridLine = (timeSec, isMeasureLine) => {
-        if (timeSec < curTime || timeSec > windowEnd) return;
-        const y = strikeLineY - (timeSec - curTime) * fallSpeed;
-        if (y < laneTopY || y > strikeLineY) return;
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-        ctx.strokeStyle = isMeasureLine
-          ? 'rgba(212, 175, 55, 0.22)'
-          : 'rgba(186, 171, 147, 0.07)';
-        ctx.lineWidth = isMeasureLine ? 1.5 : 1;
-        ctx.stroke();
-      };
-
-      for (const m of scoreMeasures) {
-        if (m.endTime < curTime) continue;
-        if (m.startTime > windowEnd) break;
-
-        drawGridLine(m.startTime, true);
-        const mSpan = Math.max(0.05, m.endTime - m.startTime);
-        const numBeats = Math.max(1, Number(m.numerator) || 4);
-        if (m.isPickup) {
-          const denom = Math.max(1, Number(m.denominator) || 4);
-          const bpm = Math.max(30, currentSong.bpm || 120);
-          const approxBeat = (60 / bpm) * (4 / denom);
-          for (let t = m.endTime - approxBeat; t > m.startTime + 0.02; t -= approxBeat) {
-            drawGridLine(t, false);
-          }
-        } else {
-          const beatStep = mSpan / numBeats;
-          for (let b = 1; b < numBeats; b++) {
-            drawGridLine(m.startTime + b * beatStep, false);
-          }
-        }
-      }
-    } else {
-      const denominator = Math.max(1, currentSong.timeSigDenominator || 4);
-      const beatDur = (60 / Math.max(30, currentSong.bpm)) * (4 / denominator);
-      const beatsPerMeasure = Math.max(1, currentSong.beatsPerMeasure || currentSong.timeSigNumerator || 4);
-      const firstBeatIdx = Math.max(0, Math.floor(curTime / beatDur));
-      const lastBeatIdx = Math.ceil(windowEnd / beatDur);
-
-      for (let b = firstBeatIdx; b <= lastBeatIdx; b++) {
-        const beatTime = b * beatDur;
-        const y = strikeLineY - (beatTime - curTime) * fallSpeed;
-        if (y < laneTopY || y > strikeLineY) continue;
-
-        const isMeasureLine = b % beatsPerMeasure === 0;
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-        ctx.strokeStyle = isMeasureLine
-          ? 'rgba(212, 175, 55, 0.22)'
-          : 'rgba(186, 171, 147, 0.07)';
-        ctx.lineWidth = isMeasureLine ? 1.5 : 1;
-        ctx.stroke();
-      }
-    }
-    ctx.restore();
-  }
-
-  // 2. Helper to draw (or collect strike-line guides for) a track's falling notes
-  const drawTrackNotes = (notes, handTrack, primaryHex, topHex, borderHex, glowRgba) => {
-    const opacity = getHandVisualOpacity(handTrack);
-    if (opacity <= 0.05) return;
-
-    if (!collectOnly) {
-      ctx.save();
-      ctx.globalAlpha = opacity;
-    }
-
-    const startIdx = findFirstNoteIndexAtOrAfter(notes, curTime - 8.0);
-    for (let i = startIdx; i < notes.length; i++) {
-      const note = notes[i];
-      const noteEnd = note.time + note.duration;
-      if (noteEnd < curTime) continue;
-      if (note.time > curTime + visibleTimeWindow) break;
-
-      const isAtStrikeLine = (note.time <= curTime + 0.02 && noteEnd >= curTime) ||
-        (playbackState.isWaitingForStrike && Math.abs(note.time - curTime) <= CHORD_CLUSTER_WINDOW_SEC && !note.satisfied);
-
-      if (isAtStrikeLine && opacity >= 0.9) {
-        strikeLineGuides.set(note.midi, {
-          handTrack,
-          lockedInWait: Boolean(note.lockedInWait)
-        });
-      }
-
-      if (collectOnly) continue;
-
-      const geom = keyGeometry[note.midi];
-      if (!geom) continue;
-
-      const rawBottomY = strikeLineY - (note.time - curTime) * fallSpeed;
-      const rawTopY = strikeLineY - (noteEnd - curTime) * fallSpeed;
-
-      const bottomY = Math.min(strikeLineY, rawBottomY);
-      const topY = Math.max(laneTopY - 20, rawTopY);
-      const rectH = Math.max(7, bottomY - topY - 2);
-      if (bottomY <= laneTopY || topY >= strikeLineY) continue;
-
-      const padX = geom.isBlack ? 1 : 2;
-      const x = geom.x + padX;
-      const w = Math.max(4, geom.width - padX * 2);
-
-      // Render falling note with zero per-frame LinearGradient allocations (Issue #15)
-      ctx.fillStyle = note.lockedInWait ? '#10b981' : primaryHex;
-      ctx.strokeStyle = note.lockedInWait
-        ? '#ffffff'
-        : (isAtStrikeLine ? '#ffffff' : (note.wasFolded ? '#fde68a' : borderHex));
-      ctx.lineWidth = isAtStrikeLine ? 2.2 : 1.2;
-      if (isAtStrikeLine || note.lockedInWait) {
-        ctx.shadowColor = note.lockedInWait ? 'rgba(54, 211, 153, 0.85)' : glowRgba;
-        ctx.shadowBlur = 16;
-      } else {
-        ctx.shadowBlur = 0;
-      }
-
-      ctx.beginPath();
-      ctx.roundRect(x, topY, w, rectH, 5);
-      ctx.fill();
-      ctx.stroke();
-
-      // Crisp top specular highlight cap on the falling glyph
-      if (rectH >= 10) {
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = note.lockedInWait ? '#a7f3d0' : topHex;
-        ctx.fillRect(x + 1.5, topY + 1.5, Math.max(2, w - 3), Math.min(5, rectH * 0.28));
-      }
-
-      if (labelMode !== 'off' && rectH >= 18 && w >= 14) {
-        const labelText = formatFallingNoteLabel(note, labelMode, tonicPitchClass, keyIsMinor);
-        if (labelText) {
-          ctx.shadowBlur = 0;
-          ctx.fillStyle = '#0c0907';
-          ctx.font = 'bold 10px "Segoe UI", sans-serif';
-          ctx.textAlign = 'center';
-          ctx.fillText(labelText, x + w / 2, bottomY - 6);
-        }
-      }
-    }
-
-    if (!collectOnly) {
-      ctx.restore();
-    }
-  };
-
-  // Draw Track 2 (Left Hand / Accompaniment — Eldritch Blue)
-  drawTrackNotes(
-    currentSong.track2Notes,
-    2,
-    '#00b8d4',
-    '#76ffff',
-    '#b3f8ff',
-    'rgba(0, 229, 255, 0.65)'
-  );
-
-  // Draw Track 1 (Right Hand / Lead — Radiant Gold)
-  drawTrackNotes(
-    currentSong.track1Notes,
-    1,
-    '#e5a900',
-    '#fff3b0',
-    '#ffd700',
-    'rgba(255, 215, 0, 0.75)'
-  );
-
-  return strikeLineGuides;
-}
-
-// ============================================================================
-// PHASE 7: 60 FPS ARCANE PARTICLE BURSTS, SHOCKWAVES & FLOATING XP RUNES
-// ============================================================================
-
-const PARTICLE_PALETTES = {
-  gold: ['#ffd700', '#fff3b0', '#ffae00', '#ffffff'],
-  blue: ['#00e5ff', '#76ffff', '#38bdf8', '#e0f2fe'],
-  roll: ['#34d399', '#a7f3d0', '#ffd700', '#ffffff'],
-  inspired: ['#ffae00', '#f59e0b', '#ffd700', '#fff3b0', '#ffffff'],
-  fumble: ['#fb923c', '#f87171', '#fde047']
-};
-
-/**
- * Spawn an arcane particle burst & optional shockwave ring at the Strike Line above a key
- */
-function spawnKeyParticleBurst(midi, theme = 'gold', count = 18, withShockwave = true) {
-  const geom = keyGeometry[midi];
-  if (!geom) return;
-
-  const originX = geom.x + geom.width / 2;
-  const originY = geom.y;
-  const palette = PARTICLE_PALETTES[theme] || PARTICLE_PALETTES.gold;
-
-  // Cap active particle pool so 60 FPS never dips
-  if (strikeParticles.length > 260) {
-    strikeParticles.splice(0, strikeParticles.length - 200);
-  }
-
-  const shapes = ['star', 'diamond', 'orb'];
-  for (let i = 0; i < count; i++) {
-    // Upward fountain spread (-165 deg to -15 deg)
-    const angle = -Math.PI * (0.12 + Math.random() * 0.76);
-    const speed = 75 + Math.random() * 235;
-    const size = 2.6 + Math.random() * 4.4;
-    const maxLife = 0.42 + Math.random() * 0.42;
-
-    strikeParticles.push({
-      x: originX + (Math.random() - 0.5) * Math.max(8, geom.width * 0.7),
-      y: originY - 2,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
-      size,
-      color: palette[i % palette.length],
-      shape: shapes[i % shapes.length],
-      rotation: Math.random() * Math.PI * 2,
-      spin: (Math.random() - 0.5) * 9,
-      life: maxLife,
-      maxLife
-    });
-  }
-
-  if (withShockwave) {
-    if (strikeShockwaves.length > 20) {
-      strikeShockwaves.shift();
-    }
-    strikeShockwaves.push({
-      x: originX,
-      y: originY,
-      rx: Math.max(8, geom.width * 0.45),
-      ry: 4,
-      maxRx: Math.max(36, geom.width * 2.4),
-      color: palette[0],
-      life: 0.36,
-      maxLife: 0.36
-    });
-  }
-}
-
-/**
- * Spawn floating glowing rune/XP text rising from the Strike Line above a key
- */
-function spawnFloatingCanvasRune(midi, text, color = '#ffd700') {
-  const geom = keyGeometry[midi];
-  if (!geom) return;
-
-  if (floatingRunes.length > 16) {
-    floatingRunes.shift();
-  }
-
-  floatingRunes.push({
-    x: geom.x + geom.width / 2,
-    y: geom.y - 16,
-    vy: -58,
-    text,
-    color,
-    life: 0.85,
-    maxLife: 0.85
-  });
-}
-
-/**
- * Render subtle drifting Tavern Arcane Dust Motes in the Spell Highway background
- */
-function updateAndDrawAmbientMotes(dt, width, strikeLineY, topY = 0) {
-  const minY = Math.max(0, topY);
-  const span = strikeLineY - minY;
-  if (width <= 0 || span <= 8) return;
-
-  while (ambientMotes.length < 28) {
-    ambientMotes.push({
-      x: Math.random() * width,
-      y: minY + Math.random() * span,
-      vx: (Math.random() - 0.5) * 12,
-      vy: -(8 + Math.random() * 16),
-      radius: 1.0 + Math.random() * 2.0,
-      alpha: 0.14 + Math.random() * 0.28,
-      phase: Math.random() * Math.PI * 2,
-      isGold: Math.random() > 0.35
-    });
-  }
-
-  ctx.save();
-  for (const m of ambientMotes) {
-    m.phase += dt * 1.8;
-    m.x += (m.vx + Math.sin(m.phase) * 6) * dt;
-    m.y += m.vy * dt;
-
-    if (m.y < minY - 10 || m.y > strikeLineY) {
-      m.y = strikeLineY - 4 - Math.random() * Math.min(24, span * 0.2);
-      m.x = Math.random() * width;
-    }
-    if (m.x < 0) m.x = width;
-    if (m.x > width) m.x = 0;
-
-    const twinkle = m.alpha * (0.65 + 0.35 * Math.sin(m.phase * 1.5));
-    ctx.beginPath();
-    ctx.arc(m.x, m.y, m.radius, 0, Math.PI * 2);
-    ctx.fillStyle = m.isGold
-      ? `rgba(255, 215, 0, ${twinkle.toFixed(3)})`
-      : `rgba(0, 229, 255, ${twinkle.toFixed(3)})`;
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-/**
- * Update and draw active Strike-Line Shockwave Rings, Particle Bursts & Floating XP Runes
- */
-function updateAndDrawStrikeParticles(dt) {
-  // 1. Expanding Strike-Line Shockwave Rings
-  if (strikeShockwaves.length > 0) {
-    ctx.save();
-    for (let i = strikeShockwaves.length - 1; i >= 0; i--) {
-      const sw = strikeShockwaves[i];
-      sw.life -= dt;
-      if (sw.life <= 0) {
-        strikeShockwaves.splice(i, 1);
-        continue;
-      }
-      const progress = 1 - sw.life / sw.maxLife;
-      const curRx = sw.rx + (sw.maxRx - sw.rx) * progress;
-      const curRy = sw.ry + 14 * progress;
-      const alpha = Math.max(0, (sw.life / sw.maxLife) * 0.85);
-
-      ctx.beginPath();
-      ctx.ellipse(sw.x, sw.y, curRx, curRy, 0, 0, Math.PI * 2);
-      ctx.strokeStyle = sw.color;
-      ctx.globalAlpha = alpha;
-      ctx.lineWidth = 2.2 * (1 - progress * 0.5);
-      ctx.shadowColor = sw.color;
-      ctx.shadowBlur = 12;
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  // 2. Arcane Spark / Star / Diamond Particles
-  if (strikeParticles.length > 0) {
-    ctx.save();
-    const gravity = 310;
-    for (let i = strikeParticles.length - 1; i >= 0; i--) {
-      const p = strikeParticles[i];
-      p.life -= dt;
-      if (p.life <= 0) {
-        strikeParticles.splice(i, 1);
-        continue;
-      }
-
-      p.vy += gravity * dt;
-      p.vx *= 0.985;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.rotation += p.spin * dt;
-
-      const alpha = Math.max(0, p.life / p.maxLife);
-      const r = p.size * (0.45 + 0.55 * alpha);
-
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.rotate(p.rotation);
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = p.color;
-      if (strikeParticles.length <= 48) {
-        ctx.shadowColor = p.color;
-        ctx.shadowBlur = 10;
-      }
-
-      if (p.shape === 'star') {
-        // 4-point arcane star
-        ctx.beginPath();
-        ctx.moveTo(0, -r * 1.45);
-        ctx.lineTo(r * 0.42, -r * 0.42);
-        ctx.lineTo(r * 1.45, 0);
-        ctx.lineTo(r * 0.42, r * 0.42);
-        ctx.lineTo(0, r * 1.45);
-        ctx.lineTo(-r * 0.42, r * 0.42);
-        ctx.lineTo(-r * 1.45, 0);
-        ctx.lineTo(-r * 0.42, -r * 0.42);
-        ctx.closePath();
-        ctx.fill();
-      } else if (p.shape === 'diamond') {
-        ctx.beginPath();
-        ctx.moveTo(0, -r * 1.25);
-        ctx.lineTo(r * 0.85, 0);
-        ctx.lineTo(0, r * 1.25);
-        ctx.lineTo(-r * 0.85, 0);
-        ctx.closePath();
-        ctx.fill();
-      } else {
-        ctx.beginPath();
-        ctx.arc(0, 0, r * 0.85, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-    }
-    ctx.restore();
-  }
-
-  // 3. Floating XP / Roll Runes
-  if (floatingRunes.length > 0) {
-    ctx.save();
-    for (let i = floatingRunes.length - 1; i >= 0; i--) {
-      const fr = floatingRunes[i];
-      fr.life -= dt;
-      if (fr.life <= 0) {
-        floatingRunes.splice(i, 1);
-        continue;
-      }
-      fr.y += fr.vy * dt;
-      fr.vy *= 0.96;
-
-      const alpha = Math.min(1, (fr.life / fr.maxLife) * 1.25);
-      ctx.globalAlpha = alpha;
-      ctx.font = 'bold 12px "Segoe UI", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = fr.color;
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.95)';
-      ctx.shadowBlur = 6;
-      ctx.fillText(fr.text, fr.x, fr.y);
-    }
-    ctx.restore();
-  }
-}
-
-/**
- * Render the Spell Highway backdrop, falling notes, strike line, 61-key piano, and Phase 7 particles
- */
-function renderCanvas() {
-  if (typeof isTavernMenuVisible !== 'undefined' && isTavernMenuVisible && !playbackState.isPlaying) {
-    return;
-  }
-  if (stageViewMode === 'karaoke') {
-    if (typeof renderKaraokeFrame === 'function') {
-      renderKaraokeFrame();
-    }
-    return;
-  }
-
-  const nowMs = performance.now();
-  const particleDt = Math.min(0.05, Math.max(0.001, (nowMs - lastParticleFrameMs) / 1000));
-  lastParticleFrameMs = nowMs;
-
-  const width = cachedCanvasWidth;
-  const height = cachedCanvasHeight;
-  const dpr = window.devicePixelRatio || 1;
-
-  ctx.clearRect(0, 0, width, height);
-
-  if (whiteKeys.length === 0 || !cachedKeyGradients) {
-    syncNotationWaitOverlayPill(nowMs);
-    return;
-  }
-  const strikeLineY = whiteKeys[0].y;
-  const inNotationView = stageViewMode === 'split' || stageViewMode === 'score';
-  const highwayTopY = stageViewMode === 'highway'
-    ? 0
-    : Math.min(strikeLineY, Math.max(0, cachedHighwayTopY));
-  const highwayHeight = Math.max(0, strikeLineY - highwayTopY);
-
-  let strikeLineGuides;
-
-  if (stageViewMode !== 'score' && highwayHeight > 0) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, highwayTopY, width, highwayHeight);
-    ctx.clip();
-
-    // Phase 7: Ambient drifting arcane dust motes in the Spell Highway background
-    updateAndDrawAmbientMotes(particleDt, width, strikeLineY, highwayTopY);
-
-    // 1. Draw vertical octave lane guides in the Spell Highway area
-    ctx.save();
-    for (const wk of whiteKeys) {
-      const semitone = wk.midi % 12;
-      if (semitone === 0 || semitone === 5) {
-        ctx.beginPath();
-        ctx.moveTo(wk.x, highwayTopY);
-        ctx.lineTo(wk.x, strikeLineY);
-        ctx.strokeStyle = semitone === 0
-          ? 'rgba(212, 175, 55, 0.16)'
-          : 'rgba(186, 171, 147, 0.07)';
-        ctx.lineWidth = semitone === 0 ? 1.5 : 1;
-        ctx.stroke();
-      }
-    }
-    ctx.restore();
-
-    // 2. Draw 60 FPS Falling Spell Highway Notes
-    strikeLineGuides = drawFallingSpellHighway(strikeLineY, width, highwayTopY, false);
-    updateChordBannerHUD(playbackState.currentTime);
-
-    // 2b. Issue #30: Draw Rehearsal Loop A/B boundary lines on the Spell Highway
-    if (currentSong && rehearsalLoopState.enabled && hasValidRehearsalLoop()) {
-      const pxPerSec = getEffectiveHighwayPxPerSec(highwayHeight);
-      const markers = [
-        { t: rehearsalLoopState.startTime, label: 'LOOP A', color: 'rgba(255, 215, 0, 0.78)' },
-        { t: rehearsalLoopState.endTime, label: 'LOOP B', color: 'rgba(245, 158, 11, 0.88)' }
-      ];
-      for (const m of markers) {
-        const y = strikeLineY - (m.t - playbackState.currentTime) * pxPerSec;
-        if (y >= highwayTopY + 4 && y <= strikeLineY) {
-          ctx.save();
-          ctx.strokeStyle = m.color;
-          ctx.lineWidth = 1.5;
-          ctx.setLineDash([6, 4]);
-          ctx.beginPath();
-          ctx.moveTo(0, y);
-          ctx.lineTo(width, y);
-          ctx.stroke();
-          ctx.setLineDash([]);
-          ctx.fillStyle = m.color;
-          ctx.font = 'bold 10px "Consolas", monospace';
-          ctx.textAlign = 'right';
-          ctx.fillText(m.label, width - 8, Math.max(highwayTopY + 12, y - 4));
-          ctx.restore();
-        }
-      }
-    }
-
-    if (songSessionStats.inspirationBurstRemainingSec > 0) {
-      const pulse = 0.22 + 0.12 * Math.sin(nowMs * 0.008);
-      ctx.save();
-      ctx.strokeStyle = `rgba(255, 215, 0, ${pulse.toFixed(2)})`;
-      ctx.lineWidth = 6;
-      ctx.strokeRect(3, highwayTopY + 3, Math.max(4, width - 6), Math.max(4, highwayHeight - 6));
-      ctx.restore();
-    }
-
-    ctx.restore();
-  } else {
-    // Score Mode: Still collect active strike-line piano key guides while sheet music fills the stage
-    strikeLineGuides = drawFallingSpellHighway(strikeLineY, width, strikeLineY, true);
-  }
-
-  // 2c. Issue #39: Draw Scrolling Grand-Staff Sheet Music Viewport in Split & Score modes
-  if (inNotationView && cachedNotationPaneHeight > 40) {
-    const waitDurationSec = playbackState.isWaitingForStrike && playbackState.waitStartedAtMs !== null
-      ? Math.max(0, (nowMs - playbackState.waitStartedAtMs) / 1000)
-      : 0;
-    activeWaitNoteIdSet.clear();
-    if (playbackState.isWaitingForStrike && playbackState.activeStrikeGroup?.notes) {
-      for (const wn of playbackState.activeStrikeGroup.notes) {
-        activeWaitNoteIdSet.add(wn.id);
-      }
-    }
-    notationRenderer.renderNotationViewport(
-      ctx,
-      { x: 0, y: 0, width, height: cachedNotationPaneHeight },
-      {
-        scoreData: currentSong?.notationScore || null,
-        currentTime: playbackState.currentTime,
-        isWaitingForStrike: playbackState.isWaitingForStrike,
-        waitDurationSec,
-        waitMode: playbackState.waitMode,
-        rehearsalLoop: currentSong && rehearsalLoopState.enabled && hasValidRehearsalLoop()
-          ? {
-              enabled: true,
-              startTime: rehearsalLoopState.startTime,
-              endTime: rehearsalLoopState.endTime
-            }
-          : null,
-        rhOpacity: getHandVisualOpacity(1),
-        lhOpacity: getHandVisualOpacity(2),
-        noteLookup: currentSong?.noteIdMap || null,
-        activeWaitNoteIds: activeWaitNoteIdSet.size > 0 ? activeWaitNoteIdSet : null,
-        dpr,
-        showSplitDivider: stageViewMode === 'split'
-      }
-    );
-  }
-
-  // 3. Draw glowing Strike Zone Line above the 61-key keyboard (with Bardic Inspiration glow at 50+ combo)
-  ctx.save();
-  const isWaiting = playbackState.isWaitingForStrike;
-  const isInspired = isBardicInspirationActive();
-  const lineH = stageViewMode === 'score'
-    ? (isInspired || isWaiting ? 8 : 5)
-    : (isInspired ? 16 : (isWaiting ? 14 : 9));
-  const strikeGrad = ctx.createLinearGradient(0, strikeLineY - lineH + 2, 0, strikeLineY + 4);
-  if (isInspired) {
-    strikeGrad.addColorStop(0, 'rgba(255, 170, 0, 0)');
-    strikeGrad.addColorStop(0.45, 'rgba(255, 170, 0, 0.85)');
-    strikeGrad.addColorStop(0.8, 'rgba(255, 215, 0, 0.95)');
-    strikeGrad.addColorStop(1, '#ffffff');
-  } else if (isWaiting) {
-    strikeGrad.addColorStop(0, 'rgba(255, 215, 0, 0)');
-    strikeGrad.addColorStop(0.5, 'rgba(255, 215, 0, 0.92)');
-    strikeGrad.addColorStop(1, '#fff3b0');
-  } else {
-    strikeGrad.addColorStop(0, 'rgba(255, 215, 0, 0)');
-    strikeGrad.addColorStop(0.55, 'rgba(255, 215, 0, 0.7)');
-    strikeGrad.addColorStop(1, '#d4af37');
-  }
-  ctx.fillStyle = strikeGrad;
-  ctx.fillRect(0, strikeLineY - lineH + 2, width, lineH);
-  ctx.restore();
-
-  // 4. Draw 36 White Keys (using pre-allocated cachedKeyGradients)
-  const qwertyHighMidi = Math.min(MAX_MIDI, qwertyBaseMidi + 16);
-  const firstWhiteW = whiteKeys[0].width;
-  const whiteQwertyFont = `bold ${Math.max(9, Math.min(11, Math.floor(firstWhiteW * 0.36)))}px "Segoe UI", sans-serif`;
-  const whiteNoteFont = `bold ${Math.max(10, Math.min(13, Math.floor(firstWhiteW * 0.42)))}px "Segoe UI", sans-serif`;
-  ctx.textAlign = 'center';
-  for (const key of whiteKeys) {
-    const state = activeNotes.get(key.midi);
-    const isPressed = Boolean(state);
-    const guide = strikeLineGuides.get(key.midi);
-    const isInQwertyRange = showQwertyKeyLabels && key.midi >= qwertyBaseMidi && key.midi <= qwertyHighMidi;
-    const qwertyChar = isInQwertyRange ? OFFSET_TO_QWERTY_LABEL[key.midi - qwertyBaseMidi] : null;
-
-    if (isPressed) {
-      ctx.save();
-      ctx.fillStyle = cachedKeyGradients.whitePressed;
-      ctx.shadowColor = 'rgba(255, 215, 0, 0.75)';
-      ctx.shadowBlur = 16;
-    } else if (guide) {
-      ctx.fillStyle = guide.lockedInWait
-        ? cachedKeyGradients.whiteLocked
-        : (guide.handTrack === 1 ? cachedKeyGradients.whiteGuideT1 : cachedKeyGradients.whiteGuideT2);
-    } else {
-      ctx.fillStyle = cachedKeyGradients.whiteIdle;
-    }
-
-    const pad = 0.75;
-    ctx.fillRect(key.x + pad, key.y, key.width - pad * 2, key.height - 2);
-
-    // Subtle gold top marker bar on keys inside the active QWERTY octave range (Z/X)
-    if (isInQwertyRange) {
-      ctx.fillStyle = isPressed ? '#1a1200' : 'rgba(212, 175, 55, 0.85)';
-      ctx.fillRect(key.x + pad + 1, key.y + 1, key.width - (pad + 1) * 2, 4);
-    }
-
-    ctx.strokeStyle = isPressed ? '#ffd700' : (guide ? '#ffd700' : (isInQwertyRange ? '#8a6d2f' : '#2e241b'));
-    ctx.lineWidth = guide ? 1.8 : 1;
-    ctx.strokeRect(key.x + pad, key.y, key.width - pad * 2, key.height - 2);
-
-    if (isPressed) {
-      ctx.restore();
-      ctx.textAlign = 'center';
-    }
-
-    if (qwertyChar) {
-      ctx.fillStyle = isPressed || guide ? '#1a1200' : '#8a6d2f';
-      ctx.font = whiteQwertyFont;
-      ctx.fillText(`[${qwertyChar}]`, key.x + key.width / 2, key.y + key.height - 28);
-    }
-
-    if (key.midi % 12 === 0 || guide || (showQwertyKeyLabels && key.midi === qwertyBaseMidi)) {
-      ctx.fillStyle = isPressed || guide ? '#1a1200' : (showQwertyKeyLabels && key.midi === qwertyBaseMidi ? '#b45309' : '#5e4d3b');
-      ctx.font = whiteNoteFont;
-      ctx.fillText(key.name, key.x + key.width / 2, key.y + key.height - 12);
-    }
-  }
-
-  // 5. Draw 25 Black Keys on top (using pre-allocated cachedKeyGradients)
-  const firstBlackW = blackKeys.length > 0 ? blackKeys[0].width : 16;
-  const blackQwertyFont = `bold ${Math.max(8, Math.min(10, Math.floor(firstBlackW * 0.48)))}px "Segoe UI", sans-serif`;
-  ctx.font = blackQwertyFont;
-  for (const key of blackKeys) {
-    const state = activeNotes.get(key.midi);
-    const isPressed = Boolean(state);
-    const guide = strikeLineGuides.get(key.midi);
-    const isInQwertyRange = showQwertyKeyLabels && key.midi >= qwertyBaseMidi && key.midi <= qwertyHighMidi;
-    const qwertyChar = isInQwertyRange ? OFFSET_TO_QWERTY_LABEL[key.midi - qwertyBaseMidi] : null;
-
-    if (isPressed) {
-      ctx.save();
-      ctx.fillStyle = cachedKeyGradients.blackPressed;
-      ctx.shadowColor = 'rgba(255, 215, 0, 0.85)';
-      ctx.shadowBlur = 14;
-    } else if (guide) {
-      ctx.fillStyle = guide.lockedInWait
-        ? cachedKeyGradients.blackLocked
-        : (guide.handTrack === 1 ? cachedKeyGradients.blackGuideT1 : cachedKeyGradients.blackGuideT2);
-    } else {
-      ctx.fillStyle = cachedKeyGradients.blackIdle;
-    }
-
-    ctx.fillRect(key.x, key.y, key.width, key.height);
-
-    ctx.strokeStyle = isPressed || guide ? '#fff3b0' : (isInQwertyRange ? '#d4af37' : '#4a3b2c');
-    ctx.lineWidth = guide ? 1.6 : 1;
-    ctx.strokeRect(key.x + 0.5, key.y + 0.5, key.width - 1, key.height - 1);
-
-    if (isPressed) {
-      ctx.restore();
-      ctx.textAlign = 'center';
-      ctx.font = blackQwertyFont;
-    }
-
-    if (qwertyChar) {
-      ctx.fillStyle = isPressed || guide ? '#1a1200' : '#fde68a';
-      ctx.fillText(qwertyChar, key.x + key.width / 2, key.y + key.height - 8);
-    }
-  }
-
-  // 6. Phase 7: Render Strike-Line Shockwaves, Arcane Particle Bursts & Floating XP Runes on top!
-  updateAndDrawStrikeParticles(particleDt);
-  syncNotationWaitOverlayPill(nowMs);
-}
-
-/**
- * Hit-test canvas coordinates (x, y) against the 61-key piano
- */
-function getMidiKeyAtPoint(clientX, clientY) {
-  const rect = canvas.getBoundingClientRect();
-  const x = clientX - rect.left;
-  const y = clientY - rect.top;
-
-  for (const bk of blackKeys) {
-    if (x >= bk.x && x <= bk.x + bk.width && y >= bk.y && y <= bk.y + bk.height) {
-      return bk.midi;
-    }
-  }
-  for (const wk of whiteKeys) {
-    if (x >= wk.x && x <= wk.x + wk.width && y >= wk.y && y <= wk.y + wk.height) {
-      return wk.midi;
-    }
-  }
-  return null;
-}
+// Issue #184: 61-Key & Spell Highway Canvas Renderer extracted to ./modules/highway-renderer.js
+const { createHighwayRenderer } = require('./modules/highway-renderer');
+const highwayRendererModule = createHighwayRenderer({
+  MIN_MIDI, MAX_MIDI, BLACK_SEMITONES, CHORD_CLUSTER_WINDOW_SEC,
+  canvas, canvasCtx: ctx, stageContainer,
+  whiteKeys, blackKeys, keyGeometry, activeNotes,
+  playbackState, rehearsalLoopState, notationRenderer,
+  getEffectiveHighwayPxPerSec,
+  parseKeySpecForDegrees, formatFallingNoteLabel, findFirstNoteIndexAtOrAfter,
+  hasValidRehearsalLoop,
+  updateChordBannerHUD: (t) => updateChordBannerHUD(t),
+  syncNotationWaitOverlayPill: (ts) => syncNotationWaitOverlayPill(ts),
+  drawLiveHitErrorBar,
+  midiToNoteName,
+  strikeParticles, strikeShockwaves, floatingRunes, ambientMotes,
+  get lastParticleFrameMs() { return lastParticleFrameMs; },
+  set lastParticleFrameMs(v) { lastParticleFrameMs = v; },
+  get currentSong() { return currentSong; },
+  set currentSong(v) { currentSong = v; },
+  get stageViewMode() { return stageViewMode; },
+  set stageViewMode(v) { stageViewMode = v; },
+  get showQwertyKeyLabels() { return showQwertyKeyLabels; },
+  set showQwertyKeyLabels(v) { showQwertyKeyLabels = v; },
+  get sustainPedalDown() { return sustainPedalDown; },
+  set sustainPedalDown(v) { sustainPedalDown = v; },
+  get cachedCanvasWidth() { return cachedCanvasWidth; },
+  set cachedCanvasWidth(v) { cachedCanvasWidth = v; },
+  get cachedCanvasHeight() { return cachedCanvasHeight; },
+  set cachedCanvasHeight(v) { cachedCanvasHeight = v; },
+  get cachedHighwayTopY() { return cachedHighwayTopY; },
+  set cachedHighwayTopY(v) { cachedHighwayTopY = v; },
+  get cachedKeyGradients() { return cachedKeyGradients; },
+  set cachedKeyGradients(v) { cachedKeyGradients = v; },
+  get isTavernMenuVisible() { return isTavernMenuVisible; },
+  set isTavernMenuVisible(v) { isTavernMenuVisible = v; }
+});
+const {
+  computeKeyGeometry,
+  drawFallingSpellHighway,
+  spawnKeyParticleBurst,
+  spawnFloatingCanvasRune,
+  updateAndDrawAmbientMotes,
+  updateAndDrawStrikeParticles,
+  renderCanvas,
+  getMidiKeyAtPoint
+} = highwayRendererModule;
 
 // Issue #42 & #43: Plug-In External Instrument Rig DOM references & state
 const inputSourceModeSelect = document.getElementById('input-source-mode-select');
@@ -11081,7 +8031,8 @@ function isAnyModalOpen() {
   const setlistOpen = setlistModal && !setlistModal.classList.contains('hidden');
   const lyricPasteOpen = lyricPasteModal && !lyricPasteModal.classList.contains('hidden');
   const booOffOpen = booOffModal && !booOffModal.classList.contains('hidden');
-  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen || deleteConfirmOpen || collegesOpen || campaignOpen || omrOpen || setlistOpen || lyricPasteOpen || booOffOpen);
+  const importSaveOpen = typeof importSaveConfirmModal !== 'undefined' && importSaveConfirmModal && !importSaveConfirmModal.classList.contains('hidden');
+  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen || deleteConfirmOpen || collegesOpen || campaignOpen || omrOpen || setlistOpen || lyricPasteOpen || booOffOpen || importSaveOpen);
 }
 
 window.addEventListener('keydown', (e) => {
@@ -11157,6 +8108,11 @@ window.addEventListener('keydown', (e) => {
     if (howToPlayModal && !howToPlayModal.classList.contains('hidden')) {
       e.preventDefault();
       closeHowToPlayModal();
+      return;
+    }
+    if (typeof importSaveConfirmModal !== 'undefined' && importSaveConfirmModal && !importSaveConfirmModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeImportSaveConfirmModal();
       return;
     }
     if (booOffModal && !booOffModal.classList.contains('hidden')) {
@@ -12369,6 +9325,129 @@ if (toggleMetronomeClick) {
     playbackState.metronomeClickEnabled = Boolean(e.target.checked);
     localStorage.setItem(METRONOME_CLICK_STORAGE_KEY, String(playbackState.metronomeClickEnabled));
     e.target.blur();
+  });
+}
+
+// ============================================================================
+// Issue #185: 1-Click Bard Save Backup (Export & Import)
+// ============================================================================
+const btnExportSaveBackup = document.getElementById('btn-export-save-backup');
+const btnImportSaveBackup = document.getElementById('btn-import-save-backup');
+const importSaveConfirmModal = document.getElementById('import-save-confirm-modal');
+const importSaveSummaryBox = document.getElementById('import-save-summary-box');
+const btnCloseImportSave = document.getElementById('btn-close-import-save');
+const btnCancelImportSave = document.getElementById('btn-cancel-import-save');
+const btnConfirmImportSave = document.getElementById('btn-confirm-import-save');
+let pendingImportSavePayload = null;
+
+function closeImportSaveConfirmModal() {
+  pendingImportSavePayload = null;
+  if (importSaveConfirmModal) {
+    importSaveConfirmModal.classList.add('hidden');
+  }
+}
+
+function openImportSaveConfirmModal(payload, summary) {
+  if (!importSaveConfirmModal || !importSaveSummaryBox) return;
+  pendingImportSavePayload = payload;
+  const dateLabel = summary.exportedAt
+    ? new Date(summary.exportedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
+    : 'Unknown';
+  importSaveSummaryBox.innerHTML = '';
+  const items = [
+    ['Bard Level', `LVL ${summary.bardLevel}`],
+    ['Total XP', `${Number(summary.totalXp || 0).toLocaleString()} XP`],
+    ['Songs Tracked', `${summary.songsTracked} (${summary.songsCompleted} Completed)`],
+    ['Exported', `${dateLabel} (v${summary.appVersion})`]
+  ];
+  for (const [label, val] of items) {
+    const cell = document.createElement('div');
+    const lbl = document.createElement('span');
+    lbl.textContent = label;
+    const strong = document.createElement('strong');
+    strong.textContent = val;
+    cell.appendChild(lbl);
+    cell.appendChild(strong);
+    importSaveSummaryBox.appendChild(cell);
+  }
+  importSaveConfirmModal.classList.remove('hidden');
+  if (btnConfirmImportSave) btnConfirmImportSave.focus();
+}
+
+if (btnExportSaveBackup) {
+  btnExportSaveBackup.addEventListener('click', async () => {
+    try {
+      flushSaveBardProfile();
+      saveSongStats();
+      const stamp = new Date().toISOString().slice(0, 10);
+      const dlg = await ipcRenderer.invoke('show-save-backup-dialog', `college-of-keys-save-${stamp}.json`);
+      if (!dlg || dlg.canceled || !dlg.filePath) return;
+      let appVersion = '1.10.0';
+      try {
+        appVersion = require('./package.json').version || appVersion;
+      } catch {
+        // Ignore version lookup error
+      }
+      const payload = buildSaveBackupPayload({
+        repoDir: __dirname,
+        storage: window.localStorage,
+        appVersion
+      });
+      fs.writeFileSync(dlg.filePath, JSON.stringify(payload, null, 2), 'utf8');
+      showGrimoireToast(`\uD83D\uDCBE Save backup exported to ${path.basename(dlg.filePath)}`, 'success');
+    } catch (err) {
+      showGrimoireToast(`Failed to export save: ${err?.message || err}`, 'error');
+    }
+  });
+}
+
+if (btnImportSaveBackup) {
+  btnImportSaveBackup.addEventListener('click', async () => {
+    try {
+      const dlg = await ipcRenderer.invoke('show-open-backup-dialog');
+      if (!dlg || dlg.canceled || !dlg.filePath) return;
+      const raw = fs.readFileSync(dlg.filePath, 'utf8');
+      const check = validateAndSummarizeSaveBackup(raw);
+      if (!check.ok) {
+        showGrimoireToast(check.error || 'Invalid save backup file.', 'error');
+        return;
+      }
+      closeAllConservatoryPopovers();
+      openImportSaveConfirmModal(check.payload, check.summary);
+    } catch (err) {
+      showGrimoireToast(`Failed to read save backup: ${err?.message || err}`, 'error');
+    }
+  });
+}
+
+if (btnCloseImportSave) btnCloseImportSave.addEventListener('click', () => closeImportSaveConfirmModal());
+if (btnCancelImportSave) btnCancelImportSave.addEventListener('click', () => closeImportSaveConfirmModal());
+if (importSaveConfirmModal) {
+  importSaveConfirmModal.addEventListener('click', (e) => {
+    if (e.target === importSaveConfirmModal) closeImportSaveConfirmModal();
+  });
+}
+if (btnConfirmImportSave) {
+  btnConfirmImportSave.addEventListener('click', () => {
+    if (!pendingImportSavePayload) return;
+    try {
+      if (typeof bardProfileSaveTimer !== 'undefined' && bardProfileSaveTimer) {
+        clearTimeout(bardProfileSaveTimer);
+        bardProfileSaveTimer = null;
+      }
+      if (typeof bardProfileDirty !== 'undefined') {
+        bardProfileDirty = false;
+      }
+      applySaveBackupPayload({
+        payload: pendingImportSavePayload,
+        repoDir: __dirname,
+        storage: window.localStorage
+      });
+      closeImportSaveConfirmModal();
+      window.location.reload();
+    } catch (err) {
+      showGrimoireToast(`Failed to restore save: ${err?.message || err}`, 'error');
+    }
   });
 }
 

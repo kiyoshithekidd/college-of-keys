@@ -10,6 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.10.0] - 2026-11-26
+
+### Added
+- **1-Click Bard Save Backup (`#185`):**
+  - Added `save-backup.js` + native Electron Save/Open dialog IPC handlers in `main.js` bundling all 4 JSON save files (`bard_profile.json`, `song_stats.json`, `grimoire_library.json`, `grimoire_bundles.json`) and all 17 `localStorage` keys into a single schema-versioned `.json` archive.
+  - Added **💾 Export Save** / **📂 Import Save** in `#settings-popover`, the `#import-save-confirm-modal` summary preview, automatic `save_backups/pre-import-*` safety backups, and `tests/save-backup.test.js` (2 Node unit tests + DOM checks).
+- **Modularized `renderer.js` (`#184`):**
+  - Extracted ~3,050 lines out of `renderer.js` (16,671 → 13,620 lines) into 4 cohesive domain modules: `modules/spellbook-ui.js`, `modules/highway-renderer.js`, `modules/performance-modal.js`, and `modules/audio-engine.js`, keeping all top-level bindings and `npm test` 100% green at every step.
+
+### Fixed
+- **v1.10.0 Peer Review & QA Audit Hardening (`#188`):** Exported missing `startAudioAudition` and `runAutoAlignFirstOnset` from `modules/audio-engine.js`, fixed stale `stageViewMode` capture in `modules/performance-modal.js`, added `grimoire_bundles.json` to `.gitignore`, removed dead `deps` getters/setters in `renderer.js`, validated string values in `localStorage` restore, and pruned `save_backups/pre-import-*` beyond 10 backups.
+
+---
+
 ## [1.9.0] - 2026-11-26
 
 ### Added

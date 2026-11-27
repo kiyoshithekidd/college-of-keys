@@ -932,6 +932,34 @@ app.whenReady().then(async () => {
       );
       resetPlaybackToStart();
 
+      // Issue #185: 1-Click Bard Save Backup DOM checks
+      const fakeSummary = {
+        exportedAt: '2026-11-26T18:00:00.000Z',
+        appVersion: '1.10.0',
+        bardLevel: 5,
+        totalXp: 4200,
+        songsTracked: 3,
+        songsCompleted: 2
+      };
+      openImportSaveConfirmModal({ schemaVersion: 1, app: 'college-of-keys', files: {} }, fakeSummary);
+      const importModalOpened = Boolean(
+        !document.getElementById('import-save-confirm-modal').classList.contains('hidden') &&
+        isAnyModalOpen() &&
+        document.getElementById('import-save-summary-box').textContent.includes('LVL 5')
+      );
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      const importModalClosedOnEsc = document.getElementById('import-save-confirm-modal').classList.contains('hidden');
+      checks.saveBackupButtonsAndModal = Boolean(
+        document.getElementById('btn-export-save-backup') &&
+        document.getElementById('btn-import-save-backup') &&
+        importModalOpened &&
+        importModalClosedOnEsc
+      );
+      checks.audioEngineExportsPresent = Boolean(
+        typeof startAudioAudition === 'function' &&
+        typeof runAutoAlignFirstOnset === 'function'
+      );
+
       return checks;
     })();
   `);
