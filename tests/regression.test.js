@@ -960,6 +960,56 @@ app.whenReady().then(async () => {
         typeof runAutoAlignFirstOnset === 'function'
       );
 
+      // Issue #180: Web MIDI Output settings UI & controller checks
+      const midiOutSelect = document.getElementById('midi-output-device-select');
+      const midiOutChan = document.getElementById('midi-output-channel-select');
+      const midiOutMute = document.getElementById('midi-output-mute-local');
+      const midiOutPanic = document.getElementById('btn-midi-output-panic');
+      if (midiOutChan) {
+        midiOutChan.value = '3';
+        midiOutChan.dispatchEvent(new Event('change'));
+      }
+      checks.midiOutputSettingsRenderAndPersist = Boolean(
+        midiOutSelect &&
+        midiOutChan &&
+        midiOutMute &&
+        midiOutPanic &&
+        midiOutputController &&
+        midiOutputController.getStatus().channel === 3 &&
+        localStorage.getItem('collegeOfKeys.midiOutputChannel.v1') === '3'
+      );
+
+      // Issue #178: Arcane Drills Warmup Dojo DOM + scoring + XP integration
+      const prevXp = Number(bardProfile.totalXp) || 0;
+      document.getElementById('btn-open-arcane-drills').click();
+      const overlayVisible = !document.getElementById('arcane-drills-overlay').classList.contains('hidden');
+      const keySel = document.getElementById('drill-key-select');
+      const typeSel = document.getElementById('drill-type-select');
+      const handSel = document.getElementById('drill-hand-select');
+      keySel.value = 'C';
+      typeSel.value = 'scale_major_pentatonic';
+      handSel.value = 'rh';
+      typeSel.dispatchEvent(new Event('change'));
+
+      const pentatonicMidis = [60, 62, 64, 67, 69, 72, 69, 67, 64, 62, 60];
+      for (const m of pentatonicMidis) {
+        handleNoteOn(m, 100, 'qwerty');
+        handleNoteOff(m);
+      }
+      const completeShown = !document.getElementById('drill-complete-card').classList.contains('hidden');
+      const xpAwarded = (Number(bardProfile.totalXp) || 0) > prevXp;
+      const highlights = arcaneDrillsUI.getDrillKeyHighlights();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      const closedOnEsc = document.getElementById('arcane-drills-overlay').classList.contains('hidden');
+
+      checks.arcaneDrillsDojoSessionAndXp = Boolean(
+        overlayVisible &&
+        highlights.active &&
+        completeShown &&
+        xpAwarded &&
+        closedOnEsc
+      );
+
       return checks;
     })();
   `);

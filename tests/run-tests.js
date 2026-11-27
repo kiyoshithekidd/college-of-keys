@@ -13,7 +13,9 @@ const nodeUnitTests = [
   path.join(__dirname, 'legends-and-preview.test.js'),
   path.join(__dirname, 'crowd-fail-state.test.js'),
   path.join(__dirname, 'highway-practice-tools.test.js'),
-  path.join(__dirname, 'save-backup.test.js')
+  path.join(__dirname, 'save-backup.test.js'),
+  path.join(__dirname, 'midi-output.test.js'),
+  path.join(__dirname, 'arcane-drills.test.js')
 ];
 const testEntry = path.join(__dirname, 'regression.test.js');
 const electronBin = require('electron');

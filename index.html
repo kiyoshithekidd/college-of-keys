@@ -142,6 +142,11 @@
                 <strong class="tavern-college-pill-name">Campaign Tour</strong>
                 <span id="menu-campaign-progress" class="tavern-college-pill-cta">0 / 4 Venues &rarr;</span>
               </button>
+              <button id="btn-menu-arcane-drills" type="button" class="tavern-college-pill tavern-drills-pill" title="Open Arcane Drills: Interactive Scales, Chords &amp; Progression Warmup Dojo">
+                <span class="tavern-college-pill-icon" aria-hidden="true">&#129355;</span>
+                <strong class="tavern-college-pill-name">Arcane Drills</strong>
+                <span class="tavern-college-pill-cta">Warmup Dojo &rarr;</span>
+              </button>
             </div>
           </div>
 
@@ -213,6 +218,9 @@
               </button>
               <button id="btn-open-campaign" type="button" class="career-popover-item" role="menuitem">
                 <img src="assets/images/icons/icon-campaign-map.png" alt="" class="tavern-inline-icon" /> Campaign Tour
+              </button>
+              <button id="btn-open-arcane-drills" type="button" class="career-popover-item" role="menuitem">
+                <span class="tavern-inline-icon" aria-hidden="true">&#129355;</span> Arcane Drills (Dojo)
               </button>
             </div>
           </div>
@@ -380,6 +388,46 @@
                       <option value="2">Channel 3</option>
                       <option value="3">Channel 4</option>
                     </select>
+                  </div>
+                </div>
+
+                <!-- Issue #180: Web MIDI Output Pass-Through to Hardware Digital Piano -->
+                <div id="midi-output-routing-rows" class="instrument-sub-rows">
+                  <div class="popover-row-inline">
+                    <label for="midi-output-device-select" title="Route College of Keys auto-played accompaniment and previews to a connected hardware digital piano">MIDI Output</label>
+                    <select id="midi-output-device-select" class="tavern-select">
+                      <option value="none" selected>Internal Synth (Default)</option>
+                    </select>
+                  </div>
+                  <div class="popover-row-inline">
+                    <label for="midi-output-channel-select" title="MIDI Output Channel (1-16)">Out Channel</label>
+                    <select id="midi-output-channel-select" class="tavern-select">
+                      <option value="0" selected>Channel 1</option>
+                      <option value="1">Channel 2</option>
+                      <option value="2">Channel 3</option>
+                      <option value="3">Channel 4</option>
+                      <option value="4">Channel 5</option>
+                      <option value="5">Channel 6</option>
+                      <option value="6">Channel 7</option>
+                      <option value="7">Channel 8</option>
+                      <option value="8">Channel 9</option>
+                      <option value="9">Channel 10</option>
+                      <option value="10">Channel 11</option>
+                      <option value="11">Channel 12</option>
+                      <option value="12">Channel 13</option>
+                      <option value="13">Channel 14</option>
+                      <option value="14">Channel 15</option>
+                      <option value="15">Channel 16</option>
+                    </select>
+                  </div>
+                  <div class="popover-row-inline">
+                    <label class="checkbox-inline-label" title="Mute internal Tone.js piano synth while hardware MIDI Output is active to prevent double-triggering">
+                      <input id="midi-output-mute-local" type="checkbox" checked />
+                      Mute Local Piano Synth
+                    </label>
+                    <button id="btn-midi-output-panic" type="button" class="btn-mini-sim" title="Send All Notes Off (CC 123) and Sustain Off (CC 64) to hardware MIDI Output">
+                      &#128263; Panic
+                    </button>
                   </div>
                 </div>
 
@@ -891,6 +939,62 @@
           <div id="notation-bezel-overlays" class="notation-bezel-overlays hidden" aria-hidden="true">
             <span id="notation-wait-pill" class="notation-wait-pill hidden"></span>
           </div>
+
+          <!-- Issue #178: Arcane Drills Interactive Warmup Dojo HUD -->
+          <section id="arcane-drills-overlay" class="arcane-drills-overlay hidden" aria-label="Arcane Drills Warmup Dojo">
+            <div class="drills-hud-header">
+              <div class="drills-hud-title-group">
+                <span class="drills-hud-badge">&#129355; Arcane Drills</span>
+                <span id="drill-lifetime-text" class="drills-hud-stat">0 Drills Done</span>
+              </div>
+              <div class="drills-hud-selectors">
+                <label class="drills-select-label">Key
+                  <select id="drill-key-select" class="tavern-select drills-select"></select>
+                </label>
+                <label class="drills-select-label">Drill
+                  <select id="drill-type-select" class="tavern-select drills-select"></select>
+                </label>
+                <label class="drills-select-label">Hand
+                  <select id="drill-hand-select" class="tavern-select drills-select">
+                    <option value="rh" selected>Right Hand</option>
+                    <option value="lh">Left Hand</option>
+                    <option value="both">Both Hands</option>
+                  </select>
+                </label>
+              </div>
+              <div class="drills-hud-actions">
+                <button id="btn-drill-demo" type="button" class="tavern-btn" title="Audition the drill pattern">&#128266; Play Demo</button>
+                <button id="btn-drill-restart" type="button" class="tavern-btn" title="Restart current drill">&#8634; Restart</button>
+                <button id="btn-drill-exit" type="button" class="tavern-btn btn-gold-outline" title="Exit Arcane Drills (Escape)">&#10005; Exit Dojo</button>
+              </div>
+            </div>
+
+            <div class="drills-hud-body">
+              <div class="drills-prompt-box">
+                <strong id="drill-step-prompt" class="drill-step-prompt">C4</strong>
+                <span id="drill-step-degree" class="drill-step-degree">Asc &bull; Degree 1</span>
+              </div>
+              <div class="drills-telemetry-box">
+                <div class="drills-progress-row">
+                  <span id="drill-progress-text">Step 1 / 15</span>
+                  <span id="drill-accuracy-text">100% Acc</span>
+                  <span id="drill-streak-text">Streak 0</span>
+                </div>
+                <div class="drills-progress-track">
+                  <div id="drill-progress-fill" class="drills-progress-fill" style="width: 0%;"></div>
+                </div>
+              </div>
+            </div>
+
+            <div id="drill-complete-card" class="drill-complete-card hidden">
+              <strong class="drill-complete-title">&#10024; Warmup Complete!</strong>
+              <span id="drill-complete-summary" class="drill-complete-summary">+25 Warmup XP</span>
+              <div class="drill-complete-actions">
+                <button id="btn-drill-next-key" type="button" class="tavern-btn tavern-btn-primary">Next Key (Circle of Fifths) &rarr;</button>
+                <button id="btn-drill-repeat" type="button" class="tavern-btn">Repeat Drill</button>
+              </div>
+            </div>
+          </section>
 
           <!-- Phase 10 (Issue #19): Translucent Center Highway HUD Pill -->
           <div id="highway-center-hud" aria-live="polite">

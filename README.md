@@ -33,6 +33,7 @@
 | **v1.8.0** | **Tavern Crowd Fail State: Tier-Scaled Crowd Warning (`15`/`10`/`7` Misses), 10-Hit Recovery, Boo-Off with `End Song` / `Continue Playing` Setting (`#164`), and Peer Review & QA Hardening (`#170`)** | **Completed** |
 | **v1.9.0** | **Rhythm & Sight-Reading Polish: Independent Highway Scroll Speed (`0.5x–2.5x`) (`#182`), Falling Note Labels & Sustain Pedal (`CC 64`) Lane (`#179`), Live Early/Late Hit-Error Bar & Timing Scatter (`#181`), Audible Count-In Metronome & Timeline Section Jump Markers (`#183`), and QA Hardening (`#186`)** | **Completed** |
 | **v1.10.0** | **Architecture & Save Safety Net: 1-Click Bard Save Backup Export & Import (`#185`), Modularized `renderer.js` (`modules/spellbook-ui.js`, `modules/highway-renderer.js`, `modules/performance-modal.js`, `modules/audio-engine.js`) (`#184`), and QA Hardening (`#188`)** | **Completed** |
+| **v1.11.0** | **Piano Hardware & Warmup Dojo: Web MIDI Output Pass-Through to Hardware Digital Piano (`#180`), Arcane Drills Interactive Scales/Chords/Progressions Dojo (`#178`), and QA Hardening (`#190`)** | **Completed** |
 
 ---
 
@@ -140,6 +141,10 @@
 - **1-Click Bard Save Backup (`#185`):** Export or restore all 4 central JSON save stores (`bard_profile.json`, `song_stats.json`, `grimoire_library.json`, `grimoire_bundles.json`) and all 17 `localStorage` keys in one `.json` archive via **⚙ Audio & Keys → 💾 Export Save / 📂 Import Save**. Imports show a preview summary, create a pre-import safety backup under `save_backups/`, and reload cleanly.
 - **Modularized `renderer.js` (`#184`, `#188`):** Extracted ~3,050 lines out of `renderer.js` into 4 focused domain modules under [`modules/`](./modules): [`modules/spellbook-ui.js`](./modules/spellbook-ui.js), [`modules/highway-renderer.js`](./modules/highway-renderer.js), [`modules/performance-modal.js`](./modules/performance-modal.js), and [`modules/audio-engine.js`](./modules/audio-engine.js).
 
+### 15. Piano Hardware & Warmup Dojo (`v1.11.0`)
+- **Web MIDI Output Pass-Through (`#180`, `#190`):** Route auto-played accompaniment tracks, 30-second Grimoire MIDI previews, Arcane Drills demos, and on-screen Mouse/QWERTY notes directly to a connected hardware digital piano via **⚙ Audio & Keys → MIDI Output**, with optional **Mute Local Piano Synth**, channel selection (`1–16`), **🔇 Panic (`CC 123`)**, and automatic `All Notes Off` flushing on pause, seek, loop wrap, song switch, `blur`, and `beforeunload`.
+- **Arcane Drills Warmup Dojo (`#178`, `#190`):** Launch from the Tavern Main Menu or **🎭 Career ▾ → Arcane Drills (Dojo)** to practice 7 scales/modes, 5 chord inversion drills, and 3 progressions (`ii–V–I`, `I–V–vi–IV`, `I–IV–V–I`) across all 12 keys and `RH` / `LH` / `Both` hands with live 61-key canvas highlights, **Play Demo** audition, Circle of Fifths progression, Warmup XP, and daily Practice Streak tracking.
+
 ---
 
 ## Controls & Input Modes
@@ -193,7 +198,8 @@ npm test
 
 - [`main.js`](./main.js) — Electron main process, automatic Web MIDI/media permission handlers, and folder IPC.
 - [`index.html`](./index.html) & [`styles.css`](./styles.css) — 2-Bar Conservatory HUD, Karaoke Stage, and responsive 60 FPS canvas stage.
-- [`renderer.js`](./renderer.js) & [`modules/`](./modules) — Core orchestrator plus extracted domain modules ([`audio-engine.js`](./modules/audio-engine.js), [`spellbook-ui.js`](./modules/spellbook-ui.js), [`highway-renderer.js`](./modules/highway-renderer.js), [`performance-modal.js`](./modules/performance-modal.js)).
+- [`renderer.js`](./renderer.js) & [`modules/`](./modules) — Core orchestrator plus extracted domain modules ([`audio-engine.js`](./modules/audio-engine.js), [`spellbook-ui.js`](./modules/spellbook-ui.js), [`highway-renderer.js`](./modules/highway-renderer.js), [`performance-modal.js`](./modules/performance-modal.js), [`arcane-drills-ui.js`](./modules/arcane-drills-ui.js)).
+- [`midi-output.js`](./midi-output.js) & [`arcane-drills.js`](./arcane-drills.js) — Web MIDI Output pass-through controller (`CC 64` / `CC 123` / `CC 120` safety) and Arcane Drills scales/chords/progressions theory & scoring engine.
 - [`save-backup.js`](./save-backup.js) — Schema-versioned 1-Click Bard Save Export & Import with pre-import safety backups.
 - [`notation-engine.js`](./notation-engine.js) — VexFlow 5 + Bravura Grand-Staff sheet music engine, LRU tile cache, and smooth tracking playhead.
 - [`instrument-input.js`](./instrument-input.js), [`spell-singing.js`](./spell-singing.js), [`lyrics-fetcher.js`](./lyrics-fetcher.js) & [`vocal-harmony-dsp.js`](./vocal-harmony-dsp.js) — External instrument input routing, Let's Sing vocal contour simplifier & Bezier glide highway, LRCLIB word/line synced lyrics fetcher, and Apple Music Sing Stereo Mid/Side + AI Lead/Harmony vocal mixer DSP.

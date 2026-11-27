@@ -70,6 +70,9 @@ function createGrimoirePreviewController({
   getPianoInstrument = () => null,
   extractNotesForEntry = async () => [],
   existsSyncFn = fs.existsSync,
+  onMidiNote = null,
+  shouldMuteLocalSynth = null,
+  onStop = null,
   onStateChange = () => {},
   onError = () => {}
 } = {}) {
@@ -148,6 +151,13 @@ function createGrimoirePreviewController({
     clearTimers();
     disposeAudioElement();
     releaseMidiInstrument();
+    if (typeof onStop === 'function') {
+      try {
+        onStop();
+      } catch {
+        // Ignore MIDI stop hook errors
+      }
+    }
     activeEntryId = null;
     activeSource = null;
     isPlaying = false;
@@ -298,10 +308,20 @@ function createGrimoirePreviewController({
           const n = notes[cursor];
           cursor += 1;
           const delaySec = Math.max(0, n.time - nowSec);
-          try {
-            inst.triggerAttackRelease(n.name, n.duration, toneNow + delaySec, n.velocity);
-          } catch {
-            // Ignore individual voice errors
+          if (typeof onMidiNote === 'function') {
+            try {
+              onMidiNote(n, delaySec);
+            } catch {
+              // Ignore MIDI output preview errors
+            }
+          }
+          const muteLocal = typeof shouldMuteLocalSynth === 'function' && shouldMuteLocalSynth();
+          if (!muteLocal) {
+            try {
+              inst.triggerAttackRelease(n.name, n.duration, toneNow + delaySec, n.velocity);
+            } catch {
+              // Ignore individual voice errors
+            }
           }
         }
 

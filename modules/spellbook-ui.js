@@ -128,6 +128,9 @@ function createSpellbookUI(ctx) {
     ensureAudioReady,
     getPianoInstrument: () => getActiveInstrument(),
     extractNotesForEntry: extractPreviewNotesForGrimoireEntry,
+    onMidiNote: (n, delaySec) => typeof ctx.onPreviewMidiNote === 'function' && ctx.onPreviewMidiNote(n, delaySec),
+    shouldMuteLocalSynth: () => typeof ctx.shouldMuteLocalSynth === 'function' && ctx.shouldMuteLocalSynth(),
+    onStop: () => typeof ctx.onPreviewStop === 'function' && ctx.onPreviewStop(),
     onStateChange: (state) => updateGrimoirePreviewUI(state),
     onError: (msg) => showGrimoireToast(msg, 'warning')
   });
