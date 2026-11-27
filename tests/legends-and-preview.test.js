@@ -93,7 +93,7 @@ test('#162 evaluatePersonalRecordUpdate anti-farm rules: baseline, tie, strict b
   assert.equal(doubleBeat.newBestRunXp, 510);
   assert.equal(doubleBeat.newBestRunXpSetAt, t3);
 
-  // Unqualified run never pays bonus XP or updates bestRunXp
+  // Unqualified run never pays bonus XP or updates bestAccuracy / bestRunXp (#168)
   const unqualified = evaluatePersonalRecordUpdate(storedAfterFirst, {
     accuracyPct: 99,
     runXp: 999,
@@ -101,6 +101,7 @@ test('#162 evaluatePersonalRecordUpdate anti-farm rules: baseline, tie, strict b
     qualified: false
   });
   assert.equal(unqualified.bonusXp, 0);
+  assert.equal(unqualified.newBestAccuracy, 88);
   assert.equal(unqualified.newBestRunXp, 420);
 });
 
@@ -191,4 +192,56 @@ test('#163 preview controller cancels stale async loads and releases synth on st
   assert.equal(ctrl.getState().isPlaying, false);
   assert.equal(releaseCalls, 1);
   assert.ok(states.length >= 2);
+});
+
+test('#168 preview controller emits stopped state on failed switch and honors 0 muted volume', async () => {
+  const states = [];
+  const fakeInst = {
+    triggerAttackRelease: () => {},
+    releaseAll: () => {}
+  };
+  const ctrl = createGrimoirePreviewController({
+    Tone: { now: () => 0 },
+    ensureAudioReady: async () => {},
+    getPianoInstrument: () => fakeInst,
+    extractNotesForEntry: async (entry) => (entry.id === 'good'
+      ? [{ time: 0, duration: 0.2, name: 'C4', velocity: 0.7 }]
+      : []),
+    onStateChange: (s) => states.push(s)
+  });
+
+  assert.equal(await ctrl.startPreview({ id: 'good' }, 'midi'), true);
+  assert.equal(ctrl.getState().isPlaying, true);
+  // Switching to an entry with no playable notes must emit a stopped state (#168 Finding #3)
+  assert.equal(await ctrl.startPreview({ id: 'empty' }, 'midi'), false);
+  assert.equal(ctrl.getState().isPlaying, false);
+  assert.equal(states[states.length - 1].isPlaying, false);
+
+  // Recording preview with getBackingVolume() === 0 must keep el.volume === 0 (#168 Finding #4)
+  let createdVolume = null;
+  class FakeAudio {
+    constructor(src) {
+      this.src = src;
+      this.readyState = 1;
+      this.duration = 45;
+      this.currentTime = 0;
+      this._vol = 1;
+    }
+    set volume(v) { this._vol = v; createdVolume = v; }
+    get volume() { return this._vol; }
+    addEventListener() {}
+    play() { return Promise.resolve(); }
+    pause() {}
+    removeAttribute() {}
+    load() {}
+  }
+  const recCtrl = createGrimoirePreviewController({
+    AudioCtor: FakeAudio,
+    pathToFileURL: (p) => new URL(`file://${p}`),
+    getBackingVolume: () => 0,
+    existsSyncFn: () => true
+  });
+  await recCtrl.startPreview({ id: 'rec1', backingAudioPath: '/tmp/test.wav' }, 'recording');
+  assert.equal(createdVolume, 0);
+  recCtrl.stopPreview();
 });

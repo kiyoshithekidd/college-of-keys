@@ -169,9 +169,13 @@ function createGrimoirePreviewController({
     }
 
     const startOffset = Math.max(0, Number(entry.audioOffsetSec) || 0);
-    const el = new AudioCtor(pathToFileURL(entry.backingAudioPath));
+    let effectiveOffset = startOffset;
+    const rawUrl = pathToFileURL(entry.backingAudioPath);
+    const audioSrc = typeof rawUrl === 'string' ? rawUrl : (rawUrl && rawUrl.href ? rawUrl.href : String(rawUrl));
+    const el = new AudioCtor(audioSrc);
     el.preload = 'auto';
-    el.volume = Math.max(0, Math.min(1, Number(getBackingVolume()) || 0.8));
+    const rawVol = Number(getBackingVolume());
+    el.volume = Math.max(0, Math.min(1, Number.isFinite(rawVol) ? rawVol : 0.8));
 
     audioEl = el;
     audioDisposed = false;
@@ -185,11 +189,16 @@ function createGrimoirePreviewController({
     const seekAndPlay = async () => {
       if (mySeq !== requestSeq || audioDisposed || audioEl !== el) return;
       try {
-        if (startOffset > 0 && Number.isFinite(el.duration) && startOffset < el.duration) {
-          el.currentTime = startOffset;
+        if (Number.isFinite(el.duration) && el.duration > 0) {
+          if (startOffset > 0 && startOffset < el.duration) {
+            effectiveOffset = startOffset;
+            el.currentTime = effectiveOffset;
+          } else {
+            effectiveOffset = 0;
+          }
         }
         const remaining = Number.isFinite(el.duration) && el.duration > 0
-          ? Math.max(1, el.duration - startOffset)
+          ? Math.max(1, el.duration - effectiveOffset)
           : PREVIEW_DURATION_SEC;
         targetDurationSec = Math.min(PREVIEW_DURATION_SEC, remaining);
         await el.play();
@@ -231,7 +240,7 @@ function createGrimoirePreviewController({
         clearTimers();
         return;
       }
-      const cur = Math.max(0, (Number(audioEl.currentTime) || 0) - startOffset);
+      const cur = Math.max(0, (Number(audioEl.currentTime) || 0) - effectiveOffset);
       elapsedSec = cur;
       if (cur >= targetDurationSec) {
         stopPreview();
@@ -317,12 +326,16 @@ function createGrimoirePreviewController({
   async function startPreview(entry, source) {
     if (!entry || !entry.id) return false;
     const chosenSource = source === 'recording' ? 'recording' : 'midi';
+    const wasActive = isPlaying || activeEntryId !== null;
     stopPreview({ silent: true });
     const mySeq = ++requestSeq;
-    if (chosenSource === 'recording') {
-      return startRecordingPreview(entry, mySeq);
+    const started = chosenSource === 'recording'
+      ? await startRecordingPreview(entry, mySeq)
+      : await startMidiPreview(entry, mySeq);
+    if (!started && wasActive && mySeq === requestSeq) {
+      emitState();
     }
-    return startMidiPreview(entry, mySeq);
+    return started;
   }
 
   return {

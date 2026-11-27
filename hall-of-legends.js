@@ -69,10 +69,10 @@ function evaluatePersonalRecordUpdate(existingRecord, {
   let beatXp = false;
   const beatenRecords = [];
 
-  if (nextAcc > prevAcc) {
+  if (qualified && nextAcc > prevAcc) {
     newBestAccuracy = nextAcc;
     newBestAccuracySetAt = nowIso;
-    if (qualified && prevAcc > 0) {
+    if (prevAcc > 0) {
       beatAccuracy = true;
       beatenRecords.push({
         kind: 'accuracy',

@@ -2230,7 +2230,7 @@ function loadBardProfile() {
   if (loadedHistory && typeof loadedHistory === 'object') {
     const migratedHistory = {};
     for (const [key, rawEntry] of Object.entries(loadedHistory)) {
-      if (!rawEntry || typeof rawEntry !== 'object') continue;
+      if (!key || !rawEntry || typeof rawEntry !== 'object') continue;
       let targetKey = key;
       const lowerKey = key.toLowerCase();
       if (lowerKey === 'builtin::demo' || lowerKey.includes('demo spell')) {
@@ -2287,7 +2287,9 @@ function loadBardProfile() {
           existing.bestAccuracy = bestAcc;
           existing.bestAccuracySetAt = bestAccSetAt;
         } else if (bestAcc === (existing.bestAccuracy || 0) && bestAcc > 0 && bestAccSetAt) {
-          if (!existing.bestAccuracySetAt || new Date(bestAccSetAt) < new Date(existing.bestAccuracySetAt)) {
+          const nextMs = Date.parse(bestAccSetAt);
+          const curMs = Date.parse(existing.bestAccuracySetAt || '');
+          if (Number.isFinite(nextMs) && (!Number.isFinite(curMs) || nextMs < curMs)) {
             existing.bestAccuracySetAt = bestAccSetAt;
           }
         }
@@ -2295,7 +2297,9 @@ function loadBardProfile() {
           existing.bestRunXp = bestRunXp;
           existing.bestRunXpSetAt = bestRunXpSetAt;
         } else if (bestRunXp === (existing.bestRunXp || 0) && bestRunXp > 0 && bestRunXpSetAt) {
-          if (!existing.bestRunXpSetAt || new Date(bestRunXpSetAt) < new Date(existing.bestRunXpSetAt)) {
+          const nextMs = Date.parse(bestRunXpSetAt);
+          const curMs = Date.parse(existing.bestRunXpSetAt || '');
+          if (Number.isFinite(nextMs) && (!Number.isFinite(curMs) || nextMs < curMs)) {
             existing.bestRunXpSetAt = bestRunXpSetAt;
           }
         }
@@ -7057,6 +7061,7 @@ function renderSpellbookSpread() {
 
   // Restore standard tier / Attuned panels when leaving Hall of Legends
   if (spellbookSearchRow) spellbookSearchRow.classList.remove('hidden');
+  if (spellbookSongList) spellbookSongList.classList.remove('hidden');
   if (spellbookDetailPanel) spellbookDetailPanel.classList.remove('hidden');
   if (spellbookLegendsLeftPanel) spellbookLegendsLeftPanel.classList.add('hidden');
   if (spellbookLegendsRightPanel) spellbookLegendsRightPanel.classList.add('hidden');
@@ -8165,6 +8170,7 @@ function removeGrimoireEntry(entry) {
 function confirmPendingSpellDeletion() {
   if (!pendingDeleteEntry || isDeleteInProgress) return;
   const targetEntry = pendingDeleteEntry;
+  stopGrimoirePreview();
 
   isDeleteInProgress = true;
   if (btnDeleteConfirmCancel) btnDeleteConfirmCancel.disabled = true;
@@ -10609,6 +10615,11 @@ window.addEventListener('keydown', (e) => {
       closeQuestBoardModal();
       return;
     }
+    if (spellbookPreviewMenu && !spellbookPreviewMenu.classList.contains('hidden')) {
+      e.preventDefault();
+      closeSpellbookPreviewMenu();
+      return;
+    }
     if (grimoireSpellbookModal && !grimoireSpellbookModal.classList.contains('hidden')) {
       e.preventDefault();
       closeGrimoireSpellbook();
@@ -11975,6 +11986,7 @@ if (btnSpellbookFavoriteSong) {
 
 if (btnSpellbookFavoritesFilter) {
   btnSpellbookFavoritesFilter.addEventListener('click', () => {
+    stopGrimoirePreview();
     spellbookFavoritesOnly = !spellbookFavoritesOnly;
     saveSpellbookFavoritesFilter();
     renderSpellbookSpread();
@@ -12015,6 +12027,7 @@ if (deleteSpellConfirmModal) {
 
 if (spellbookSearchInput) {
   spellbookSearchInput.addEventListener('input', () => {
+    closeSpellbookPreviewMenu();
     renderSpellbookSpread();
   });
 }

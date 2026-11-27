@@ -796,6 +796,22 @@ app.whenReady().then(async () => {
       const xpRows = document.querySelectorAll('#spellbook-legends-xp-list .legends-record-row');
       checks.hallOfLegendsSpreadRenders = Boolean(legendsPip && legendsLeftVisible && legendsRightVisible && accRows.length >= 1 && xpRows.length >= 1);
 
+      // Issue #168 Finding #1: Leaving Hall of Legends must restore #spellbook-song-list
+      currentSpellbookTierIndex = 0;
+      renderSpellbookSpread();
+      checks.hallOfLegendsRestoresSongList = Boolean(
+        !document.getElementById('spellbook-song-list').classList.contains('hidden') &&
+        document.getElementById('spellbook-legends-left-panel').classList.contains('hidden')
+      );
+
+      // Issue #168 Finding #6: Pressing Escape while preview menu is open closes menu without closing Grimoire
+      openSpellbookPreviewMenu(firstEntry, detailPreviewBtn);
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      checks.escapeClosesPreviewMenuFirst = Boolean(
+        document.getElementById('spellbook-preview-menu').classList.contains('hidden') &&
+        !document.getElementById('grimoire-spellbook-modal').classList.contains('hidden')
+      );
+
       // Verify preview stops on close and never mutates currentSong or XP
       closeGrimoireSpellbook();
       checks.grimoirePreviewIsolation = Boolean(
