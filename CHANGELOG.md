@@ -10,6 +10,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.9.0] - 2026-11-26
+
+### Added
+- **Rhythm & Sight-Reading Polish (`#179`, `#181`, `#182`, `#183`):**
+  - Added `highway-practice-tools.js` with pure helpers for resolution-normalized Highway Scroll Speed (`0.5x–2.5x`, persisted in `localStorage`), falling note labels (`Note Names` / `Scale Degrees 1–7` / `Off`), `CC 64` Sustain Pedal span extraction, timing-error classification/histogram buckets, metronome beat scheduling, and timeline section/measure marker extraction.
+  - Added the left-edge **Sustain Pedal (`CC 64`)** hold ribbon + live pedal indicator on the Spell Highway (`#179`), the live `#hud-hit-error-pill` (`Early ← | → Late`) + post-song `#modal-timing-scatter-canvas` histogram (`#181`), the `#highway-scroll-speed-slider` (`0.5x–2.5x`) (`#182`), and toggleable **Count-In (1 Bar)** + **Metronome Click** (`Tone.MembraneSynth`) + clickable `#timeline-section-markers` (`#183`).
+  - Added `tests/highway-practice-tools.test.js` (5 Node unit tests) and 4 new headless Electron DOM assertions in `tests/regression.test.js`.
+
+### Fixed
+- **v1.9.0 Peer Review & QA Audit Hardening (`#186`):** Fixed double-transposition of `notationScore.primaryKeySpec` in Scale Degrees mode, raised `.timeline-section-markers` `z-index` to `4` (and guarded disabled slider state) so section ticks receive mouse clicks cleanly, reset `#strike-status-text` when Count-In crosses `t = 0`, refreshed `#hud-hit-error-pill` on `setStageViewMode` and `accompanimentSelect` changes, and raised the Count-In duration cap to `8.0s` for slow tempos.
+
+---
+
 ## [1.8.0] - 2026-11-26
 
 ### Added

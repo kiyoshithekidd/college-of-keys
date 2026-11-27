@@ -886,6 +886,52 @@ app.whenReady().then(async () => {
       crowdFailPolicy = prevPolicy164;
       resetSongSessionStats();
 
+      // Milestone v1.9.0 (#179, #181, #182, #183) DOM checks
+      const speedSlider = document.getElementById('highway-scroll-speed-slider');
+      speedSlider.value = '1.8';
+      speedSlider.dispatchEvent(new Event('input', { bubbles: true }));
+      checks.highwayScrollSpeedPersists = Boolean(
+        playbackState.highwayScrollSpeed === 1.8 &&
+        document.getElementById('highway-scroll-speed-value').textContent === '1.8x' &&
+        localStorage.getItem(HIGHWAY_SCROLL_SPEED_STORAGE_KEY) === '1.8'
+      );
+      speedSlider.value = '1.0';
+      speedSlider.dispatchEvent(new Event('input', { bubbles: true }));
+
+      const labelSel = document.getElementById('falling-note-labels-select');
+      labelSel.value = 'degrees';
+      labelSel.dispatchEvent(new Event('change', { bubbles: true }));
+      const sustainToggle = document.getElementById('toggle-sustain-lane');
+      checks.fallingLabelsAndSustainToggle = Boolean(
+        playbackState.fallingNoteLabelMode === 'degrees' &&
+        sustainToggle && sustainToggle.checked === true
+      );
+      labelSel.value = 'notes';
+      labelSel.dispatchEvent(new Event('change', { bubbles: true }));
+
+      playbackState.waitMode = false;
+      drawLiveHitErrorBar();
+      const shownInArcade = !document.getElementById('hud-hit-error-pill').classList.contains('hidden');
+      recordLiveHitError(-25);
+      drawModalTimingScatter([-25, 10, 50]);
+      const scatterVisible = !document.getElementById('modal-timing-scatter-canvas').classList.contains('hidden');
+      playbackState.waitMode = true;
+      drawLiveHitErrorBar();
+      const hiddenInWait = document.getElementById('hud-hit-error-pill').classList.contains('hidden');
+      checks.liveHitErrorBarAndModalScatter = Boolean(shownInArcade && scatterVisible && hiddenInWait);
+
+      currentSong.sectionMarkers = [{ time: 5.0, label: 'Chorus', source: 'midi' }];
+      renderTimelineSectionMarkers();
+      const tickEl = document.querySelector('#timeline-section-markers .timeline-section-tick');
+      if (tickEl) tickEl.click();
+      checks.countInAndSectionMarkersWork = Boolean(
+        document.getElementById('toggle-count-in') &&
+        document.getElementById('toggle-metronome-click') &&
+        tickEl &&
+        Math.abs(playbackState.currentTime - 5.0) < 0.05
+      );
+      resetPlaybackToStart();
+
       return checks;
     })();
   `);
