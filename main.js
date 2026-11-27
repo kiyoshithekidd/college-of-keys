@@ -1,7 +1,35 @@
-const { app, BrowserWindow, session, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, session, ipcMain, shell, dialog } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+
+ipcMain.handle('show-save-backup-dialog', async (event, defaultFileName) => {
+  try {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const res = await dialog.showSaveDialog(win, {
+      title: 'Export Bard Save Backup',
+      defaultPath: path.join(app.getPath('documents') || __dirname, defaultFileName || 'college-of-keys-save.json'),
+      filters: [{ name: 'College of Keys Save Backup', extensions: ['json'] }]
+    });
+    return { canceled: Boolean(res.canceled), filePath: res.filePath || null };
+  } catch (err) {
+    return { canceled: true, error: err?.message || String(err) };
+  }
+});
+
+ipcMain.handle('show-open-backup-dialog', async (event) => {
+  try {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const res = await dialog.showOpenDialog(win, {
+      title: 'Import Bard Save Backup',
+      properties: ['openFile'],
+      filters: [{ name: 'College of Keys Save Backup', extensions: ['json'] }]
+    });
+    return { canceled: Boolean(res.canceled), filePath: (res.filePaths && res.filePaths[0]) || null };
+  } catch (err) {
+    return { canceled: true, error: err?.message || String(err) };
+  }
+});
 
 ipcMain.handle('open-folder-in-explorer', async (_event, targetDir) => {
   try {

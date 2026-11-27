@@ -491,6 +491,15 @@
                 <span>Active Glyphs</span>
                 <div id="active-notes-display" class="readout-value">Strike a key...</div>
               </div>
+
+              <div class="popover-divider"></div>
+              <div class="popover-row">
+                <span title="Export or restore your Bard XP, Hall of Legends records, song stats, bundles, setlists &amp; settings">Bard Save Backup</span>
+                <div class="save-backup-actions">
+                  <button id="btn-export-save-backup" type="button" class="btn-mini-sim" title="Export all player progress &amp; settings to a single .json file">&#128190; Export Save</button>
+                  <button id="btn-import-save-backup" type="button" class="btn-mini-sim" title="Restore player progress from a .json backup (creates a safety backup first)">&#128194; Import Save</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1061,6 +1070,27 @@
           <button id="btn-exit-campaign-gig" type="button" class="tutorial-exit-btn" title="Return to normal practice stage">Leave Venue</button>
         </div>
       </main>
+    </div>
+
+    <!-- Issue #185: Import Save Backup Confirmation Modal -->
+    <div id="import-save-confirm-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="import-save-title">
+      <div class="performance-modal-card boo-off-modal-card">
+        <div class="modal-header">
+          <div>
+            <h2 id="import-save-title" class="modal-title">&#128194; Restore Bard Save Backup</h2>
+            <p id="import-save-subtitle" class="modal-subtitle">Review backup summary before restoring</p>
+          </div>
+          <button id="btn-close-import-save" type="button" class="modal-close-btn" aria-label="Close Import Save dialog">&times;</button>
+        </div>
+        <div class="boo-off-body">
+          <p class="boo-off-flavor">Your current save files will be backed up to <code>save_backups/</code> before restoring.</p>
+          <div id="import-save-summary-box" class="import-save-summary-box"></div>
+        </div>
+        <div class="boo-off-actions">
+          <button id="btn-cancel-import-save" type="button" class="tavern-btn">Cancel</button>
+          <button id="btn-confirm-import-save" type="button" class="tavern-btn tavern-btn-cast">&#128190; Restore Save &amp; Reload</button>
+        </div>
+      </div>
     </div>
 
     <!-- Issue #164: Crowd Boo-Off Modal (Fail State — End Song Policy) -->

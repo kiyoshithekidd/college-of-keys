@@ -167,6 +167,11 @@ const {
   findMetronomeClicksInWindow,
   extractTimelineSectionMarkers
 } = require('./highway-practice-tools');
+const {
+  buildSaveBackupPayload,
+  validateAndSummarizeSaveBackup,
+  applySaveBackupPayload
+} = require('./save-backup');
 
 const MIN_MIDI = 36; // C2
 const MAX_MIDI = 96; // C7
@@ -11081,7 +11086,8 @@ function isAnyModalOpen() {
   const setlistOpen = setlistModal && !setlistModal.classList.contains('hidden');
   const lyricPasteOpen = lyricPasteModal && !lyricPasteModal.classList.contains('hidden');
   const booOffOpen = booOffModal && !booOffModal.classList.contains('hidden');
-  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen || deleteConfirmOpen || collegesOpen || campaignOpen || omrOpen || setlistOpen || lyricPasteOpen || booOffOpen);
+  const importSaveOpen = typeof importSaveConfirmModal !== 'undefined' && importSaveConfirmModal && !importSaveConfirmModal.classList.contains('hidden');
+  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen || deleteConfirmOpen || collegesOpen || campaignOpen || omrOpen || setlistOpen || lyricPasteOpen || booOffOpen || importSaveOpen);
 }
 
 window.addEventListener('keydown', (e) => {
@@ -11157,6 +11163,11 @@ window.addEventListener('keydown', (e) => {
     if (howToPlayModal && !howToPlayModal.classList.contains('hidden')) {
       e.preventDefault();
       closeHowToPlayModal();
+      return;
+    }
+    if (typeof importSaveConfirmModal !== 'undefined' && importSaveConfirmModal && !importSaveConfirmModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeImportSaveConfirmModal();
       return;
     }
     if (booOffModal && !booOffModal.classList.contains('hidden')) {
@@ -12369,6 +12380,129 @@ if (toggleMetronomeClick) {
     playbackState.metronomeClickEnabled = Boolean(e.target.checked);
     localStorage.setItem(METRONOME_CLICK_STORAGE_KEY, String(playbackState.metronomeClickEnabled));
     e.target.blur();
+  });
+}
+
+// ============================================================================
+// Issue #185: 1-Click Bard Save Backup (Export & Import)
+// ============================================================================
+const btnExportSaveBackup = document.getElementById('btn-export-save-backup');
+const btnImportSaveBackup = document.getElementById('btn-import-save-backup');
+const importSaveConfirmModal = document.getElementById('import-save-confirm-modal');
+const importSaveSummaryBox = document.getElementById('import-save-summary-box');
+const btnCloseImportSave = document.getElementById('btn-close-import-save');
+const btnCancelImportSave = document.getElementById('btn-cancel-import-save');
+const btnConfirmImportSave = document.getElementById('btn-confirm-import-save');
+let pendingImportSavePayload = null;
+
+function closeImportSaveConfirmModal() {
+  pendingImportSavePayload = null;
+  if (importSaveConfirmModal) {
+    importSaveConfirmModal.classList.add('hidden');
+  }
+}
+
+function openImportSaveConfirmModal(payload, summary) {
+  if (!importSaveConfirmModal || !importSaveSummaryBox) return;
+  pendingImportSavePayload = payload;
+  const dateLabel = summary.exportedAt
+    ? new Date(summary.exportedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
+    : 'Unknown';
+  importSaveSummaryBox.innerHTML = '';
+  const items = [
+    ['Bard Level', `LVL ${summary.bardLevel}`],
+    ['Total XP', `${Number(summary.totalXp || 0).toLocaleString()} XP`],
+    ['Songs Tracked', `${summary.songsTracked} (${summary.songsCompleted} Completed)`],
+    ['Exported', `${dateLabel} (v${summary.appVersion})`]
+  ];
+  for (const [label, val] of items) {
+    const cell = document.createElement('div');
+    const lbl = document.createElement('span');
+    lbl.textContent = label;
+    const strong = document.createElement('strong');
+    strong.textContent = val;
+    cell.appendChild(lbl);
+    cell.appendChild(strong);
+    importSaveSummaryBox.appendChild(cell);
+  }
+  importSaveConfirmModal.classList.remove('hidden');
+  if (btnConfirmImportSave) btnConfirmImportSave.focus();
+}
+
+if (btnExportSaveBackup) {
+  btnExportSaveBackup.addEventListener('click', async () => {
+    try {
+      flushSaveBardProfile();
+      saveSongStats();
+      const stamp = new Date().toISOString().slice(0, 10);
+      const dlg = await ipcRenderer.invoke('show-save-backup-dialog', `college-of-keys-save-${stamp}.json`);
+      if (!dlg || dlg.canceled || !dlg.filePath) return;
+      let appVersion = '1.10.0';
+      try {
+        appVersion = require('./package.json').version || appVersion;
+      } catch {
+        // Ignore version lookup error
+      }
+      const payload = buildSaveBackupPayload({
+        repoDir: __dirname,
+        storage: window.localStorage,
+        appVersion
+      });
+      fs.writeFileSync(dlg.filePath, JSON.stringify(payload, null, 2), 'utf8');
+      showGrimoireToast(`\uD83D\uDCBE Save backup exported to ${path.basename(dlg.filePath)}`, 'success');
+    } catch (err) {
+      showGrimoireToast(`Failed to export save: ${err?.message || err}`, 'error');
+    }
+  });
+}
+
+if (btnImportSaveBackup) {
+  btnImportSaveBackup.addEventListener('click', async () => {
+    try {
+      const dlg = await ipcRenderer.invoke('show-open-backup-dialog');
+      if (!dlg || dlg.canceled || !dlg.filePath) return;
+      const raw = fs.readFileSync(dlg.filePath, 'utf8');
+      const check = validateAndSummarizeSaveBackup(raw);
+      if (!check.ok) {
+        showGrimoireToast(check.error || 'Invalid save backup file.', 'error');
+        return;
+      }
+      closeAllConservatoryPopovers();
+      openImportSaveConfirmModal(check.payload, check.summary);
+    } catch (err) {
+      showGrimoireToast(`Failed to read save backup: ${err?.message || err}`, 'error');
+    }
+  });
+}
+
+if (btnCloseImportSave) btnCloseImportSave.addEventListener('click', () => closeImportSaveConfirmModal());
+if (btnCancelImportSave) btnCancelImportSave.addEventListener('click', () => closeImportSaveConfirmModal());
+if (importSaveConfirmModal) {
+  importSaveConfirmModal.addEventListener('click', (e) => {
+    if (e.target === importSaveConfirmModal) closeImportSaveConfirmModal();
+  });
+}
+if (btnConfirmImportSave) {
+  btnConfirmImportSave.addEventListener('click', () => {
+    if (!pendingImportSavePayload) return;
+    try {
+      if (typeof bardProfileSaveTimer !== 'undefined' && bardProfileSaveTimer) {
+        clearTimeout(bardProfileSaveTimer);
+        bardProfileSaveTimer = null;
+      }
+      if (typeof bardProfileDirty !== 'undefined') {
+        bardProfileDirty = false;
+      }
+      applySaveBackupPayload({
+        payload: pendingImportSavePayload,
+        repoDir: __dirname,
+        storage: window.localStorage
+      });
+      closeImportSaveConfirmModal();
+      window.location.reload();
+    } catch (err) {
+      showGrimoireToast(`Failed to restore save: ${err?.message || err}`, 'error');
+    }
   });
 }
 
