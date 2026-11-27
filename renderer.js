@@ -148,6 +148,25 @@ const {
   getAvailablePreviewSources,
   createGrimoirePreviewController
 } = require('./grimoire-preview');
+const {
+  HIGHWAY_SCROLL_SPEED_STORAGE_KEY,
+  FALLING_LABEL_MODE_STORAGE_KEY,
+  SUSTAIN_LANE_STORAGE_KEY,
+  METRONOME_COUNTIN_STORAGE_KEY,
+  METRONOME_CLICK_STORAGE_KEY,
+  HIT_ERROR_MAX_MS,
+  clampHighwayScrollSpeed,
+  computeHighwayPxPerSec,
+  parseKeySpecForDegrees,
+  normalizeFallingLabelMode,
+  formatFallingNoteLabel,
+  extractSustainPedalSpans,
+  classifyTimingErrorMs,
+  computeTimingSummary,
+  computeCountInDurationSec,
+  findMetronomeClicksInWindow,
+  extractTimelineSectionMarkers
+} = require('./highway-practice-tools');
 
 const MIN_MIDI = 36; // C2
 const MAX_MIDI = 96; // C7
@@ -290,6 +309,10 @@ const rhythmModeStateText = document.getElementById('rhythm-mode-state');
 const encoreDrillBadge = document.getElementById('encore-drill-badge');
 const btnEncoreDrill = document.getElementById('btn-encore-drill');
 const modalTimingSpreadPill = document.getElementById('modal-timing-spread-pill');
+const modalTimingScatterCanvas = document.getElementById('modal-timing-scatter-canvas');
+const hudHitErrorPill = document.getElementById('hud-hit-error-pill');
+const hudHitErrorCanvas = document.getElementById('hud-hit-error-canvas');
+const timelineSectionMarkers = document.getElementById('timeline-section-markers');
 const inputLatencySlider = document.getElementById('input-latency-slider');
 const inputLatencyValue = document.getElementById('input-latency-value');
 const btnLatencyReset = document.getElementById('btn-latency-reset');
@@ -321,7 +344,12 @@ const tempoControlGroup = document.getElementById('tempo-control-group');
 const btnTempoDown = document.getElementById('btn-tempo-down');
 const btnTempoUp = document.getElementById('btn-tempo-up');
 const playbackSpeedSelect = document.getElementById('playback-speed-select');
-const fallSpeedSelect = document.getElementById('fall-speed-select');
+const highwayScrollSpeedSlider = document.getElementById('highway-scroll-speed-slider');
+const highwayScrollSpeedValue = document.getElementById('highway-scroll-speed-value');
+const fallingNoteLabelsSelect = document.getElementById('falling-note-labels-select');
+const toggleSustainLane = document.getElementById('toggle-sustain-lane');
+const toggleCountIn = document.getElementById('toggle-count-in');
+const toggleMetronomeClick = document.getElementById('toggle-metronome-click');
 
 const spellNameDisplay = document.getElementById('spell-name-display');
 const strikeZoneStatusPill = document.getElementById('strike-zone-status');
@@ -769,6 +797,12 @@ const playbackState = {
   leadInSeconds: 1.5,
   playbackSpeed: 1.0,
   fallSpeedPxPerSec: 260,
+  highwayScrollSpeed: clampHighwayScrollSpeed(localStorage.getItem(HIGHWAY_SCROLL_SPEED_STORAGE_KEY) || 1.0),
+  fallingNoteLabelMode: normalizeFallingLabelMode(localStorage.getItem(FALLING_LABEL_MODE_STORAGE_KEY) || 'notes'),
+  sustainLaneEnabled: localStorage.getItem(SUSTAIN_LANE_STORAGE_KEY) !== 'false',
+  metronomeCountInEnabled: localStorage.getItem(METRONOME_COUNTIN_STORAGE_KEY) === 'true',
+  metronomeClickEnabled: localStorage.getItem(METRONOME_CLICK_STORAGE_KEY) === 'true',
+  lastHighwayHeight: 480,
   handIsolation: 'both',           // 'both' | 'track1' | 'track2'
   accompanimentMode: 'auto-other', // 'auto-other' | 'mute-other' | 'auto-both'
   backingBandEnabled: true,
@@ -1536,6 +1570,14 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
 
   notationRenderer.clearCache();
 
+  const sustainSpans = extractSustainPedalSpans(midiData.tracks, duration);
+  const initialSectionMarkers = extractTimelineSectionMarkers({
+    headerMeta: midiData.header.meta || [],
+    ticksToSeconds: (ticks) => midiData.header.ticksToSeconds(ticks),
+    measures: [],
+    durationSec: duration
+  });
+
   currentSong = {
     songId,
     title: effectiveTitle,
@@ -1552,6 +1594,9 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
     headerTempos,
     headerTimeSignatures,
     headerKeySignatures,
+    headerMeta: midiData.header.meta || [],
+    sustainSpans,
+    sectionMarkers: initialSectionMarkers,
     keySignature: musicXmlMeta?.keySignature || null,
     chordMarkers: musicXmlMeta?.chordMarkers || [],
     musicXmlMeta: musicXmlMeta || null,
@@ -1588,6 +1633,14 @@ function parseMidiBuffer(arrayBuffer, fileName = 'Untitled Spell.mid', filePath 
 
   populateTrackSelectorDropdown(currentSong);
   assignSongTracksAndDifficulty('auto-piano');
+  if (currentSong.sectionMarkers.length === 0 && currentSong.notationScore?.measures) {
+    currentSong.sectionMarkers = extractTimelineSectionMarkers({
+      headerMeta: currentSong.headerMeta,
+      measures: currentSong.notationScore.measures,
+      durationSec: currentSong.duration
+    });
+  }
+  renderTimelineSectionMarkers();
   resetPlaybackToStart();
 
   btnPlayPause.disabled = false;
@@ -2450,6 +2503,8 @@ function resetSongSessionStats() {
   songSessionStats.wrongOrMissedNotes = 0;
   songSessionStats.cleanChordRolls = 0;
   songSessionStats.timingErrorsMs = [];
+  if (typeof recentHitErrors !== 'undefined') recentHitErrors.length = 0;
+  if (typeof drawLiveHitErrorBar === 'function') drawLiveHitErrorBar();
   songSessionStats.rhythmPerfect = 0;
   songSessionStats.rhythmGreat = 0;
   songSessionStats.rhythmGood = 0;
@@ -2866,6 +2921,7 @@ function syncCrowdFailStateForModeChange({ clearWarning = false } = {}) {
     songSessionStats.crowdFailState.recoveryHitStreak = 0;
   }
   updateCrowdWarningBannerUI();
+  if (typeof drawLiveHitErrorBar === 'function') drawLiveHitErrorBar();
 }
 
 function closeBooOffModal() {
@@ -3772,9 +3828,11 @@ function openPerformanceCheckModal({ recordPlay = false } = {}) {
       modalTimingSpreadPill.appendChild(leftSpan);
       modalTimingSpreadPill.appendChild(rightSpan);
       modalTimingSpreadPill.classList.remove('hidden');
+      drawModalTimingScatter(errs);
     } else {
       modalTimingSpreadPill.classList.add('hidden');
       modalTimingSpreadPill.textContent = '';
+      if (modalTimingScatterCanvas) modalTimingScatterCanvas.classList.add('hidden');
     }
   }
 
@@ -4172,6 +4230,7 @@ function evaluateStrikeZoneInput(midi) {
           songSessionStats.timingErrorsMs.shift();
         }
         songSessionStats.timingErrorsMs.push(signedTimingMs);
+        recordLiveHitError(signedTimingMs);
         if (playbackState.rhythmMode) {
           const absErr = Math.abs(signedTimingMs);
           if (absErr <= 45) rhythmTier = 'perfect';
@@ -4277,11 +4336,206 @@ function clearAllHeldInputNotes() {
   updateActiveNotesHUD();
 }
 
+const recentHitErrors = [];
+let metronomeSynth = null;
+
+function getEffectiveHighwayPxPerSec(highwayHeight = playbackState.lastHighwayHeight || 480) {
+  return computeHighwayPxPerSec(highwayHeight, playbackState.highwayScrollSpeed);
+}
+
+function getEffectiveLeadInSeconds() {
+  if (playbackState.metronomeCountInEnabled && currentSong) {
+    return computeCountInDurationSec(currentSong.bpm, currentSong.beatsPerMeasure || 4);
+  }
+  return playbackState.leadInSeconds;
+}
+
+function playMetronomeClick(isAccent = false) {
+  try {
+    if (typeof Tone === 'undefined' || !masterVol) return;
+    if (!metronomeSynth) {
+      metronomeSynth = new Tone.MembraneSynth({
+        pitchDecay: 0.015,
+        octaves: 2,
+        envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.02 }
+      }).connect(masterVol);
+    }
+    metronomeSynth.triggerAttackRelease(isAccent ? 'G5' : 'C5', '32n', Tone.now(), isAccent ? 0.55 : 0.35);
+  } catch {
+    // Ignore audio errors in headless or uninitialized AudioContext
+  }
+}
+
+function recordLiveHitError(signedMs) {
+  if (!Number.isFinite(signedMs)) return;
+  recentHitErrors.push({ ms: signedMs, at: performance.now() });
+  if (recentHitErrors.length > 24) {
+    recentHitErrors.shift();
+  }
+  drawLiveHitErrorBar();
+}
+
+function drawLiveHitErrorBar() {
+  if (!hudHitErrorPill || !hudHitErrorCanvas) return;
+  const shouldShow = Boolean(
+    currentSong &&
+    !playbackState.waitMode &&
+    stageViewMode !== 'karaoke' &&
+    playbackState.accompanimentMode !== 'auto-both'
+  );
+  hudHitErrorPill.classList.toggle('hidden', !shouldShow);
+  if (!shouldShow) return;
+
+  const ctx = hudHitErrorCanvas.getContext('2d');
+  if (!ctx) return;
+  const w = hudHitErrorCanvas.width;
+  const h = hudHitErrorCanvas.height;
+  const midX = w / 2;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Color-coded timing zones (Good ±160ms, Great ±90ms, Perfect ±45ms)
+  const zone = (ms, color) => {
+    const halfW = (ms / HIT_ERROR_MAX_MS) * (w / 2);
+    ctx.fillStyle = color;
+    ctx.fillRect(midX - halfW, 5, halfW * 2, h - 10);
+  };
+  zone(160, 'rgba(248, 113, 113, 0.22)');
+  zone(90, 'rgba(250, 204, 21, 0.26)');
+  zone(45, 'rgba(74, 222, 128, 0.34)');
+
+  // Center 0ms line
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+  ctx.fillRect(midX - 0.75, 2, 1.5, h - 4);
+
+  const now = performance.now();
+  let sum = 0;
+  let activeCount = 0;
+  for (const item of recentHitErrors) {
+    const ageMs = now - item.at;
+    if (ageMs > 6000) continue;
+    const alpha = Math.max(0.25, 1 - ageMs / 6000);
+    const clamped = Math.max(-HIT_ERROR_MAX_MS, Math.min(HIT_ERROR_MAX_MS, item.ms));
+    const x = midX + (clamped / HIT_ERROR_MAX_MS) * (w / 2 - 4);
+    const tier = classifyTimingErrorMs(item.ms);
+    ctx.fillStyle = tier === 'perfect'
+      ? `rgba(74, 222, 128, ${alpha})`
+      : (tier === 'great'
+          ? `rgba(250, 204, 21, ${alpha})`
+          : (tier === 'good' ? `rgba(251, 146, 60, ${alpha})` : `rgba(248, 113, 113, ${alpha})`));
+    ctx.fillRect(x - 1, 3, 2, h - 6);
+    sum += clamped;
+    activeCount += 1;
+  }
+
+  if (activeCount > 0) {
+    const meanX = midX + ((sum / activeCount) / HIT_ERROR_MAX_MS) * (w / 2 - 4);
+    ctx.fillStyle = '#ffe38e';
+    ctx.beginPath();
+    ctx.moveTo(meanX, 1);
+    ctx.lineTo(meanX - 3.5, 5);
+    ctx.lineTo(meanX + 3.5, 5);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+function drawModalTimingScatter(errorsMs) {
+  if (!modalTimingScatterCanvas) return;
+  const summary = computeTimingSummary(errorsMs, 25);
+  if (summary.count === 0) {
+    modalTimingScatterCanvas.classList.add('hidden');
+    return;
+  }
+  modalTimingScatterCanvas.classList.remove('hidden');
+  const ctx = modalTimingScatterCanvas.getContext('2d');
+  if (!ctx) return;
+
+  const w = modalTimingScatterCanvas.width;
+  const h = modalTimingScatterCanvas.height;
+  const midX = w / 2;
+  ctx.clearRect(0, 0, w, h);
+
+  // Zone backdrop
+  const drawZone = (ms, color) => {
+    const halfW = (ms / HIT_ERROR_MAX_MS) * (w / 2);
+    ctx.fillStyle = color;
+    ctx.fillRect(midX - halfW, 4, halfW * 2, h - 14);
+  };
+  drawZone(160, 'rgba(248, 113, 113, 0.14)');
+  drawZone(90, 'rgba(250, 204, 21, 0.18)');
+  drawZone(45, 'rgba(74, 222, 128, 0.24)');
+
+  // Histogram bars
+  const maxBucket = Math.max(1, ...summary.buckets);
+  const barW = w / summary.buckets.length;
+  summary.buckets.forEach((cnt, idx) => {
+    if (cnt <= 0) return;
+    const barH = Math.max(3, (cnt / maxBucket) * (h - 18));
+    const normCenter = (idx + 0.5) / summary.buckets.length;
+    const estMs = (normCenter * 2 - 1) * HIT_ERROR_MAX_MS;
+    const tier = classifyTimingErrorMs(estMs);
+    ctx.fillStyle = tier === 'perfect' ? '#4ade80' : (tier === 'great' ? '#facc15' : (tier === 'good' ? '#fb923c' : '#f87171'));
+    ctx.fillRect(idx * barW + 1, h - 11 - barH, Math.max(2, barW - 2), barH);
+  });
+
+  // Center 0ms & Mean marker
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.fillRect(midX - 0.5, 3, 1, h - 13);
+
+  const clampedMean = Math.max(-HIT_ERROR_MAX_MS, Math.min(HIT_ERROR_MAX_MS, summary.meanMs));
+  const meanX = midX + (clampedMean / HIT_ERROR_MAX_MS) * (w / 2 - 4);
+  ctx.fillStyle = '#ffe38e';
+  ctx.fillRect(meanX - 1, 2, 2, h - 12);
+
+  ctx.fillStyle = 'rgba(235, 224, 198, 0.72)';
+  ctx.font = '9px "Segoe UI", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('Early (-160ms)', 4, h - 2);
+  ctx.textAlign = 'center';
+  ctx.fillText('0ms', midX, h - 2);
+  ctx.textAlign = 'right';
+  ctx.fillText('Late (+160ms)', w - 4, h - 2);
+}
+
+function renderTimelineSectionMarkers() {
+  if (!timelineSectionMarkers) return;
+  timelineSectionMarkers.innerHTML = '';
+  if (!currentSong || !Array.isArray(currentSong.sectionMarkers) || currentSong.sectionMarkers.length === 0) {
+    return;
+  }
+  const dur = Math.max(1, currentSong.duration || 1);
+  for (const m of currentSong.sectionMarkers) {
+    const pct = Math.max(0.5, Math.min(99.5, (m.time / dur) * 100));
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'timeline-section-tick';
+    btn.style.left = `${pct.toFixed(2)}%`;
+    btn.title = `Jump to ${m.label} (${formatSeconds(m.time)})`;
+    btn.setAttribute('aria-label', `Jump to ${m.label}`);
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!currentSong) return;
+      playbackState.currentTime = m.time;
+      playbackState.isWaitingForStrike = false;
+      playbackState.waitStartedAtMs = null;
+      playbackState.activeStrikeGroup = null;
+      resetSongProgressFlags(m.time);
+      seekBackingAudioToSongTime(m.time);
+      syncBackingAudioElement(m.time);
+      updateTimelineUI();
+      showGrimoireToast(`\uD83C\uDFAF Jumped to ${m.label} (${formatSeconds(m.time)})`);
+    });
+    timelineSectionMarkers.appendChild(btn);
+  }
+}
+
 function resetPlaybackToStart() {
   pausePlayback();
   clearAllHeldInputNotes();
-  playbackState.currentTime = -playbackState.leadInSeconds;
-  resetSongProgressFlags(-playbackState.leadInSeconds);
+  const leadIn = getEffectiveLeadInSeconds();
+  playbackState.currentTime = -leadIn;
+  resetSongProgressFlags(-leadIn);
   resetSongSessionStats();
   if (spellSingingState && spellSingingState.scorer) {
     spellSingingState.scorer.reset();
@@ -4303,6 +4557,7 @@ function resetPlaybackToStart() {
             : 'Arcade Mode Ready (Continuous Playback)')
     );
   }
+  drawLiveHitErrorBar();
   updateTimelineUI();
 }
 
@@ -4323,8 +4578,9 @@ async function startPlayback() {
     normalizeCrowdFailPolicy(crowdFailPolicy) === 'end'
   );
   if (playbackState.currentTime >= currentSong.duration || endedByBooOff) {
-    playbackState.currentTime = -playbackState.leadInSeconds;
-    resetSongProgressFlags(-playbackState.leadInSeconds);
+    const leadIn = getEffectiveLeadInSeconds();
+    playbackState.currentTime = -leadIn;
+    resetSongProgressFlags(-leadIn);
     resetSongSessionStats();
     if (spellSingingState && spellSingingState.scorer) {
       spellSingingState.scorer.reset();
@@ -5833,6 +6089,25 @@ function animationLoop(timestamp) {
     const dt = Math.min(0.1, Math.max(0, rawDt));
     const prevTime = playbackState.currentTime;
     let proposedTime = prevTime + dt * playbackState.playbackSpeed;
+
+    if (
+      !playbackState.isWaitingForStrike &&
+      (playbackState.metronomeCountInEnabled || playbackState.metronomeClickEnabled)
+    ) {
+      const clicks = findMetronomeClicksInWindow(prevTime, proposedTime, {
+        bpm: currentSong.bpm,
+        beatsPerMeasure: currentSong.beatsPerMeasure || 4,
+        countInEnabled: playbackState.metronomeCountInEnabled,
+        clickEnabled: playbackState.metronomeClickEnabled,
+        leadInSec: getEffectiveLeadInSeconds()
+      });
+      for (const c of clicks) {
+        playMetronomeClick(c.isAccent);
+        if (c.isCountIn) {
+          setStrikeStatusBadge('ready', `\uD83E\uDD41 Count-In: ${c.beatNumber} / ${currentSong.beatsPerMeasure || 4}`);
+        }
+      }
+    }
 
     if (!playbackState.isWaitingForStrike && songSessionStats.inspirationBurstRemainingSec > 0) {
       songSessionStats.inspirationBurstRemainingSec = Math.max(0, songSessionStats.inspirationBurstRemainingSec - dt);
@@ -8688,12 +8963,57 @@ function drawFallingSpellHighway(strikeLineY, width, highwayTopY = 0, collectOnl
   if (!currentSong) return strikeLineGuides;
 
   const laneTopY = Math.max(0, highwayTopY);
-  const laneHeight = Math.max(0, strikeLineY - laneTopY);
+  const laneHeight = Math.max(120, strikeLineY - laneTopY);
+  playbackState.lastHighwayHeight = laneHeight;
   const curTime = playbackState.currentTime;
-  const fallSpeed = playbackState.fallSpeedPxPerSec;
+  const fallSpeed = getEffectiveHighwayPxPerSec(laneHeight);
   const visibleTimeWindow = collectOnly
     ? 0.5
     : Math.max(0.25, (laneHeight + 40) / fallSpeed);
+
+  // Issue #179: Sustain Pedal (CC 64) left-edge hold ribbon & live indicator
+  if (!collectOnly && playbackState.sustainLaneEnabled) {
+    const spans = Array.isArray(currentSong.sustainSpans) ? currentSong.sustainSpans : [];
+    const railX = 2;
+    const railW = 8;
+    ctx.save();
+    ctx.fillStyle = 'rgba(212, 175, 55, 0.08)';
+    ctx.fillRect(railX, laneTopY, railW, laneHeight);
+    for (const sp of spans) {
+      if (sp.endTime < curTime) continue;
+      if (sp.startTime > curTime + visibleTimeWindow) break;
+      const yBottom = Math.min(strikeLineY, strikeLineY - (sp.startTime - curTime) * fallSpeed);
+      const yTop = Math.max(laneTopY, strikeLineY - (sp.endTime - curTime) * fallSpeed);
+      const h = yBottom - yTop;
+      if (h > 1) {
+        ctx.fillStyle = 'rgba(250, 204, 21, 0.58)';
+        ctx.beginPath();
+        ctx.roundRect(railX + 1, yTop, railW - 2, h, 3);
+        ctx.fill();
+      }
+    }
+    if (sustainPedalDown) {
+      ctx.fillStyle = '#ffd700';
+      ctx.beginPath();
+      ctx.arc(railX + railW / 2, strikeLineY - 6, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Resolve key signature & transposition once per frame for Scale Degrees label mode (#179)
+  const labelMode = playbackState.fallingNoteLabelMode || 'notes';
+  let tonicPitchClass = 0;
+  let keyIsMinor = false;
+  if (labelMode === 'degrees') {
+    const rawKey = currentSong.notationScore?.primaryKeySpec
+      || currentSong.headerKeySignatures?.[0]?.key
+      || currentSong.keySignature
+      || 'C';
+    const parsedKey = parseKeySpecForDegrees(rawKey);
+    tonicPitchClass = (parsedKey.tonicPc + (Number(currentSong.transposeSemitones) || 0) + 120) % 12;
+    keyIsMinor = parsedKey.isMinor;
+  }
 
   // 1. Draw scrolling horizontal beat/measure grid lines (honoring mid-song tempo/meter changes & pickup bars)
   if (!collectOnly && laneHeight > 0) {
@@ -8832,12 +9152,15 @@ function drawFallingSpellHighway(strikeLineY, width, highwayTopY = 0, collectOnl
         ctx.fillRect(x + 1.5, topY + 1.5, Math.max(2, w - 3), Math.min(5, rectH * 0.28));
       }
 
-      if (rectH >= 22 && w >= 16) {
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#0c0907';
-        ctx.font = 'bold 10px "Segoe UI", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(note.foldedName, x + w / 2, bottomY - 6);
+      if (labelMode !== 'off' && rectH >= 18 && w >= 14) {
+        const labelText = formatFallingNoteLabel(note, labelMode, tonicPitchClass, keyIsMinor);
+        if (labelText) {
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = '#0c0907';
+          ctx.font = 'bold 10px "Segoe UI", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(labelText, x + w / 2, bottomY - 6);
+        }
       }
     }
 
@@ -9192,7 +9515,7 @@ function renderCanvas() {
 
     // 2b. Issue #30: Draw Rehearsal Loop A/B boundary lines on the Spell Highway
     if (currentSong && rehearsalLoopState.enabled && hasValidRehearsalLoop()) {
-      const pxPerSec = playbackState.fallSpeedPxPerSec;
+      const pxPerSec = getEffectiveHighwayPxPerSec(highwayHeight);
       const markers = [
         { t: rehearsalLoopState.startTime, label: 'LOOP A', color: 'rgba(255, 215, 0, 0.78)' },
         { t: rehearsalLoopState.endTime, label: 'LOOP B', color: 'rgba(245, 158, 11, 0.88)' }
@@ -11974,10 +12297,62 @@ if (btnTempoUp) {
   });
 }
 
-fallSpeedSelect.addEventListener('change', (e) => {
-  playbackState.fallSpeedPxPerSec = Number(e.target.value) || 260;
-  e.target.blur();
-});
+if (highwayScrollSpeedSlider) {
+  highwayScrollSpeedSlider.value = String(playbackState.highwayScrollSpeed);
+  if (highwayScrollSpeedValue) {
+    highwayScrollSpeedValue.textContent = `${playbackState.highwayScrollSpeed.toFixed(1)}x`;
+  }
+  highwayScrollSpeedSlider.addEventListener('input', (e) => {
+    const next = clampHighwayScrollSpeed(e.target.value);
+    playbackState.highwayScrollSpeed = next;
+    localStorage.setItem(HIGHWAY_SCROLL_SPEED_STORAGE_KEY, String(next));
+    if (highwayScrollSpeedValue) {
+      highwayScrollSpeedValue.textContent = `${next.toFixed(1)}x`;
+    }
+  });
+}
+
+if (fallingNoteLabelsSelect) {
+  fallingNoteLabelsSelect.value = playbackState.fallingNoteLabelMode;
+  fallingNoteLabelsSelect.addEventListener('change', (e) => {
+    const mode = normalizeFallingLabelMode(e.target.value);
+    playbackState.fallingNoteLabelMode = mode;
+    localStorage.setItem(FALLING_LABEL_MODE_STORAGE_KEY, mode);
+    e.target.blur();
+  });
+}
+
+if (toggleSustainLane) {
+  toggleSustainLane.checked = Boolean(playbackState.sustainLaneEnabled);
+  toggleSustainLane.addEventListener('change', (e) => {
+    playbackState.sustainLaneEnabled = Boolean(e.target.checked);
+    localStorage.setItem(SUSTAIN_LANE_STORAGE_KEY, String(playbackState.sustainLaneEnabled));
+    e.target.blur();
+  });
+}
+
+if (toggleCountIn) {
+  toggleCountIn.checked = Boolean(playbackState.metronomeCountInEnabled);
+  toggleCountIn.addEventListener('change', (e) => {
+    playbackState.metronomeCountInEnabled = Boolean(e.target.checked);
+    localStorage.setItem(METRONOME_COUNTIN_STORAGE_KEY, String(playbackState.metronomeCountInEnabled));
+    if (!playbackState.isPlaying && currentSong && playbackState.currentTime < 0) {
+      const leadIn = getEffectiveLeadInSeconds();
+      playbackState.currentTime = -leadIn;
+      resetSongProgressFlags(-leadIn);
+    }
+    e.target.blur();
+  });
+}
+
+if (toggleMetronomeClick) {
+  toggleMetronomeClick.checked = Boolean(playbackState.metronomeClickEnabled);
+  toggleMetronomeClick.addEventListener('change', (e) => {
+    playbackState.metronomeClickEnabled = Boolean(e.target.checked);
+    localStorage.setItem(METRONOME_CLICK_STORAGE_KEY, String(playbackState.metronomeClickEnabled));
+    e.target.blur();
+  });
+}
 
 // Phase 5 UI Listeners: Performance Check Modal & +25 Streak Test Shortcut
 if (d20TrayOverlay) {

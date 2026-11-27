@@ -302,12 +302,35 @@
               </div>
 
               <div class="popover-row">
-                <label for="fall-speed-select">Note Fall Speed</label>
-                <select id="fall-speed-select" class="tavern-select">
-                  <option value="180">Slow (180 px/s)</option>
-                  <option value="260" selected>Normal (260 px/s)</option>
-                  <option value="360">Fast (360 px/s)</option>
+                <label for="highway-scroll-speed-slider" title="Visual falling-note speed (0.5x–2.5x), independent of song audio tempo">Highway Scroll Speed</label>
+                <div class="popover-slider-wrap">
+                  <input id="highway-scroll-speed-slider" type="range" min="0.5" max="2.5" value="1.0" step="0.1" class="tavern-slider" />
+                  <strong id="highway-scroll-speed-value" class="popover-readout">1.0x</strong>
+                </div>
+              </div>
+
+              <div class="popover-row">
+                <label for="falling-note-labels-select" title="Show note names, scale degrees (1–7), or no text on falling highway blocks">Falling Note Labels</label>
+                <select id="falling-note-labels-select" class="tavern-select">
+                  <option value="notes" selected>Note Names (Default)</option>
+                  <option value="degrees">Scale Degrees (1&ndash;7)</option>
+                  <option value="off">Off (Clean Blocks)</option>
                 </select>
+              </div>
+
+              <div class="popover-row">
+                <label for="toggle-sustain-lane" title="Show MIDI Sustain Pedal (CC 64) hold ribbon and live pedal indicator on the highway">Sustain Pedal Lane (CC 64)</label>
+                <input id="toggle-sustain-lane" type="checkbox" class="tavern-checkbox" checked />
+              </div>
+
+              <div class="popover-row">
+                <label for="toggle-count-in" title="Play a 1-bar audible metronome count-in before Beat 1">Count-In (1 Bar)</label>
+                <input id="toggle-count-in" type="checkbox" class="tavern-checkbox" />
+              </div>
+
+              <div class="popover-row">
+                <label for="toggle-metronome-click" title="Play an audible beat click during playback">Metronome Click</label>
+                <input id="toggle-metronome-click" type="checkbox" class="tavern-checkbox" />
               </div>
 
               <div class="popover-row">
@@ -685,6 +708,7 @@
             <div id="loop-range-fill" class="loop-range-fill hidden"></div>
             <div id="loop-marker-a" class="loop-marker loop-marker-a hidden" title="Loop Start (A)"></div>
             <div id="loop-marker-b" class="loop-marker loop-marker-b hidden" title="Loop End (B)"></div>
+            <div id="timeline-section-markers" class="timeline-section-markers" aria-label="Song section jump markers"></div>
             <input id="song-progress-slider" type="range" min="0" max="1000" value="0" step="1" class="timeline-slider" aria-label="Song playback timeline" disabled />
           </div>
           <span id="song-time-readout" class="time-readout">0:00 / 0:00</span>
@@ -891,6 +915,13 @@
 
             <div id="strike-zone-status" class="strike-status-pill">
               <span id="strike-status-text">Strike Zone: Ready (100ms Chord Grace Active)</span>
+            </div>
+
+            <!-- Issue #181: Live Early/Late Hit-Error Bar -->
+            <div id="hud-hit-error-pill" class="hit-error-pill hidden" title="Live Timing Meter: Early (left) vs On-Time (center) vs Late (right)">
+              <span class="hit-error-tag">E</span>
+              <canvas id="hud-hit-error-canvas" width="150" height="20"></canvas>
+              <span class="hit-error-tag">L</span>
             </div>
 
             <button id="hud-inspiration-banner" type="button" class="inspiration-banner" title="Click or press Enter when 100% charged for 10s of 2x XP (or auto-shields 1 combo break)">
@@ -1148,6 +1179,7 @@
 
         <!-- Issue #111 & #28: Early / On-Time / Late Timing Spread Summary Pill -->
         <div id="modal-timing-spread-pill" class="timing-spread-pill hidden"></div>
+        <canvas id="modal-timing-scatter-canvas" class="modal-timing-scatter-canvas hidden" width="380" height="44" aria-label="Timing error distribution"></canvas>
 
         <!-- Issue #62 & #108: Post-Song Breakdown (What Tripped Me Up & Encore Drill) -->
         <div id="modal-breakdown-section" class="modal-breakdown-section hidden">
