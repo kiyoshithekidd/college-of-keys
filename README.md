@@ -30,6 +30,7 @@
 | **v1.5.2** | **Responsive Top-Bar Layout & Overflow Fix: Isolated `.spell-meta-main` Truncation, 2-Row Responsive Wrap on `#spell-scroll-bar` (`<=1820px`), and `1024px` Bar 1 Protection** | **Completed** |
 | **v1.6.0** | **3-Tier Synced Lyrics Cascade (`LRCLIB` Word/Line Sync + YouTube `.json3`/`.vtt` + `faster-whisper`) & 1-Click `🔍 Fetch Lyrics` (`#159`), CREPE 170ms Vibrato Smoothing & Bezier Portamento Glide Ribbons (`#160`), Apple Music Sing Lead Vocal Fader & Mid/Side + UVR AI Harmony Control (`#161`), `.btn-audio-sync` Pill Overflow Fix (`#158`), and Peer Review & QA Hardening (`#166`)** | **Completed** |
 | **v1.7.0** | **Grimoire Hall of Legends Personal Records Board & `+50 XP` Record Bonus (`#162`), Grimoire 30-Second Audio Preview (`🎙 Recording` & `🎹 Piano MIDI`) (`#163`), Song-Stats Migration Persistence Fix (`#167`), and Peer Review & QA Hardening (`#168`)** | **Completed** |
+| **v1.8.0** | **Tavern Crowd Fail State: Tier-Scaled Crowd Warning (`15`/`10`/`7` Misses), 10-Hit Recovery, Boo-Off with `End Song` / `Continue Playing` Setting (`#164`), and Peer Review & QA Hardening (`#170`)** | **Completed** |
 
 ---
 
@@ -123,6 +124,10 @@
 - **30-Second Audio Preview (`#163`):** Every Grimoire song row and the Spell Details bar includes a **`▶` / `🎧 Preview`** control playing a 30-second excerpt — choose **`🎙 Recording`** (backing audio, shown only when present on disk) or **`🎹 Piano MIDI`** (rendered through the piano synth). Runs in an isolated audio path that stops on Stop, Load, Close, Page Flip, Filter Toggle, Delete, or Playback Start without touching highway state or XP.
 - **Persistence & QA Fixes (`#167`, `#168`):** Fixed startup `song_stats.json` migration dropping extended per-song fields (`weakBarHistory`, `preferredTempo`, personal record dates), added `song_stats.json` to `.gitignore`, and resolved all 8 peer-review/QA findings.
 
+### 12. Tavern Crowd Fail State: Warning, Recovery & Boo-Off (`v1.8.0`)
+- **Tier-Scaled Crowd Warning & 10-Hit Recovery (`#164`):** In Rhythm/Arcade mode, consecutive misses trigger a pulsing **Crowd Restless!** warning scaled to the song's auto-difficulty spell tier (**15** misses on Cantrip–2nd, **10** on 3rd–5th, **7** on 6th–9th). Hit **10** clean notes in a row to win the crowd back (`✨ Crowd Won Back!`).
+- **Boo-Off & End/Continue Policy (`#164`, `#170`):** Continued misses after warning fire **🍅 Booed Off Stage!** Choose **End Song (Default)** or **Continue Playing** under **⚙ Audio & Keys → On Crowd Boo-Off**. You always keep XP earned up to the boo-off, the song is not counted as completed, Continue does not re-fire in the same run, and Wait Mode, Karaoke, Tutorial, Listen-Only, and Rehearsal Loop are exempt.
+
 ---
 
 ## Controls & Input Modes
@@ -184,7 +189,7 @@ npm test
 - [`tavern-setlists.js`](./tavern-setlists.js), [`bard-achievements.js`](./bard-achievements.js), [`guild-tutorial.js`](./guild-tutorial.js), [`bard-colleges.js`](./bard-colleges.js), [`bard-campaign.js`](./bard-campaign.js), [`hall-of-legends.js`](./hall-of-legends.js) & [`grimoire-preview.js`](./grimoire-preview.js) — Tavern Crowd Meter, Setlists, Achievements, Interactive Tutorial, Bard Colleges, 4-Act Story Campaign, Grimoire Hall of Legends personal records, and isolated 30-second Audio Preview modules.
 - [`python_ml/transcribe_quest.py`](./python_ml/transcribe_quest.py) & [`python_ml/omr_import.py`](./python_ml/omr_import.py) — Python ML pipelines for YouTube/audio transcription (`basic-pitch` default + optional **Transkun V2** solo-piano engine + optional **Demucs 4-stem + CREPE** vocal melody & harmony arrangement + stereo Demucs 6-stem separation + optional UVR Lead/Backing vocal split + 3-tier synced `.lrc` lyrics cascade) and PDF/image sheet-music OMR (`homr` + `pypdfium2`).
 - [`docs/transkun-spike-findings.md`](./docs/transkun-spike-findings.md) — Issue #144 transcription engine benchmark and architectural decision record (`basic-pitch` vs Transkun V2 vs ByteDance).
-- [`tests/run-tests.js`](./tests/run-tests.js), [`tests/karaoke-and-lyrics.test.js`](./tests/karaoke-and-lyrics.test.js), [`tests/legends-and-preview.test.js`](./tests/legends-and-preview.test.js) & [`tests/regression.test.js`](./tests/regression.test.js) — Automated Node unit + headless Electron DOM regression suite (`npm test`).
+- [`tests/run-tests.js`](./tests/run-tests.js), [`tests/karaoke-and-lyrics.test.js`](./tests/karaoke-and-lyrics.test.js), [`tests/legends-and-preview.test.js`](./tests/legends-and-preview.test.js), [`tests/crowd-fail-state.test.js`](./tests/crowd-fail-state.test.js) & [`tests/regression.test.js`](./tests/regression.test.js) — Automated Node unit + headless Electron DOM regression suite (`npm test`).
 - [`PERSONAS.md`](./PERSONAS.md) — Core user personas (The Returning Adult, The Gamer Bard, The Rock Band Player, Casual Song Player, Young Learner, Conservatory Purist) guiding all feature decisions.
 - [`Gemini.md`](./Gemini.md) — Detailed architectural plan, engineering decisions & rationale log, open-source benchmark notes, and build log.
 - [`CHANGELOG.md`](./CHANGELOG.md) — Versioned phase-by-phase changelog.

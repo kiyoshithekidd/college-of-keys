@@ -827,6 +827,65 @@ app.whenReady().then(async () => {
         delete songPlayHistory[demoKey];
       }
 
+      // Issue #164: Tavern Crowd Warning & Boo-Off DOM checks
+      const prevWaitMode164 = playbackState.waitMode;
+      const prevPolicy164 = crowdFailPolicy;
+      const prevCompleted164 = bardProfile.songsCompleted;
+
+      // 1. Wait Mode is exempt from crowd warning
+      playbackState.waitMode = true;
+      resetSongSessionStats();
+      for (let i = 0; i < 20; i += 1) {
+        recordSpellChainBreak('Missed');
+      }
+      checks.crowdFailExemptInWaitMode = Boolean(
+        songSessionStats.crowdFailState.status === 'normal' &&
+        document.getElementById('crowd-warning-banner').classList.contains('hidden')
+      );
+
+      // 2. Arcade mode triggers warning at tier threshold, then End policy opens Boo-Off modal keeping XP & not counting completion
+      playbackState.waitMode = false;
+      crowdFailPolicy = 'end';
+      resetSongSessionStats();
+      songSessionStats.songXpEarned = 175;
+      const demoThresholds = getCrowdWarningThreshold(currentSong?.difficulty?.spellLevel || currentSong?.difficulty?.index || 0);
+      for (let i = 0; i < demoThresholds.warningMisses; i += 1) {
+        recordSpellChainBreak('Missed');
+      }
+      const warningShown = Boolean(
+        songSessionStats.crowdFailState.status === 'warning' &&
+        !document.getElementById('crowd-warning-banner').classList.contains('hidden') &&
+        document.getElementById('hud-crowd-meter').classList.contains('crowd-warning')
+      );
+      for (let i = 0; i < demoThresholds.booOffMisses; i += 1) {
+        recordSpellChainBreak('Missed');
+      }
+      const booModalEl = document.getElementById('boo-off-modal');
+      const booEndOk = Boolean(
+        !booModalEl.classList.contains('hidden') &&
+        document.getElementById('boo-off-xp-kept').textContent === '+175 XP' &&
+        bardProfile.songsCompleted === prevCompleted164
+      );
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      const booEscClosed = booModalEl.classList.contains('hidden');
+
+      // 3. Continue policy does not open modal and does not re-fire on further misses
+      crowdFailPolicy = 'continue';
+      resetSongSessionStats();
+      for (let i = 0; i < demoThresholds.warningMisses + demoThresholds.booOffMisses; i += 1) {
+        recordSpellChainBreak('Missed');
+      }
+      const booContinueOk = Boolean(
+        songSessionStats.crowdFailState.hasBooedOffThisRun === true &&
+        booModalEl.classList.contains('hidden')
+      );
+      checks.crowdWarningAndBooOffEndPolicy = Boolean(warningShown && booEndOk && booEscClosed);
+      checks.crowdBooOffContinuePolicy = booContinueOk;
+
+      playbackState.waitMode = prevWaitMode164;
+      crowdFailPolicy = prevPolicy164;
+      resetSongSessionStats();
+
       return checks;
     })();
   `);

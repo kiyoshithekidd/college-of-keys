@@ -122,12 +122,157 @@ function deleteSetlistRecord(id, storage = null) {
   return all;
 }
 
+const CROWD_FAIL_POLICY_STORAGE_KEY = 'collegeOfKeys.crowdFailPolicy.v1';
+const CROWD_RECOVERY_HIT_TARGET = 10;
+
+function normalizeCrowdFailPolicy(value) {
+  return value === 'continue' ? 'continue' : 'end';
+}
+
+function loadCrowdFailPolicy(storage = null) {
+  const store = storage || (typeof window !== 'undefined' ? window.localStorage : null);
+  if (!store || typeof store.getItem !== 'function') return 'end';
+  try {
+    return normalizeCrowdFailPolicy(store.getItem(CROWD_FAIL_POLICY_STORAGE_KEY));
+  } catch {
+    return 'end';
+  }
+}
+
+function saveCrowdFailPolicy(policy, storage = null) {
+  const normalized = normalizeCrowdFailPolicy(policy);
+  const store = storage || (typeof window !== 'undefined' ? window.localStorage : null);
+  if (store && typeof store.setItem === 'function') {
+    try {
+      store.setItem(CROWD_FAIL_POLICY_STORAGE_KEY, normalized);
+    } catch {
+      // Ignore storage errors
+    }
+  }
+  return normalized;
+}
+
+function parseSpellTierIndex(tierIndexOrLevel) {
+  if (typeof tierIndexOrLevel === 'number' && Number.isFinite(tierIndexOrLevel)) {
+    return Math.max(0, Math.min(9, Math.floor(tierIndexOrLevel)));
+  }
+  const str = String(tierIndexOrLevel || '').toLowerCase();
+  if (!str || str.includes('cantrip')) return 0;
+  const match = str.match(/([1-9])/);
+  if (match) return Number(match[1]);
+  return 0;
+}
+
+/**
+ * Issue #164: Miss streak thresholds scaled by auto-difficulty spell tier.
+ * - Cantrip – 2nd level (0–2): 15 misses to warn, 8 more to boo off
+ * - 3rd – 5th level (3–5): 10 misses to warn, 5 more to boo off
+ * - 6th – 9th level (6–9): 7 misses to warn, 4 more to boo off
+ */
+function getCrowdWarningThreshold(tierIndexOrLevel = 0) {
+  const tierIdx = parseSpellTierIndex(tierIndexOrLevel);
+  if (tierIdx <= 2) {
+    return { tierIndex: tierIdx, warningMisses: 15, booOffMisses: 8 };
+  }
+  if (tierIdx <= 5) {
+    return { tierIndex: tierIdx, warningMisses: 10, booOffMisses: 5 };
+  }
+  return { tierIndex: tierIdx, warningMisses: 7, booOffMisses: 4 };
+}
+
+function createCrowdFailState() {
+  return {
+    status: 'normal', // 'normal' | 'warning' | 'booed'
+    missStreak: 0,
+    warningMissStreak: 0,
+    recoveryHitStreak: 0,
+    hasBooedOffThisRun: false
+  };
+}
+
+function isCrowdFailStateActive({
+  waitMode = false,
+  stageViewMode = 'highway',
+  tutorialActive = false,
+  accompanimentMode = 'off',
+  rehearsalLoopEnabled = false
+} = {}) {
+  if (waitMode) return false;
+  if (stageViewMode === 'karaoke') return false;
+  if (tutorialActive) return false;
+  if (accompanimentMode === 'auto-both') return false;
+  if (rehearsalLoopEnabled) return false;
+  return true;
+}
+
+function advanceCrowdFailOnHit(failState, { noteCount = 1, active = true } = {}) {
+  const cur = failState && typeof failState === 'object' ? failState : createCrowdFailState();
+  const next = {
+    ...cur,
+    missStreak: 0,
+    warningMissStreak: 0
+  };
+  if (!active || cur.status !== 'warning') {
+    return { nextState: next, event: null, recoveryTarget: CROWD_RECOVERY_HIT_TARGET };
+  }
+  const gain = Math.max(1, Number(noteCount) || 1);
+  next.recoveryHitStreak = (Number(cur.recoveryHitStreak) || 0) + gain;
+  if (next.recoveryHitStreak >= CROWD_RECOVERY_HIT_TARGET) {
+    next.status = 'normal';
+    next.recoveryHitStreak = 0;
+    return { nextState: next, event: 'recovered', recoveryTarget: CROWD_RECOVERY_HIT_TARGET };
+  }
+  return { nextState: next, event: 'recovering', recoveryTarget: CROWD_RECOVERY_HIT_TARGET };
+}
+
+function advanceCrowdFailOnMiss(failState, { tierIndexOrLevel = 0, active = true } = {}) {
+  const cur = failState && typeof failState === 'object' ? failState : createCrowdFailState();
+  if (!active || cur.hasBooedOffThisRun) {
+    return { nextState: { ...cur }, event: null, thresholds: getCrowdWarningThreshold(tierIndexOrLevel) };
+  }
+  const thresholds = getCrowdWarningThreshold(tierIndexOrLevel);
+  const next = {
+    ...cur,
+    recoveryHitStreak: 0
+  };
+  if (cur.status === 'normal') {
+    next.missStreak = (Number(cur.missStreak) || 0) + 1;
+    if (next.missStreak >= thresholds.warningMisses) {
+      next.status = 'warning';
+      next.warningMissStreak = 0;
+      return { nextState: next, event: 'warning', thresholds };
+    }
+    return { nextState: next, event: null, thresholds };
+  }
+  if (cur.status === 'warning') {
+    next.warningMissStreak = (Number(cur.warningMissStreak) || 0) + 1;
+    if (next.warningMissStreak >= thresholds.booOffMisses) {
+      next.status = 'booed';
+      next.hasBooedOffThisRun = true;
+      return { nextState: next, event: 'booed', thresholds };
+    }
+    return { nextState: next, event: null, thresholds };
+  }
+  return { nextState: next, event: null, thresholds };
+}
+
 module.exports = {
   SETLISTS_STORAGE_KEY,
   CROWD_MOODS,
+  CROWD_FAIL_POLICY_STORAGE_KEY,
+  CROWD_RECOVERY_HIT_TARGET,
   clampCrowdEnergy,
   getCrowdMoodForEnergy,
   applyCrowdEnergyDelta,
+  normalizeCrowdFailPolicy,
+  loadCrowdFailPolicy,
+  saveCrowdFailPolicy,
+  parseSpellTierIndex,
+  getCrowdWarningThreshold,
+  createCrowdFailState,
+  isCrowdFailStateActive,
+  advanceCrowdFailOnHit,
+  advanceCrowdFailOnMiss,
   normalizeSetlistItem,
   createSetlistRecord,
   moveSetlistItem,

@@ -392,6 +392,14 @@
                 <input id="toggle-chord-banner" type="checkbox" class="tavern-checkbox" checked />
               </div>
 
+              <div class="popover-row">
+                <label for="crowd-fail-policy-select" title="What happens in Rhythm/Arcade mode if the Tavern Crowd boos you off stage after a miss-streak warning">On Crowd Boo-Off</label>
+                <select id="crowd-fail-policy-select" class="tavern-select">
+                  <option value="end" selected>End Song (Default)</option>
+                  <option value="continue">Continue Playing</option>
+                </select>
+              </div>
+
               <div class="popover-row popover-row-stack">
                 <div class="popover-row-inline">
                   <span title="Non-destructively transpose playable &amp; backing MIDI notes (-12 to +12 semitones) per song">Capo / Transpose</span>
@@ -875,6 +883,12 @@
               <strong id="hud-crowd-mult" class="crowd-mult-badge">1.0x</strong>
             </div>
 
+            <!-- Issue #164: Crowd Warning & Recovery Banner -->
+            <div id="crowd-warning-banner" class="crowd-warning-banner hidden" role="status" aria-live="polite">
+              <span id="crowd-warning-text" class="crowd-warning-text">&#9888;&#65039; Crowd Restless! Win them back (0/10)</span>
+              <span class="crowd-recovery-track"><span id="crowd-recovery-fill" class="crowd-recovery-fill" style="width: 0%;"></span></span>
+            </div>
+
             <div id="strike-zone-status" class="strike-status-pill">
               <span id="strike-status-text">Strike Zone: Ready (100ms Chord Grace Active)</span>
             </div>
@@ -1016,6 +1030,31 @@
           <button id="btn-exit-campaign-gig" type="button" class="tutorial-exit-btn" title="Return to normal practice stage">Leave Venue</button>
         </div>
       </main>
+    </div>
+
+    <!-- Issue #164: Crowd Boo-Off Modal (Fail State — End Song Policy) -->
+    <div id="boo-off-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="boo-off-title">
+      <div class="performance-modal-card boo-off-modal-card">
+        <div class="modal-header">
+          <div>
+            <h2 id="boo-off-title" class="modal-title">&#127813; Booed Off Stage!</h2>
+            <p id="boo-off-song-subtitle" class="modal-subtitle">The Rusty Flagon Tavern</p>
+          </div>
+          <button id="btn-close-boo-off" type="button" class="modal-close-btn" aria-label="Close Booed Off Stage dialog">&times;</button>
+        </div>
+        <div class="boo-off-body">
+          <p class="boo-off-flavor">The tavern crowd lost patience and shouted you off the stage. Shake it off, tune up, and win them back!</p>
+          <div class="boo-off-xp-row">
+            <span class="boo-off-xp-label">XP Kept From This Attempt</span>
+            <strong id="boo-off-xp-kept" class="boo-off-xp-value">+0 XP</strong>
+          </div>
+          <p class="boo-off-note">Song not counted as completed. You can switch to <strong>Continue Playing</strong> in <em>Settings &rarr; On Crowd Boo-Off</em>.</p>
+        </div>
+        <div class="boo-off-actions">
+          <button id="btn-boo-off-retry" type="button" class="tavern-btn tavern-btn-cast">&#8634; Try Again</button>
+          <button id="btn-boo-off-grimoire" type="button" class="tavern-btn">&#128214; Open Grimoire</button>
+        </div>
+      </div>
     </div>
 
     <!-- Phase 5: Post-Song "Performance Check" Modal -->

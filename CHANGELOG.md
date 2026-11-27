@@ -10,6 +10,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.8.0] - 2026-11-26
+
+### Added
+- **Tavern Crowd Fail State: Crowd Warning, 10-Hit Recovery & Boo-Off (`#164`):**
+  - Extended `tavern-setlists.js` with tier-scaled miss-streak thresholds (**15** misses Cantrip–2nd, **10** misses 3rd–5th, **7** misses 6th–9th), 10-hit consecutive recovery, and boo-off state transitions (`getCrowdWarningThreshold`, `createCrowdFailState`, `isCrowdFailStateActive`, `advanceCrowdFailOnHit`, `advanceCrowdFailOnMiss`).
+  - Added the live `#crowd-warning-banner` (`⚠️ Crowd Restless! Win them back (X/10)`) with recovery progress bar, pulsing `.crowd-warning` mood pill, **🍅 Booed Off Stage!** modal (`#boo-off-modal`) preserving earned XP without counting the song as completed, and **On Crowd Boo-Off** (`End Song (Default)` / `Continue Playing`) setting in `#settings-popover`.
+  - Exempted Wait Mode, Karaoke, Tutorial, Listen-Only, and Rehearsal Loop; added `tests/crowd-fail-state.test.js` (3 Node unit tests) and 3 new headless Electron DOM checks in `tests/regression.test.js`.
+
+### Fixed
+- **Tavern Crowd Fail State Peer Review & QA Audit Hardening (`#170`):** Gated crowd recovery hits on `rhythmTier !== 'miss' && !group.wrongKeyDuringRoll`, synchronized warning state across Rhythm Mode / Practice Mode / Rehearsal Loop toggles via `syncCrowdFailStateForModeChange()`, forced `startPlayback()` to restart from the beginning after an `End Song` boo-off, added `prefers-reduced-motion` override and `aria-live="polite"`, and added boo-off-aware Setlist messaging.
+
+---
+
 ## [1.7.0] - 2026-11-26
 
 ### Added
