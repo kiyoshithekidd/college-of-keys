@@ -21,8 +21,17 @@ const { createD20TrayRoller } = require('./d20-roller');
 const { isMusicXmlFileName, convertMusicXmlToMidiBuffer } = require('./musicxml-converter');
 const { isOmrSheetFileName, analyzeOmrConfidence, applyOmrOverridesToMusicXml } = require('./omr-confidence');
 const {
+  CROWD_RECOVERY_HIT_TARGET,
   getCrowdMoodForEnergy,
   applyCrowdEnergyDelta,
+  normalizeCrowdFailPolicy,
+  loadCrowdFailPolicy,
+  saveCrowdFailPolicy,
+  createCrowdFailState,
+  getCrowdWarningThreshold,
+  isCrowdFailStateActive,
+  advanceCrowdFailOnHit,
+  advanceCrowdFailOnMiss,
   createSetlistRecord,
   moveSetlistItem,
   removeSetlistItem,
@@ -2455,6 +2464,8 @@ function resetSongSessionStats() {
   songSessionStats.inspirationBurstRemainingSec = 0;
   songSessionStats.lastBurstHudSyncMs = 0;
   songSessionStats.crowdEnergy = 50;
+  songSessionStats.crowdFailState = createCrowdFailState();
+  if (typeof closeBooOffModal === 'function') closeBooOffModal();
   updateLitrpgHUD();
 }
 
@@ -2691,6 +2702,19 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll, rh
     ? 0.5
     : (rhythmTier === 'perfect' || isCleanChordRoll ? 3.5 : (rhythmTier === 'good' ? 1.0 : (rhythmTier === 'miss' ? -2.0 : 2.5)));
   songSessionStats.crowdEnergy = applyCrowdEnergyDelta(songSessionStats.crowdEnergy ?? 50, crowdDelta);
+  if (!songSessionStats.crowdFailState) {
+    songSessionStats.crowdFailState = createCrowdFailState();
+  }
+  const hitFailRes = advanceCrowdFailOnHit(songSessionStats.crowdFailState, {
+    noteCount,
+    active: isCrowdFailCurrentlyActive()
+  });
+  songSessionStats.crowdFailState = hitFailRes.nextState;
+  if (hitFailRes.event === 'recovered') {
+    songSessionStats.crowdEnergy = applyCrowdEnergyDelta(songSessionStats.crowdEnergy, 12);
+    spawnFloatingCanvasRune(MIDDLE_C, '\u2728 CROWD WON BACK!', '#4ade80');
+    showGrimoireToast('\u2728 You won the Tavern Crowd back!', 'success');
+  }
   const crowdMood = getCrowdMoodForEnergy(songSessionStats.crowdEnergy);
   if (
     crowdMood.id === 'enchanted' ||
@@ -2776,6 +2800,128 @@ function recordStrikeGroupCompletion(group, isFumbledPause, isCleanChordRoll, rh
   updateLitrpgHUD();
 }
 
+// ============================================================================
+// Issue #164: Tavern Crowd Warning & Boo-Off Fail State
+// ============================================================================
+const crowdFailPolicySelect = document.getElementById('crowd-fail-policy-select');
+const crowdWarningBanner = document.getElementById('crowd-warning-banner');
+const crowdWarningText = document.getElementById('crowd-warning-text');
+const crowdRecoveryFill = document.getElementById('crowd-recovery-fill');
+const booOffModal = document.getElementById('boo-off-modal');
+const booOffSongSubtitle = document.getElementById('boo-off-song-subtitle');
+const booOffXpKept = document.getElementById('boo-off-xp-kept');
+const btnCloseBooOff = document.getElementById('btn-close-boo-off');
+const btnBooOffRetry = document.getElementById('btn-boo-off-retry');
+const btnBooOffGrimoire = document.getElementById('btn-boo-off-grimoire');
+
+let crowdFailPolicy = loadCrowdFailPolicy();
+if (crowdFailPolicySelect) {
+  crowdFailPolicySelect.value = crowdFailPolicy;
+  crowdFailPolicySelect.addEventListener('change', () => {
+    crowdFailPolicy = saveCrowdFailPolicy(crowdFailPolicySelect.value);
+    showGrimoireToast(
+      crowdFailPolicy === 'continue'
+        ? '\uD83C\uDF7A Crowd Boo-Off set to: Continue Playing'
+        : '\uD83C\uDF45 Crowd Boo-Off set to: End Song (Default)'
+    );
+  });
+}
+
+function isCrowdFailCurrentlyActive() {
+  return isCrowdFailStateActive({
+    waitMode: Boolean(playbackState.waitMode),
+    stageViewMode,
+    tutorialActive: Boolean(typeof tutorialState !== 'undefined' && tutorialState && tutorialState.active),
+    accompanimentMode: playbackState.accompanimentMode,
+    rehearsalLoopEnabled: Boolean(rehearsalLoopState && rehearsalLoopState.enabled)
+  });
+}
+
+function updateCrowdWarningBannerUI() {
+  const fsState = songSessionStats.crowdFailState || createCrowdFailState();
+  const isWarning = fsState.status === 'warning' && isCrowdFailCurrentlyActive();
+  if (hudCrowdMeter) {
+    hudCrowdMeter.classList.toggle('crowd-warning', isWarning);
+  }
+  if (!crowdWarningBanner) return;
+  crowdWarningBanner.classList.toggle('hidden', !isWarning);
+  if (isWarning) {
+    const hits = Math.min(CROWD_RECOVERY_HIT_TARGET, Number(fsState.recoveryHitStreak) || 0);
+    if (crowdWarningText) {
+      crowdWarningText.textContent = `\u26A0\uFE0F Crowd Restless! Win them back (${hits}/${CROWD_RECOVERY_HIT_TARGET})`;
+    }
+    if (crowdRecoveryFill) {
+      crowdRecoveryFill.style.width = `${Math.round((hits / CROWD_RECOVERY_HIT_TARGET) * 100)}%`;
+    }
+  }
+}
+
+function closeBooOffModal() {
+  if (booOffModal) {
+    booOffModal.classList.add('hidden');
+  }
+}
+
+function openBooOffModal() {
+  if (!booOffModal) return;
+  const title = currentSong ? currentSong.title : 'Practice Session';
+  const diffLabel = currentSong?.difficulty?.label || '';
+  if (booOffSongSubtitle) {
+    booOffSongSubtitle.textContent = diffLabel ? `${title} \u2022 ${diffLabel}` : title;
+  }
+  if (booOffXpKept) {
+    booOffXpKept.textContent = `+${(Number(songSessionStats.songXpEarned) || 0).toLocaleString()} XP`;
+  }
+  booOffModal.classList.remove('hidden');
+  if (btnBooOffRetry) {
+    btnBooOffRetry.focus();
+  }
+}
+
+if (btnCloseBooOff) {
+  btnCloseBooOff.addEventListener('click', () => closeBooOffModal());
+}
+if (booOffModal) {
+  booOffModal.addEventListener('click', (e) => {
+    if (e.target === booOffModal) closeBooOffModal();
+  });
+}
+if (btnBooOffRetry) {
+  btnBooOffRetry.addEventListener('click', () => {
+    closeBooOffModal();
+    resetPlaybackToStart();
+    void startPlayback();
+  });
+}
+if (btnBooOffGrimoire) {
+  btnBooOffGrimoire.addEventListener('click', () => {
+    closeBooOffModal();
+    openGrimoireSpellbook('highway');
+  });
+}
+
+function triggerCrowdBooOff() {
+  songSessionStats.crowdEnergy = 0;
+  songSessionStats.lastGainText = '\uD83C\uDF45 Booed Off Stage!';
+  songSessionStats.lastGainFumbled = true;
+  spawnFloatingCanvasRune(MIDDLE_C, '\uD83C\uDF45 BOOED OFF STAGE!', '#f87171');
+  try {
+    if (polySynth && typeof polySynth.triggerAttackRelease === 'function') {
+      polySynth.triggerAttackRelease(['C3', 'Db3', 'Gb3'], '2n', Tone.now(), 0.25);
+    }
+  } catch {
+    // Ignore synth sound errors in headless / uninitialized audio
+  }
+
+  if (normalizeCrowdFailPolicy(crowdFailPolicy) === 'end') {
+    pausePlayback();
+    songSessionStats.hasShownEndModal = true;
+    openBooOffModal();
+  } else {
+    showGrimoireToast('\uD83C\uDF45 The crowd booed \u2014 continuing performance! (XP kept; song will not count as completed)', 'warning');
+  }
+}
+
 /**
  * Break Spell Chain when an off-key note is struck or a note is missed in Arcade Mode
  * (or auto-consume a full Bardic Inspiration charge to shield the combo!)
@@ -2804,6 +2950,23 @@ function recordSpellChainBreak(reasonText = 'Chain Broken! (Off-Key)') {
   songSessionStats.crowdEnergy = applyCrowdEnergyDelta(songSessionStats.crowdEnergy ?? 50, -7);
   songSessionStats.lastGainText = reasonText;
   songSessionStats.lastGainFumbled = true;
+
+  if (!songSessionStats.crowdFailState) {
+    songSessionStats.crowdFailState = createCrowdFailState();
+  }
+  const missFailRes = advanceCrowdFailOnMiss(songSessionStats.crowdFailState, {
+    tierIndexOrLevel: currentSong?.difficulty?.spellLevel || currentSong?.difficulty?.index || 0,
+    active: isCrowdFailCurrentlyActive()
+  });
+  songSessionStats.crowdFailState = missFailRes.nextState;
+  if (missFailRes.event === 'warning') {
+    songSessionStats.crowdEnergy = applyCrowdEnergyDelta(songSessionStats.crowdEnergy, -12);
+    spawnFloatingCanvasRune(MIDDLE_C, '\u26A0\uFE0F CROWD RESTLESS!', '#f97316');
+    showGrimoireToast(`\u26A0\uFE0F The Tavern is getting restless! Hit ${CROWD_RECOVERY_HIT_TARGET} notes in a row to win them back!`, 'warning');
+  } else if (missFailRes.event === 'booed') {
+    triggerCrowdBooOff();
+  }
+
   updateLitrpgHUD();
 }
 
@@ -2838,6 +3001,7 @@ function updateLitrpgHUD() {
   if (hudCrowdMood) hudCrowdMood.textContent = crowdMood.label;
   if (hudCrowdFill) hudCrowdFill.style.width = `${crowdMood.energy}%`;
   if (hudCrowdMult) hudCrowdMult.textContent = `${crowdMood.xpMultiplier.toFixed(2).replace(/\.00$/, '.0')}x`;
+  updateCrowdWarningBannerUI();
 
   const diffMult = currentSong?.difficulty?.xpMultiplier ?? 1.0;
   const isInspired = isBardicInspirationActive();
@@ -5848,7 +6012,8 @@ function animationLoop(timestamp) {
       pausePlayback();
       if (!songSessionStats.hasShownEndModal) {
         songSessionStats.hasShownEndModal = true;
-        const shouldRecordCompletion = !songSessionStats.hasRecordedCompletion;
+        const booedOffRun = Boolean(songSessionStats.crowdFailState && songSessionStats.crowdFailState.hasBooedOffThisRun);
+        const shouldRecordCompletion = !songSessionStats.hasRecordedCompletion && !booedOffRun;
         if (stageViewMode === 'karaoke') {
           if (shouldRecordCompletion) {
             songSessionStats.hasRecordedCompletion = true;
@@ -10557,7 +10722,8 @@ function isAnyModalOpen() {
   const omrOpen = omrReviewModal && !omrReviewModal.classList.contains('hidden');
   const setlistOpen = setlistModal && !setlistModal.classList.contains('hidden');
   const lyricPasteOpen = lyricPasteModal && !lyricPasteModal.classList.contains('hidden');
-  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen || deleteConfirmOpen || collegesOpen || campaignOpen || omrOpen || setlistOpen || lyricPasteOpen);
+  const booOffOpen = booOffModal && !booOffModal.classList.contains('hidden');
+  return Boolean(perfOpen || questOpen || annalsOpen || howToOpen || spellbookOpen || deleteConfirmOpen || collegesOpen || campaignOpen || omrOpen || setlistOpen || lyricPasteOpen || booOffOpen);
 }
 
 window.addEventListener('keydown', (e) => {
@@ -10633,6 +10799,11 @@ window.addEventListener('keydown', (e) => {
     if (howToPlayModal && !howToPlayModal.classList.contains('hidden')) {
       e.preventDefault();
       closeHowToPlayModal();
+      return;
+    }
+    if (booOffModal && !booOffModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeBooOffModal();
       return;
     }
     if (performanceCheckModal && !performanceCheckModal.classList.contains('hidden')) {
@@ -10986,6 +11157,13 @@ function syncPracticeTimingModeUI() {
 
 btnWaitMode.addEventListener('click', () => {
   playbackState.waitMode = !playbackState.waitMode;
+  if (playbackState.waitMode && songSessionStats.crowdFailState && songSessionStats.crowdFailState.status === 'warning') {
+    songSessionStats.crowdFailState.status = 'normal';
+    songSessionStats.crowdFailState.missStreak = 0;
+    songSessionStats.crowdFailState.warningMissStreak = 0;
+    songSessionStats.crowdFailState.recoveryHitStreak = 0;
+  }
+  updateCrowdWarningBannerUI();
   if (playbackState.waitMode) {
     playbackState.rhythmMode = false;
   }
