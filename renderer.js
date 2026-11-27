@@ -2225,30 +2225,66 @@ function loadBardProfile() {
       const lastAcc = Number(rawEntry.lastAccuracy) || bestAcc;
       const bestChain = Number(rawEntry.bestChain) || 0;
       const totalXp = Number(rawEntry.totalXpEarned) || 0;
+      const bestRunXp = Number(rawEntry.bestRunXp) || 0;
+      const bestAccSetAt = rawEntry.bestAccuracySetAt || (bestAcc > 0 ? (rawEntry.lastPlayed || rawEntry.firstPlayed || null) : null);
+      const bestRunXpSetAt = rawEntry.bestRunXpSetAt || null;
 
       if (!migratedHistory[targetKey]) {
         migratedHistory[targetKey] = {
+          ...rawEntry,
           songId: targetKey,
           title: rawEntry.title || 'Untitled Scroll',
           filePath: rawEntry.filePath || null,
           plays,
           bestAccuracy: bestAcc,
+          bestAccuracySetAt: bestAccSetAt,
           lastAccuracy: lastAcc,
           bestChain,
           totalXpEarned: totalXp,
+          bestRunXp,
+          bestRunXpSetAt,
           lastPlayed: rawEntry.lastPlayed || null,
           firstPlayed: rawEntry.firstPlayed || new Date().toISOString()
         };
       } else {
-        // Merge duplicates (e.g. before and after saving to Grimoire)
+        // Merge duplicates (e.g. before and after saving to Grimoire) while preserving extended fields (#167)
         const existing = migratedHistory[targetKey];
+        for (const [field, val] of Object.entries(rawEntry)) {
+          if (existing[field] === undefined && val !== undefined) {
+            existing[field] = val;
+          }
+        }
         existing.plays = (existing.plays || 0) + plays;
-        existing.bestAccuracy = Math.max(existing.bestAccuracy || 0, bestAcc);
+        if (bestAcc > (existing.bestAccuracy || 0)) {
+          existing.bestAccuracy = bestAcc;
+          existing.bestAccuracySetAt = bestAccSetAt;
+        } else if (bestAcc === (existing.bestAccuracy || 0) && bestAcc > 0 && bestAccSetAt) {
+          if (!existing.bestAccuracySetAt || new Date(bestAccSetAt) < new Date(existing.bestAccuracySetAt)) {
+            existing.bestAccuracySetAt = bestAccSetAt;
+          }
+        }
+        if (bestRunXp > (existing.bestRunXp || 0)) {
+          existing.bestRunXp = bestRunXp;
+          existing.bestRunXpSetAt = bestRunXpSetAt;
+        } else if (bestRunXp === (existing.bestRunXp || 0) && bestRunXp > 0 && bestRunXpSetAt) {
+          if (!existing.bestRunXpSetAt || new Date(bestRunXpSetAt) < new Date(existing.bestRunXpSetAt)) {
+            existing.bestRunXpSetAt = bestRunXpSetAt;
+          }
+        }
         existing.bestChain = Math.max(existing.bestChain || 0, bestChain);
         existing.totalXpEarned = (existing.totalXpEarned || 0) + totalXp;
+        if (rawEntry.weakBarHistory && typeof rawEntry.weakBarHistory === 'object') {
+          existing.weakBarHistory = {
+            ...(existing.weakBarHistory && typeof existing.weakBarHistory === 'object' ? existing.weakBarHistory : {}),
+            ...rawEntry.weakBarHistory
+          };
+        }
         if (rawEntry.lastPlayed && (!existing.lastPlayed || new Date(rawEntry.lastPlayed) > new Date(existing.lastPlayed))) {
           existing.lastPlayed = rawEntry.lastPlayed;
           existing.lastAccuracy = lastAcc;
+          if (rawEntry.preferredTempo !== undefined) {
+            existing.preferredTempo = rawEntry.preferredTempo;
+          }
         }
         if (rawEntry.filePath && !existing.filePath) {
           existing.filePath = rawEntry.filePath;

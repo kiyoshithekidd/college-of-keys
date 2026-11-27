@@ -530,18 +530,23 @@ async function runUnitTests() {
 }
 
 app.whenReady().then(async () => {
-  const bundleStorePath = path.join(REPO_ROOT, 'grimoire_bundles.json');
-  const hadBundleStoreBefore = fs.existsSync(bundleStorePath);
-  const prevBundleStoreContent = hadBundleStoreBefore ? fs.readFileSync(bundleStorePath, 'utf8') : null;
+  const managedStoreFiles = ['grimoire_bundles.json', 'song_stats.json', 'bard_profile.json'].map((name) => {
+    const filePath = path.join(REPO_ROOT, name);
+    const existed = fs.existsSync(filePath);
+    const prevContent = existed ? fs.readFileSync(filePath, 'utf8') : null;
+    return { filePath, existed, prevContent };
+  });
   const cleanupBundleStore = () => {
-    try {
-      if (hadBundleStoreBefore) {
-        fs.writeFileSync(bundleStorePath, prevBundleStoreContent, 'utf8');
-      } else if (fs.existsSync(bundleStorePath)) {
-        fs.unlinkSync(bundleStorePath);
+    for (const store of managedStoreFiles) {
+      try {
+        if (store.existed) {
+          fs.writeFileSync(store.filePath, store.prevContent, 'utf8');
+        } else if (fs.existsSync(store.filePath)) {
+          fs.unlinkSync(store.filePath);
+        }
+      } catch {
+        // Ignore cleanup errors
       }
-    } catch {
-      // Ignore cleanup errors
     }
   };
 
