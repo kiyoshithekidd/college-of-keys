@@ -8031,3 +8031,188 @@ body.view-mode-notation .grimoire-toast {
   font-size: 0.92rem;
   color: #ffe38e;
 }
+
+
+/* ========================================================================== */
+/* v1.11.0: Web MIDI Output (#180) & Arcane Drills Warmup Dojo (#178)         */
+/* ========================================================================== */
+
+#midi-output-routing-rows {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(212, 175, 55, 0.22);
+}
+
+.checkbox-inline-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text-parchment, #f5e6c8);
+  cursor: pointer;
+}
+
+.arcane-drills-overlay {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(940px, calc(100% - 28px));
+  z-index: 35;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(28, 20, 14, 0.94), rgba(16, 12, 9, 0.95));
+  border: 1.5px solid rgba(212, 175, 55, 0.65);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65), 0 0 20px rgba(212, 175, 55, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.arcane-drills-overlay.hidden {
+  display: none;
+}
+
+.drills-hud-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.drills-hud-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.drills-hud-badge {
+  font-weight: 800;
+  font-size: 0.92rem;
+  color: #f6d365;
+  letter-spacing: 0.03em;
+}
+
+.drills-hud-stat {
+  font-size: 0.74rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(212, 175, 55, 0.14);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  color: #f5e6c8;
+}
+
+.drills-hud-selectors {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.drills-select-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  color: #d6c3a3;
+}
+
+.drills-select {
+  padding: 4px 8px;
+  font-size: 0.78rem;
+}
+
+.drills-hud-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.drills-hud-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(212, 175, 55, 0.22);
+}
+
+.drills-prompt-box {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.drill-step-prompt {
+  font-size: 1.25rem;
+  color: #ffe28a;
+  letter-spacing: 0.02em;
+}
+
+.drill-step-degree {
+  font-size: 0.78rem;
+  color: #cbb897;
+}
+
+.drills-telemetry-box {
+  flex: 1;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.drills-progress-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.76rem;
+  color: #e9d8ba;
+}
+
+.drills-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.drills-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #d4af37, #fde68a);
+  transition: width 0.14s ease-out;
+}
+
+.drill-complete-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(22, 101, 52, 0.28);
+  border: 1px solid rgba(74, 222, 128, 0.45);
+}
+
+.drill-complete-card.hidden {
+  display: none;
+}
+
+.drill-complete-title {
+  color: #86efac;
+  font-size: 0.95rem;
+}
+
+.drill-complete-summary {
+  color: #e5f5eb;
+  font-size: 0.8rem;
+}
+
+.drill-complete-actions {
+  display: flex;
+  gap: 8px;
+}

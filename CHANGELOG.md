@@ -10,6 +10,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.11.0] - 2026-11-26
+
+### Added
+- **Web MIDI Output Pass-Through to Hardware Digital Piano (`#180`):**
+  - Added `midi-output.js` (`enumerateMidiOutputs`, `createMidiOutputController`, `shouldMuteLocalPianoSynth`) and **MIDI Output**, **Out Channel**, **Mute Local Piano Synth**, and **🔇 Panic** (`CC 123`) controls in **⚙ Audio & Keys**.
+  - Routes auto-played RH/LH accompaniment, Grimoire 30s MIDI previews, Arcane Drills demos, and on-screen Mouse/QWERTY notes to connected hardware digital pianos without echoing physical MIDI input (`source !== 'midi'`).
+  - Flushes `All Notes Off` (`CC 123`), `All Sound Off` (`CC 120`), and `Sustain Off` (`CC 64`) on pause, scrub, section jump, rehearsal loop wraparound, song switch, `blur`, `beforeunload`, and port changes.
+- **Arcane Drills: Interactive Scales, Chords & Progression Warmup Dojo (`#178`):**
+  - Added `arcane-drills.js` and `modules/arcane-drills-ui.js` supporting all 12 keys, 7 scales/modes, 5 chord inversion drills, 3 progressions (`ii–V–I`, `I–V–vi–IV`, `I–IV–V–I`), and `RH` / `LH` / `Both` hand modes.
+  - Added the non-blocking `#arcane-drills-overlay` stage HUD, live 61-key canvas target/context/wrong-key highlights in `modules/highway-renderer.js`, **Play Demo** audition, Circle of Fifths **Next Key** progression, Warmup XP (`25–60 XP`), and `drillsCompleted` Practice Streak tracking.
+  - Added `tests/midi-output.test.js`, `tests/arcane-drills.test.js`, Electron DOM checks in `tests/regression.test.js`, and registered all 4 new `localStorage` keys in `save-backup.js`.
+
+### Fixed
+- **v1.11.0 Peer Review & QA Audit Hardening (`#190`):** Tracked and cleared `onPreviewMidiNote` timers on preview stop, guarded `handleSustainPedal(isDown, source)` against physical MIDI CC 64 echo loops, flushed `All Notes Off` on timeline section jumps and rehearsal loop wraparounds, persisted `practiceDays` & streak achievements on drill completion, and guarded `Escape` in `arcaneDrillsUI` with `!isAnyModalOpen()`.
+
+---
+
 ## [1.10.0] - 2026-11-26
 
 ### Added

@@ -809,6 +809,10 @@ function createHighwayRenderer(deps) {
     ctx.restore();
 
     // 4. Draw 36 White Keys (using pre-allocated deps.cachedKeyGradients)
+    const drillHighlights = typeof deps.getDrillKeyHighlights === 'function'
+      ? deps.getDrillKeyHighlights()
+      : null;
+    const drillActive = Boolean(drillHighlights && drillHighlights.active);
     const qwertyHighMidi = Math.min(MAX_MIDI, qwertyBaseMidi + 16);
     const firstWhiteW = whiteKeys[0].width;
     const whiteQwertyFont = `bold ${Math.max(9, Math.min(11, Math.floor(firstWhiteW * 0.36)))}px "Segoe UI", sans-serif`;
@@ -817,11 +821,21 @@ function createHighwayRenderer(deps) {
     for (const key of whiteKeys) {
       const state = activeNotes.get(key.midi);
       const isPressed = Boolean(state);
-      const guide = strikeLineGuides.get(key.midi);
+      const drillTarget = drillActive && drillHighlights.targetMap
+        ? drillHighlights.targetMap.get(key.midi)
+        : null;
+      const isDrillWrong = drillActive && drillHighlights.wrongFlashMidi === key.midi;
+      const isDrillContext = drillActive && !drillTarget && drillHighlights.contextPitchClasses
+        && drillHighlights.contextPitchClasses.has(key.midi % 12);
+      const guide = drillTarget
+        ? { handTrack: drillTarget.handTrack, lockedInWait: !drillTarget.hit }
+        : strikeLineGuides.get(key.midi);
       const isInQwertyRange = deps.showQwertyKeyLabels && key.midi >= qwertyBaseMidi && key.midi <= qwertyHighMidi;
       const qwertyChar = isInQwertyRange ? OFFSET_TO_QWERTY_LABEL[key.midi - qwertyBaseMidi] : null;
 
-      if (isPressed) {
+      if (isDrillWrong) {
+        ctx.fillStyle = '#fca5a5';
+      } else if (isPressed) {
         ctx.save();
         ctx.fillStyle = deps.cachedKeyGradients.whitePressed;
         ctx.shadowColor = 'rgba(255, 215, 0, 0.75)';
@@ -830,6 +844,8 @@ function createHighwayRenderer(deps) {
         ctx.fillStyle = guide.lockedInWait
           ? deps.cachedKeyGradients.whiteLocked
           : (guide.handTrack === 1 ? deps.cachedKeyGradients.whiteGuideT1 : deps.cachedKeyGradients.whiteGuideT2);
+      } else if (isDrillContext) {
+        ctx.fillStyle = '#dbeafe';
       } else {
         ctx.fillStyle = deps.cachedKeyGradients.whiteIdle;
       }
@@ -843,8 +859,8 @@ function createHighwayRenderer(deps) {
         ctx.fillRect(key.x + pad + 1, key.y + 1, key.width - (pad + 1) * 2, 4);
       }
 
-      ctx.strokeStyle = isPressed ? '#ffd700' : (guide ? '#ffd700' : (isInQwertyRange ? '#8a6d2f' : '#2e241b'));
-      ctx.lineWidth = guide ? 1.8 : 1;
+      ctx.strokeStyle = isDrillWrong ? '#dc2626' : (isPressed ? '#ffd700' : (guide ? '#ffd700' : (isInQwertyRange ? '#8a6d2f' : '#2e241b')));
+      ctx.lineWidth = guide || isDrillWrong ? 1.8 : 1;
       ctx.strokeRect(key.x + pad, key.y, key.width - pad * 2, key.height - 2);
 
       if (isPressed) {
@@ -858,7 +874,7 @@ function createHighwayRenderer(deps) {
         ctx.fillText(`[${qwertyChar}]`, key.x + key.width / 2, key.y + key.height - 28);
       }
 
-      if (key.midi % 12 === 0 || guide || (deps.showQwertyKeyLabels && key.midi === qwertyBaseMidi)) {
+      if (key.midi % 12 === 0 || guide || isDrillContext || (deps.showQwertyKeyLabels && key.midi === qwertyBaseMidi)) {
         ctx.fillStyle = isPressed || guide ? '#1a1200' : (deps.showQwertyKeyLabels && key.midi === qwertyBaseMidi ? '#b45309' : '#5e4d3b');
         ctx.font = whiteNoteFont;
         ctx.fillText(key.name, key.x + key.width / 2, key.y + key.height - 12);
@@ -872,11 +888,21 @@ function createHighwayRenderer(deps) {
     for (const key of blackKeys) {
       const state = activeNotes.get(key.midi);
       const isPressed = Boolean(state);
-      const guide = strikeLineGuides.get(key.midi);
+      const drillTarget = drillActive && drillHighlights.targetMap
+        ? drillHighlights.targetMap.get(key.midi)
+        : null;
+      const isDrillWrong = drillActive && drillHighlights.wrongFlashMidi === key.midi;
+      const isDrillContext = drillActive && !drillTarget && drillHighlights.contextPitchClasses
+        && drillHighlights.contextPitchClasses.has(key.midi % 12);
+      const guide = drillTarget
+        ? { handTrack: drillTarget.handTrack, lockedInWait: !drillTarget.hit }
+        : strikeLineGuides.get(key.midi);
       const isInQwertyRange = deps.showQwertyKeyLabels && key.midi >= qwertyBaseMidi && key.midi <= qwertyHighMidi;
       const qwertyChar = isInQwertyRange ? OFFSET_TO_QWERTY_LABEL[key.midi - qwertyBaseMidi] : null;
 
-      if (isPressed) {
+      if (isDrillWrong) {
+        ctx.fillStyle = '#dc2626';
+      } else if (isPressed) {
         ctx.save();
         ctx.fillStyle = deps.cachedKeyGradients.blackPressed;
         ctx.shadowColor = 'rgba(255, 215, 0, 0.85)';
@@ -885,14 +911,16 @@ function createHighwayRenderer(deps) {
         ctx.fillStyle = guide.lockedInWait
           ? deps.cachedKeyGradients.blackLocked
           : (guide.handTrack === 1 ? deps.cachedKeyGradients.blackGuideT1 : deps.cachedKeyGradients.blackGuideT2);
+      } else if (isDrillContext) {
+        ctx.fillStyle = '#1e3a8a';
       } else {
         ctx.fillStyle = deps.cachedKeyGradients.blackIdle;
       }
 
       ctx.fillRect(key.x, key.y, key.width, key.height);
 
-      ctx.strokeStyle = isPressed || guide ? '#fff3b0' : (isInQwertyRange ? '#d4af37' : '#4a3b2c');
-      ctx.lineWidth = guide ? 1.6 : 1;
+      ctx.strokeStyle = isDrillWrong ? '#fca5a5' : (isPressed || guide ? '#fff3b0' : (isInQwertyRange ? '#d4af37' : '#4a3b2c'));
+      ctx.lineWidth = guide || isDrillWrong ? 1.6 : 1;
       ctx.strokeRect(key.x + 0.5, key.y + 0.5, key.width - 1, key.height - 1);
 
       if (isPressed) {

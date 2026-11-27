@@ -21,6 +21,30 @@ const { createD20TrayRoller } = require('./d20-roller');
 const { isMusicXmlFileName, convertMusicXmlToMidiBuffer } = require('./musicxml-converter');
 const { isOmrSheetFileName, analyzeOmrConfidence, applyOmrOverridesToMusicXml } = require('./omr-confidence');
 const {
+  MIDI_OUTPUT_DEVICE_STORAGE_KEY,
+  MIDI_OUTPUT_CHANNEL_STORAGE_KEY,
+  MIDI_OUTPUT_MUTE_LOCAL_STORAGE_KEY,
+  enumerateMidiOutputs,
+  createMidiOutputController
+} = require('./midi-output');
+const arcaneDrillsApi = require('./arcane-drills');
+const { createArcaneDrillsUI } = require('./modules/arcane-drills-ui');
+const midiOutputController = createMidiOutputController();
+const previewMidiOutputTimers = new Set();
+let arcaneDrillsUI = null;
+function clearPreviewMidiOutputTimers() {
+  for (const tid of previewMidiOutputTimers) {
+    clearTimeout(tid);
+  }
+  previewMidiOutputTimers.clear();
+}
+function flushMidiOutputAllNotesOff() {
+  clearPreviewMidiOutputTimers();
+  if (midiOutputController) {
+    midiOutputController.sendAllNotesOff();
+  }
+}
+const {
   CROWD_RECOVERY_HIT_TARGET,
   getCrowdMoodForEnergy,
   applyCrowdEnergyDelta,
@@ -1210,14 +1234,25 @@ function handleNoteOn(midi, velocity = 100, source = 'midi') {
 
   const existing = activeNotes.get(midi);
   if (!existing || existing.sustainedOnly) {
-    const inst = getActiveInstrument();
-    if (inst) {
-      inst.triggerAttack(noteName, Tone.now(), voicedVelocity);
+    const muteLocal = midiOutputController && midiOutputController.shouldMuteLocal();
+    if (!muteLocal) {
+      const inst = getActiveInstrument();
+      if (inst) {
+        inst.triggerAttack(noteName, Tone.now(), voicedVelocity);
+      }
+    }
+    if (source !== 'midi' && midiOutputController && midiOutputController.isOutputActive()) {
+      midiOutputController.sendNoteOn(midi, voicedVelocity);
     }
   }
 
-  // Phase 4: Evaluate key press against active Strike Zone / Wait Mode chord group
-  const matchedStrikeZone = evaluateStrikeZoneInput(midi);
+  // Phase 4 / #178: Route to Arcane Drills if active, otherwise evaluate Strike Zone
+  let matchedStrikeZone = false;
+  if (arcaneDrillsUI && arcaneDrillsUI.isActive()) {
+    arcaneDrillsUI.handleNoteOn(midi);
+  } else {
+    matchedStrikeZone = evaluateStrikeZoneInput(midi);
+  }
 
   sustainedNotes.delete(midi);
   activeNotes.set(midi, {
@@ -1256,6 +1291,9 @@ function handleNoteOff(midi) {
     if (inst) {
       inst.triggerRelease(noteName, Tone.now());
     }
+    if (existing.source !== 'midi' && midiOutputController && midiOutputController.isOutputActive()) {
+      midiOutputController.sendNoteOff(midi);
+    }
     activeNotes.delete(midi);
     sustainedNotes.delete(midi);
   }
@@ -1266,10 +1304,14 @@ function handleNoteOff(midi) {
 /**
  * Handle Sustain Pedal (MIDI CC 64)
  */
-function handleSustainPedal(isDown) {
+function handleSustainPedal(isDown, source = 'internal') {
   sustainPedalDown = isDown;
   sustainStateText.textContent = isDown ? 'ON' : 'OFF';
   sustainStateText.style.color = isDown ? '#ffd700' : '#f4ebd9';
+
+  if (source !== 'midi' && midiOutputController && midiOutputController.isOutputActive()) {
+    midiOutputController.sendSustainPedal(isDown);
+  }
 
   if (!isDown) {
     const inst = getActiveInstrument();
@@ -1278,6 +1320,9 @@ function handleSustainPedal(isDown) {
       if (noteState && noteState.sustainedOnly) {
         if (inst) {
           inst.triggerRelease(midiToNoteName(midi), Tone.now());
+        }
+        if (noteState.source !== 'midi' && midiOutputController && midiOutputController.isOutputActive()) {
+          midiOutputController.sendNoteOff(midi);
         }
         activeNotes.delete(midi);
       }
@@ -3575,6 +3620,7 @@ function clearAllHeldInputNotes() {
   isMouseDown = false;
   currentMouseMidi = null;
   handleSustainPedal(false);
+  flushMidiOutputAllNotesOff();
   updateActiveNotesHUD();
 }
 
@@ -3758,6 +3804,7 @@ function renderTimelineSectionMarkers() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (!currentSong || (songProgressSlider && songProgressSlider.disabled)) return;
+      flushMidiOutputAllNotesOff();
       playbackState.currentTime = m.time;
       playbackState.isWaitingForStrike = false;
       playbackState.waitStartedAtMs = null;
@@ -3858,6 +3905,7 @@ function pausePlayback() {
   if (backingBandSynth) {
     backingBandSynth.releaseAll();
   }
+  flushMidiOutputAllNotesOff();
   if (currentSong?.backingAudioEl && (!currentSong.backingAudioEl.paused || currentSong.backingAudioEl._playPending)) {
     currentSong.backingAudioEl._playPending = false;
     currentSong.backingAudioEl.pause();
@@ -4459,8 +4507,10 @@ function processSongAudioTriggers(prevTime, newTime) {
 
   const inst = getActiveInstrument();
   const speed = playbackState.playbackSpeed;
+  const midiOutActive = Boolean(midiOutputController && midiOutputController.isOutputActive());
+  const muteLocalPiano = Boolean(midiOutputController && midiOutputController.shouldMuteLocal());
 
-  if (shouldAutoPlayHand(1) && inst) {
+  if (shouldAutoPlayHand(1) && (inst || midiOutActive)) {
     const notes = currentSong.track1Notes;
     for (let i = findFirstNoteIndexAtOrAfter(notes, prevTime); i < notes.length; i++) {
       const n = notes[i];
@@ -4470,13 +4520,18 @@ function processSongAudioTriggers(prevTime, newTime) {
         n.satisfied = true;
         const vel = getVoicedVelocity(n.midi, n.velocity);
         const dur = Math.max(0.06, n.duration / speed);
-        inst.triggerAttackRelease(n.foldedName, dur, Tone.now(), vel);
+        if (!muteLocalPiano && inst) {
+          inst.triggerAttackRelease(n.foldedName, dur, Tone.now(), vel);
+        }
+        if (midiOutActive) {
+          midiOutputController.sendNoteWithDuration(n.midi, dur, vel);
+        }
         spawnKeyParticleBurst(n.midi, 'gold', 8, false);
       }
     }
   }
 
-  if (shouldAutoPlayHand(2) && inst) {
+  if (shouldAutoPlayHand(2) && (inst || midiOutActive)) {
     const notes = currentSong.track2Notes;
     for (let i = findFirstNoteIndexAtOrAfter(notes, prevTime); i < notes.length; i++) {
       const n = notes[i];
@@ -4486,7 +4541,12 @@ function processSongAudioTriggers(prevTime, newTime) {
         n.satisfied = true;
         const vel = getVoicedVelocity(n.midi, n.velocity) * 0.85;
         const dur = Math.max(0.06, n.duration / speed);
-        inst.triggerAttackRelease(n.foldedName, dur, Tone.now(), vel);
+        if (!muteLocalPiano && inst) {
+          inst.triggerAttackRelease(n.foldedName, dur, Tone.now(), vel);
+        }
+        if (midiOutActive) {
+          midiOutputController.sendNoteWithDuration(n.midi, dur, vel);
+        }
         spawnKeyParticleBurst(n.midi, 'blue', 8, false);
       }
     }
@@ -4768,6 +4828,7 @@ function handleRehearsalLoopWrap() {
   rehearsalLoopState.passMistakes = 0;
 
   const jumpTime = Math.max(0, rehearsalLoopState.startTime - REHEARSAL_PREROLL_SEC);
+  flushMidiOutputAllNotesOff();
   playbackState.currentTime = jumpTime;
   playbackState.isWaitingForStrike = false;
   playbackState.waitStartedAtMs = null;
@@ -5795,6 +5856,19 @@ const spellbookUI = createSpellbookUI({
   computeKeyGeometry: () => computeKeyGeometry(),
   pausePlayback, closeAllConservatoryPopovers, closeStreakPopover,
   ensureAudioReady, getActiveInstrument, getBackingAudioVolumeFromSlider,
+  onPreviewMidiNote: (n, delaySec) => {
+    if (!midiOutputController || !midiOutputController.isOutputActive() || !n) return;
+    const ms = Math.max(0, Math.round((Number(delaySec) || 0) * 1000));
+    const tid = setTimeout(() => {
+      previewMidiOutputTimers.delete(tid);
+      if (midiOutputController && midiOutputController.isOutputActive()) {
+        midiOutputController.sendNoteWithDuration(n.midi, n.duration || 0.25, n.velocity || 0.8);
+      }
+    }, ms);
+    previewMidiOutputTimers.add(tid);
+  },
+  shouldMuteLocalSynth: () => Boolean(midiOutputController && midiOutputController.shouldMuteLocal()),
+  onPreviewStop: () => flushMidiOutputAllNotesOff(),
   showGrimoireToast,
   loadGrimoireEntry: (entry) => loadGrimoireEntry(entry),
   resetPlaybackToStart, updateTavernMenuStats,
@@ -6678,6 +6752,7 @@ const highwayRendererModule = createHighwayRenderer({
   syncNotationWaitOverlayPill: (ts) => syncNotationWaitOverlayPill(ts),
   drawLiveHitErrorBar,
   midiToNoteName,
+  getDrillKeyHighlights: () => (arcaneDrillsUI ? arcaneDrillsUI.getDrillKeyHighlights() : null),
   strikeParticles, strikeShockwaves, floatingRunes, ambientMotes,
   get lastParticleFrameMs() { return lastParticleFrameMs; },
   set lastParticleFrameMs(v) { lastParticleFrameMs = v; },
@@ -6710,6 +6785,52 @@ const {
   renderCanvas,
   getMidiKeyAtPoint
 } = highwayRendererModule;
+
+// Issue #178: Arcane Drills Warmup Dojo UI initialization
+arcaneDrillsUI = createArcaneDrillsUI({
+  arcaneDrillsApi,
+  pausePlayback,
+  clearAllHeldInputNotes,
+  hideTavernMenu,
+  isTavernMenuVisible: () => isTavernMenuVisible,
+  playAuditionNote: (midi, durationSec = 0.28, velocity = 0.75) => {
+    ensureAudioReady();
+    const noteName = midiToNoteName(midi);
+    const muteLocal = midiOutputController && midiOutputController.shouldMuteLocal();
+    if (!muteLocal) {
+      const inst = getActiveInstrument();
+      if (inst) {
+        inst.triggerAttackRelease(noteName, durationSec, Tone.now(), velocity);
+      }
+    }
+    if (midiOutputController && midiOutputController.isOutputActive()) {
+      midiOutputController.sendNoteWithDuration(midi, durationSec, velocity);
+    }
+  },
+  awardBardXp,
+  recordPracticeDayActivity,
+  updateLitrpgHUD,
+  updateTavernMenuStats,
+  setStatusMessage: (msg) => {
+    if (strikeStatusText) strikeStatusText.textContent = msg;
+  },
+  requestCanvasRender: () => renderCanvas(performance.now())
+});
+
+const btnMenuArcaneDrills = document.getElementById('btn-menu-arcane-drills');
+const btnOpenArcaneDrills = document.getElementById('btn-open-arcane-drills');
+if (btnMenuArcaneDrills) {
+  btnMenuArcaneDrills.addEventListener('click', (e) => {
+    e.stopPropagation();
+    arcaneDrillsUI.openDrills();
+  });
+}
+if (btnOpenArcaneDrills) {
+  btnOpenArcaneDrills.addEventListener('click', () => {
+    closeAllConservatoryPopovers({ returnFocus: false });
+    arcaneDrillsUI.openDrills();
+  });
+}
 
 // Issue #42 & #43: Plug-In External Instrument Rig DOM references & state
 const inputSourceModeSelect = document.getElementById('input-source-mode-select');
@@ -7791,13 +7912,125 @@ async function initWebMIDI() {
       midiAccessInstance = await navigator.requestMIDIAccess({ sysex: false });
       midiAccessInstance.onstatechange = () => {
         bindMidiInputs(midiAccessInstance);
+        bindMidiOutputs(midiAccessInstance);
       };
     }
     bindMidiInputs(midiAccessInstance);
+    bindMidiOutputs(midiAccessInstance);
   } catch (err) {
     setMidiStatus('error', 'MIDI Access Denied — Mouse/QWERTY Active');
   }
 }
+
+const midiOutputDeviceSelect = document.getElementById('midi-output-device-select');
+const midiOutputChannelSelect = document.getElementById('midi-output-channel-select');
+const midiOutputMuteLocalCheckbox = document.getElementById('midi-output-mute-local');
+const btnMidiOutputPanic = document.getElementById('btn-midi-output-panic');
+
+function loadMidiOutputSettings() {
+  try {
+    const savedChannel = localStorage.getItem(MIDI_OUTPUT_CHANNEL_STORAGE_KEY);
+    if (savedChannel !== null) {
+      const ch = midiOutputController.setChannel(Number(savedChannel));
+      if (midiOutputChannelSelect) midiOutputChannelSelect.value = String(ch);
+    }
+    const savedMute = localStorage.getItem(MIDI_OUTPUT_MUTE_LOCAL_STORAGE_KEY);
+    if (savedMute !== null) {
+      const mute = savedMute !== 'false';
+      midiOutputController.setMuteLocalSynth(mute);
+      if (midiOutputMuteLocalCheckbox) midiOutputMuteLocalCheckbox.checked = mute;
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function bindMidiOutputs(midiAccess) {
+  loadMidiOutputSettings();
+  const outputs = enumerateMidiOutputs(midiAccess);
+  let savedId = 'none';
+  try {
+    savedId = localStorage.getItem(MIDI_OUTPUT_DEVICE_STORAGE_KEY) || 'none';
+  } catch {
+    savedId = 'none';
+  }
+
+  if (midiOutputDeviceSelect) {
+    const desiredId = midiOutputDeviceSelect.dataset.userSelected || savedId || 'none';
+    midiOutputDeviceSelect.innerHTML = '';
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = 'none';
+    defaultOpt.textContent = 'Internal Synth (Default)';
+    midiOutputDeviceSelect.appendChild(defaultOpt);
+
+    for (const out of outputs) {
+      const opt = document.createElement('option');
+      opt.value = out.id;
+      opt.textContent = out.name;
+      midiOutputDeviceSelect.appendChild(opt);
+    }
+
+    const matched = outputs.find((o) => o.id === desiredId);
+    if (matched) {
+      midiOutputDeviceSelect.value = matched.id;
+      midiOutputController.setOutputPort(matched.port, matched.id);
+    } else {
+      midiOutputDeviceSelect.value = 'none';
+      midiOutputController.setOutputPort(null, 'none');
+    }
+  }
+}
+
+if (midiOutputDeviceSelect) {
+  midiOutputDeviceSelect.addEventListener('change', () => {
+    const nextId = midiOutputDeviceSelect.value || 'none';
+    midiOutputDeviceSelect.dataset.userSelected = nextId;
+    try {
+      localStorage.setItem(MIDI_OUTPUT_DEVICE_STORAGE_KEY, nextId);
+    } catch {
+      // ignore storage errors
+    }
+    if (!midiAccessInstance || nextId === 'none') {
+      midiOutputController.setOutputPort(null, 'none');
+      return;
+    }
+    const outputs = enumerateMidiOutputs(midiAccessInstance);
+    const matched = outputs.find((o) => o.id === nextId);
+    midiOutputController.setOutputPort(matched ? matched.port : null, matched ? matched.id : 'none');
+  });
+}
+
+if (midiOutputChannelSelect) {
+  midiOutputChannelSelect.addEventListener('change', () => {
+    const ch = midiOutputController.setChannel(Number(midiOutputChannelSelect.value));
+    try {
+      localStorage.setItem(MIDI_OUTPUT_CHANNEL_STORAGE_KEY, String(ch));
+    } catch {
+      // ignore storage errors
+    }
+  });
+}
+
+if (midiOutputMuteLocalCheckbox) {
+  midiOutputMuteLocalCheckbox.addEventListener('change', () => {
+    const mute = midiOutputController.setMuteLocalSynth(midiOutputMuteLocalCheckbox.checked);
+    try {
+      localStorage.setItem(MIDI_OUTPUT_MUTE_LOCAL_STORAGE_KEY, String(mute));
+    } catch {
+      // ignore storage errors
+    }
+  });
+}
+
+if (btnMidiOutputPanic) {
+  btnMidiOutputPanic.addEventListener('click', () => {
+    flushMidiOutputAllNotesOff();
+    if (strikeStatusText) {
+      strikeStatusText.textContent = 'Sent MIDI All Notes Off (CC 123) & Sustain Off (CC 64)';
+    }
+  });
+}
+loadMidiOutputSettings();
 
 function bindMidiInputs(midiAccess) {
   const inputs = Array.from(midiAccess.inputs.values());
@@ -7924,7 +8157,7 @@ function onMidiMessage(event, sourceInput = null) {
     const mappedMidi = mapIncomingNote(data1);
     handleNoteOff(mappedMidi);
   } else if (status === 0xb0 && data1 === 64) {
-    handleSustainPedal(data2 >= 64);
+    handleSustainPedal(data2 >= 64, 'midi');
   }
 }
 
@@ -8053,6 +8286,11 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (closeAllConservatoryPopovers({ returnFocus: true })) {
       e.preventDefault();
+      return;
+    }
+    if (arcaneDrillsUI && arcaneDrillsUI.isActive() && !isAnyModalOpen()) {
+      e.preventDefault();
+      arcaneDrillsUI.closeDrills();
       return;
     }
     if (lyricPasteModal && !lyricPasteModal.classList.contains('hidden')) {
@@ -8694,6 +8932,7 @@ songProgressSlider.addEventListener('mousedown', () => {
 
 songProgressSlider.addEventListener('input', (e) => {
   if (!currentSong) return;
+  flushMidiOutputAllNotesOff();
   const ratio = Number(e.target.value) / 1000;
   playbackState.currentTime = ratio * currentSong.duration;
   if (playbackState.currentTime < currentSong.duration) {
@@ -11712,6 +11951,7 @@ if (typeof ResizeObserver === 'function' && stageCanvasWrap) {
 // Release any held QWERTY or mouse notes if the window loses focus (Alt+Tab) (Issue #16)
 window.addEventListener('blur', () => {
   hideGlobalDropOverlay();
+  flushMidiOutputAllNotesOff();
   for (const [k, midi] of Array.from(pressedQwertyKeys.entries())) {
     pressedQwertyKeys.delete(k);
     handleNoteOff(midi);
@@ -11727,6 +11967,7 @@ window.addEventListener('blur', () => {
 
 // Terminate any active background Python transcription/OMR child process, mic stream & audio audition on close/reload (Issue #17, #76, #130, #139)
 window.addEventListener('beforeunload', () => {
+  flushMidiOutputAllNotesOff();
   stopAudioAudition();
   stopGrimoirePreview();
   if (typeof stopLiveAudioInstrumentInput === 'function') {
@@ -13114,12 +13355,14 @@ function recordPracticeDayActivity({ type = 'song', xpEarned = 0, date = new Dat
     : {};
   const songs = Math.max(0, Number(prev.songsCompleted) || 0) + (type === 'song' ? 1 : 0);
   const quests = Math.max(0, Number(prev.questsCompleted) || 0) + (type === 'quest' ? 1 : 0);
+  const drills = Math.max(0, Number(prev.drillsCompleted) || 0) + (type === 'drill' ? 1 : 0);
   const xp = Math.max(0, Number(prev.xpEarned) || 0) + Math.max(0, Number(xpEarned) || 0);
 
   bardProfile.practiceDays[key] = {
     practiced: true,
     songsCompleted: songs,
     questsCompleted: quests,
+    drillsCompleted: drills,
     xpEarned: xp,
     updatedAt: new Date().toISOString()
   };

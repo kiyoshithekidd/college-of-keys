@@ -36,7 +36,11 @@ const MANAGED_LOCAL_STORAGE_KEYS = [
   'collegeOfKeys.fallingNoteLabels.v1',
   'collegeOfKeys.sustainPedalLane.v1',
   'collegeOfKeys.metronomeCountIn.v1',
-  'collegeOfKeys.metronomeClick.v1'
+  'collegeOfKeys.metronomeClick.v1',
+  'collegeOfKeys.midiOutputDeviceId.v1',
+  'collegeOfKeys.midiOutputChannel.v1',
+  'collegeOfKeys.midiOutputMuteLocal.v1',
+  'collegeOfKeys.arcaneDrills.v1'
 ];
 
 function buildSaveBackupPayload({
