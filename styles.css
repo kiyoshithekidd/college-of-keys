@@ -7540,3 +7540,179 @@ body.view-mode-notation .grimoire-toast {
 
 
 
+/* ============================================================================
+   Issue #162: Grimoire Hall of Legends (Personal Records Board)
+   ============================================================================ */
+.tier-ribbon-badge.tier-legends {
+  background: linear-gradient(135deg, rgba(245, 197, 66, 0.28), rgba(212, 175, 55, 0.14));
+  border-color: rgba(245, 197, 66, 0.72);
+  color: #ffe38e;
+}
+
+.tier-pip.tier-pip-legends {
+  border-color: rgba(245, 197, 66, 0.55);
+  color: #f5c542;
+}
+
+.tier-pip.tier-pip-legends.active {
+  background: linear-gradient(135deg, #f5c542, #d4af37);
+  color: #1a1209;
+  border-color: #ffe8a3;
+}
+
+.spellbook-legends-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 8px;
+}
+
+.legends-right-header {
+  margin-bottom: 2px;
+}
+
+.legends-column-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(245, 197, 66, 0.08);
+  border: 1px solid rgba(212, 175, 55, 0.25);
+}
+
+.legends-column-icon {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.legends-column-title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #ffe38e;
+  letter-spacing: 0.02em;
+}
+
+.legends-column-sub {
+  display: block;
+  font-size: 0.72rem;
+  color: rgba(235, 224, 198, 0.72);
+}
+
+.legends-record-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.legends-record-row {
+  margin: 0;
+  padding: 0;
+}
+
+.legends-record-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(212, 175, 55, 0.2);
+  background: rgba(24, 17, 11, 0.65);
+  color: var(--text-parchment);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, transform 0.12s ease;
+}
+
+.legends-record-btn:hover:not(:disabled),
+.legends-record-btn:focus-visible:not(:disabled) {
+  background: rgba(245, 197, 66, 0.14);
+  border-color: rgba(245, 197, 66, 0.58);
+  transform: translateX(2px);
+  outline: none;
+}
+
+.legends-record-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.legends-rank-1 .legends-record-btn {
+  border-color: rgba(245, 197, 66, 0.52);
+  background: linear-gradient(90deg, rgba(245, 197, 66, 0.14), rgba(24, 17, 11, 0.72));
+}
+
+.legends-rank-badge {
+  width: 26px;
+  flex: 0 0 26px;
+  text-align: center;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #d4af37;
+}
+
+.legends-song-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.legends-song-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-parchment);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.legends-song-date {
+  font-size: 0.69rem;
+  color: rgba(235, 224, 198, 0.64);
+}
+
+.legends-record-value {
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.legends-val-acc {
+  background: rgba(56, 189, 248, 0.16);
+  border: 1px solid rgba(56, 189, 248, 0.42);
+  color: #bae6fd;
+}
+
+.legends-val-xp {
+  background: rgba(245, 197, 66, 0.18);
+  border: 1px solid rgba(245, 197, 66, 0.46);
+  color: #ffe38e;
+}
+
+.legends-empty-state {
+  padding: 18px 12px;
+  text-align: center;
+  font-size: 0.8rem;
+  color: rgba(235, 224, 198, 0.68);
+  border: 1px dashed rgba(212, 175, 55, 0.25);
+  border-radius: 8px;
+}
+
+.modal-records-banner {
+  border-color: rgba(245, 197, 66, 0.68);
+  background: linear-gradient(135deg, rgba(245, 197, 66, 0.16), rgba(32, 22, 11, 0.86));
+}

@@ -1056,6 +1056,15 @@
           <ul id="modal-quests-list" class="modal-quests-list"></ul>
         </div>
 
+        <!-- Issue #162: New Personal Record Banner (Hall of Legends Bonus XP) -->
+        <div id="modal-records-banner" class="modal-quests-banner modal-records-banner hidden">
+          <div class="modal-quests-header">
+            <span>&#127942; <strong>NEW PERSONAL RECORD!</strong></span>
+            <span id="modal-records-xp-pill" class="modal-quests-xp-pill">+0 Bonus XP</span>
+          </div>
+          <ul id="modal-records-list" class="modal-quests-list"></ul>
+        </div>
+
         <!-- Bardic Level & XP Bar inside Modal -->
         <div class="modal-xp-card">
           <div class="modal-xp-header">
@@ -1839,6 +1848,21 @@
                 </button>
               </div>
 
+              <!-- Issue #162: Hall of Legends Left Page (Top 10 Best Accuracy) -->
+              <div id="spellbook-legends-left-panel" class="spellbook-legends-panel hidden">
+                <div class="legends-column-header">
+                  <span class="legends-column-icon">&#127919;</span>
+                  <div>
+                    <h4 class="legends-column-title">Best Accuracy</h4>
+                    <span class="legends-column-sub">Top 10 Piano Performances</span>
+                  </div>
+                </div>
+                <ol id="spellbook-legends-acc-list" class="legends-record-list" aria-label="Top 10 Best Accuracy"></ol>
+                <div id="spellbook-legends-acc-empty" class="legends-empty-state hidden">
+                  Complete a piano spell to inscribe your first accuracy record.
+                </div>
+              </div>
+
               <!-- Page Footer: Left Page Number -->
               <div class="page-footer page-footer-left">
                 <span id="spellbook-page-num-left" class="page-num-text">Page I &bull; Cantrips</span>
@@ -1933,6 +1957,29 @@
                   <button id="btn-spellbook-delete-song" class="btn-icon btn-spellbook-delete hidden" title="Remove spell scroll and move files to ./Archive" aria-label="Archive selected spell">
                     &#128465;
                   </button>
+                </div>
+              </div>
+
+              <!-- Issue #162: Hall of Legends Right Page (Top 10 Biggest Single-Run XP) -->
+              <div id="spellbook-legends-right-panel" class="spellbook-legends-panel hidden">
+                <div class="page-header legends-right-header">
+                  <div class="page-tier-badge-wrap">
+                    <span class="tier-ribbon-badge tier-legends">&#127942; Personal Records</span>
+                    <span class="tier-xp-multiplier">+50 XP / Record</span>
+                  </div>
+                  <h3 class="page-tier-title">Biggest XP Runs</h3>
+                  <p class="page-tier-desc">Highest single-performance piano XP &bull; Tap any entry to load</p>
+                </div>
+                <div class="legends-column-header">
+                  <span class="legends-column-icon">&#10024;</span>
+                  <div>
+                    <h4 class="legends-column-title">Biggest XP</h4>
+                    <span class="legends-column-sub">Top 10 Single Performances</span>
+                  </div>
+                </div>
+                <ol id="spellbook-legends-xp-list" class="legends-record-list" aria-label="Top 10 Biggest XP"></ol>
+                <div id="spellbook-legends-xp-empty" class="legends-empty-state hidden">
+                  Complete a full-difficulty piano spell to set your first single-run XP record.
                 </div>
               </div>
 
