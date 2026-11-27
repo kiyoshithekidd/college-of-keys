@@ -28,7 +28,7 @@
 | **v1.5.0** | **Optional Transkun V2 Solo-Piano Engine (`#144`, `#145`), Quest Board Engine & Pipeline Selectors, Demucs 4-Stem + CREPE Vocal Melody & Chroma Harmony Full-Song Pipeline (`#146`) & Clean Piano-Cover Stem Routing** | **Completed** |
 | **v1.5.1** | **Performance & QA Hardening (`#150`–`#156`): Debounced Profile Saves, Idle Tavern Canvas Guard, `O(visible)` Highway Scans, Zero-Alloc YIN DSP, `O(M+N)` VexFlow Partitioning, Single-Pass `readdirSync` Bundles, `O(log T)` MusicXML, Vectorized Python WAV Writer & CSS/GPU Compositor Cleanup** | **Completed** |
 | **v1.5.2** | **Responsive Top-Bar Layout & Overflow Fix: Isolated `.spell-meta-main` Truncation, 2-Row Responsive Wrap on `#spell-scroll-bar` (`<=1820px`), and `1024px` Bar 1 Protection** | **Completed** |
-| **Karaoke Suite (`#158`–`#161`)** | **3-Tier Synced Lyrics Cascade (`LRCLIB` Word/Line Sync + YouTube `.json3`/`.vtt` + `faster-whisper`) & 1-Click `🔍 Fetch Lyrics` (`#159`), CREPE 170ms Vibrato Smoothing & Bezier Portamento Glide Ribbons (`#160`), Apple Music Sing Lead Vocal Fader & Mid/Side + UVR AI Harmony Control (`#161`), and `.btn-audio-sync` Pill Overflow Fix (`#158`)** | **Completed** |
+| **v1.6.0** | **3-Tier Synced Lyrics Cascade (`LRCLIB` Word/Line Sync + YouTube `.json3`/`.vtt` + `faster-whisper`) & 1-Click `🔍 Fetch Lyrics` (`#159`), CREPE 170ms Vibrato Smoothing & Bezier Portamento Glide Ribbons (`#160`), Apple Music Sing Lead Vocal Fader & Mid/Side + UVR AI Harmony Control (`#161`), `.btn-audio-sync` Pill Overflow Fix (`#158`), and Peer Review & QA Hardening (`#166`)** | **Completed** |
 
 ---
 
@@ -110,6 +110,12 @@
   - Separates `vocals`, `other`, and `bass` via Demucs 4-stem (`htdemucs`, or reuses already-separated stems).
   - Extracts a clean monophonic Right-Hand lead melody from `vocals.wav` using **CREPE (`torchcrepe`)** with Viterbi decoding and 40 ms hysteresis segmentation to suppress vibrato flicker (falling back to `librosa.pyin`).
   - Derives 2-beat Left-Hand root + fifth/third chord voicings from `other.wav` + `bass.wav` via CQT chroma histograms.
+
+### 10. Karaoke Suite: Synced Lyrics, Sliding Vocal Highway & Vocal/Harmony Mix (`v1.6.0`)
+- **Synced Lyrics (`#159`):** 1-click `🔍 Fetch Lyrics` pulls LRCLIB word/line sync; the Python importer falls back to YouTube `.json3`/`.vtt` captions, then optional `faster-whisper`. Lyric Timing Sync popover (`⚡ Align to First Vocal`) and intra-word Radiant Gold sweep.
+- **Let's Sing Vocal Highway (`#160`):** CREPE 170 ms vibrato smoothing in true vocal register, simplified notes, and Bezier portamento glide ribbons with combo-preserving glide scoring.
+- **Vocal & Harmony Control (`#161`):** Lead Vocal fader (`0% Mute` / `25% Guide` / `100% Full`) and `✨ Harm` toggle using a Web Audio Stereo Mid/Side matrix, plus optional UVR Lead/Backing split. Settings persist per song.
+- **Fixes (`#158`, `#166`):** Sync pill overflow fixed; 13 peer-review/QA findings resolved, including a multi-stem `ReferenceError`.
 
 ---
 

@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.6.0] - 2026-11-26
+
 ### Added
 - **Karaoke Synced Lyrics Pipeline & Apple Music Word Sweep (`#159`):**
   - Added `lyrics-fetcher.js` with noisy YouTube title cleaning (`cleanSongQueryFromTitle`), LRCLIB `/api/get` & `/api/search` word-level YAML `lyricsfile` (`hasWordSync`) and line-level `syncedLyrics` fetching (`±5s` duration matching), enhanced `<mm:ss.xx>` word-tag LRC parsing (`parseEnhancedLrcText`), and sibling `.lrc` persistence.
