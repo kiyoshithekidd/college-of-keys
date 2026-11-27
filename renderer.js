@@ -3144,8 +3144,6 @@ const performanceModalModule = createPerformanceModalModule({
   set currentSong(v) { currentSong = v; },
   get activeD20Roller() { return activeD20Roller; },
   set activeD20Roller(v) { activeD20Roller = v; },
-  get d20AudioCtx() { return d20AudioCtx; },
-  set d20AudioCtx(v) { d20AudioCtx = v; },
   get activeCampaignVenueId() { return activeCampaignVenueId; },
   set activeCampaignVenueId(v) { activeCampaignVenueId = v; },
   performanceCheckModal, d20TrayOverlay, d20TrayCanvasHost,
@@ -4422,10 +4420,6 @@ const audioEngineModule = createAudioEngineModule({
   set auditionRequestSeq(v) { auditionRequestSeq = v; },
   get isAuditionPending() { return isAuditionPending; },
   set isAuditionPending(v) { isAuditionPending = v; },
-  get backingAudioSyncPending() { return backingAudioSyncPending; },
-  set backingAudioSyncPending(v) { backingAudioSyncPending = v; },
-  get lastBackingAudioSyncAttemptMs() { return lastBackingAudioSyncAttemptMs; },
-  set lastBackingAudioSyncAttemptMs(v) { lastBackingAudioSyncAttemptMs = v; },
   audioSyncPopover
 });
 const {
@@ -4437,7 +4431,9 @@ const {
   applyLiveAudioSyncCalibration,
   updateAudioSyncUI,
   stopAudioAudition,
+  startAudioAudition,
   handleMarkBeat1Click,
+  runAutoAlignFirstOnset,
   syncBackingAudioElement
 } = audioEngineModule;
 /**

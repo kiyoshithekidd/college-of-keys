@@ -955,6 +955,10 @@ app.whenReady().then(async () => {
         importModalOpened &&
         importModalClosedOnEsc
       );
+      checks.audioEngineExportsPresent = Boolean(
+        typeof startAudioAudition === 'function' &&
+        typeof runAutoAlignFirstOnset === 'function'
+      );
 
       return checks;
     })();

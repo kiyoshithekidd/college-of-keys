@@ -596,7 +596,9 @@ function createAudioEngineModule(deps) {
     applyLiveAudioSyncCalibration,
     updateAudioSyncUI,
     stopAudioAudition,
+    startAudioAudition,
     handleMarkBeat1Click,
+    runAutoAlignFirstOnset,
     syncBackingAudioElement
   };
 }

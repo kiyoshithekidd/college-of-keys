@@ -32,6 +32,7 @@
 | **v1.7.0** | **Grimoire Hall of Legends Personal Records Board & `+50 XP` Record Bonus (`#162`), Grimoire 30-Second Audio Preview (`🎙 Recording` & `🎹 Piano MIDI`) (`#163`), Song-Stats Migration Persistence Fix (`#167`), and Peer Review & QA Hardening (`#168`)** | **Completed** |
 | **v1.8.0** | **Tavern Crowd Fail State: Tier-Scaled Crowd Warning (`15`/`10`/`7` Misses), 10-Hit Recovery, Boo-Off with `End Song` / `Continue Playing` Setting (`#164`), and Peer Review & QA Hardening (`#170`)** | **Completed** |
 | **v1.9.0** | **Rhythm & Sight-Reading Polish: Independent Highway Scroll Speed (`0.5x–2.5x`) (`#182`), Falling Note Labels & Sustain Pedal (`CC 64`) Lane (`#179`), Live Early/Late Hit-Error Bar & Timing Scatter (`#181`), Audible Count-In Metronome & Timeline Section Jump Markers (`#183`), and QA Hardening (`#186`)** | **Completed** |
+| **v1.10.0** | **Architecture & Save Safety Net: 1-Click Bard Save Backup Export & Import (`#185`), Modularized `renderer.js` (`modules/spellbook-ui.js`, `modules/highway-renderer.js`, `modules/performance-modal.js`, `modules/audio-engine.js`) (`#184`), and QA Hardening (`#188`)** | **Completed** |
 
 ---
 
@@ -135,6 +136,10 @@
 - **Live Hit-Error Bar & Timing Scatter (`#181`):** Real-time **Early ← | → Late** timing meter in the stage HUD (hidden in Wait Mode) and a post-song timing distribution histogram in the Performance Check modal.
 - **Count-In Metronome & Section Jump Markers (`#183`, `#186`):** Toggleable **1-Bar Count-In** and **Metronome Click** via `Tone.MembraneSynth`, plus clickable **Timeline Section / Measure Jump Markers** extracted from MIDI markers or measure landmarks.
 
+### 14. Architecture & Save Safety Net (`v1.10.0`)
+- **1-Click Bard Save Backup (`#185`):** Export or restore all 4 central JSON save stores (`bard_profile.json`, `song_stats.json`, `grimoire_library.json`, `grimoire_bundles.json`) and all 17 `localStorage` keys in one `.json` archive via **⚙ Audio & Keys → 💾 Export Save / 📂 Import Save**. Imports show a preview summary, create a pre-import safety backup under `save_backups/`, and reload cleanly.
+- **Modularized `renderer.js` (`#184`, `#188`):** Extracted ~3,050 lines out of `renderer.js` into 4 focused domain modules under [`modules/`](./modules): [`modules/spellbook-ui.js`](./modules/spellbook-ui.js), [`modules/highway-renderer.js`](./modules/highway-renderer.js), [`modules/performance-modal.js`](./modules/performance-modal.js), and [`modules/audio-engine.js`](./modules/audio-engine.js).
+
 ---
 
 ## Controls & Input Modes
@@ -188,7 +193,8 @@ npm test
 
 - [`main.js`](./main.js) — Electron main process, automatic Web MIDI/media permission handlers, and folder IPC.
 - [`index.html`](./index.html) & [`styles.css`](./styles.css) — 2-Bar Conservatory HUD, Karaoke Stage, and responsive 60 FPS canvas stage.
-- [`renderer.js`](./renderer.js) — 61-key canvas geometry (`C2`–`C7`), Web MIDI & Plug-In Rig listener, 6-Stem Mixer, Karaoke renderer, and `Tone.Sampler` / `Tone.PolySynth` audio engine.
+- [`renderer.js`](./renderer.js) & [`modules/`](./modules) — Core orchestrator plus extracted domain modules ([`audio-engine.js`](./modules/audio-engine.js), [`spellbook-ui.js`](./modules/spellbook-ui.js), [`highway-renderer.js`](./modules/highway-renderer.js), [`performance-modal.js`](./modules/performance-modal.js)).
+- [`save-backup.js`](./save-backup.js) — Schema-versioned 1-Click Bard Save Export & Import with pre-import safety backups.
 - [`notation-engine.js`](./notation-engine.js) — VexFlow 5 + Bravura Grand-Staff sheet music engine, LRU tile cache, and smooth tracking playhead.
 - [`instrument-input.js`](./instrument-input.js), [`spell-singing.js`](./spell-singing.js), [`lyrics-fetcher.js`](./lyrics-fetcher.js) & [`vocal-harmony-dsp.js`](./vocal-harmony-dsp.js) — External instrument input routing, Let's Sing vocal contour simplifier & Bezier glide highway, LRCLIB word/line synced lyrics fetcher, and Apple Music Sing Stereo Mid/Side + AI Lead/Harmony vocal mixer DSP.
 - [`d20-roller.js`](./d20-roller.js) — Three.js + `cannon-es` 3D physics d20 Performance Check dice tray.

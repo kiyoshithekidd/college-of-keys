@@ -10,7 +10,6 @@ function createPerformanceModalModule(deps) {
   const {
     fs, path, crypto, createD20TrayRoller,
     bardProfile, songSessionStats, songPlayHistory, playbackState, rehearsalLoopState, encoreDrillQueue,
-    stageViewMode,
     isQualifyingLegendRun, evaluatePersonalRecordUpdate,
     getBardicTitleForLevel, getXpRequiredForLevel,
     awardBardXp, saveBardProfile, recordSongPerformance, checkAndUnlockAchievements,
@@ -612,7 +611,7 @@ function createPerformanceModalModule(deps) {
         ? deps.currentSong.notes.length
         : (Number(deps.currentSong.totalNotes) || 0);
       const qualifiedForLegends = isQualifyingLegendRun({
-        stageViewMode,
+        stageViewMode: deps.stageViewMode,
         waitMode: Boolean(playbackState.waitMode),
         playbackSpeed: playbackState.playbackSpeed,
         handIsolation: playbackState.handIsolation,

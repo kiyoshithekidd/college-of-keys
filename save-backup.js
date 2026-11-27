@@ -101,8 +101,15 @@ function validateAndSummarizeSaveBackup(rawInput) {
   if (!parsed.files || typeof parsed.files !== 'object' || Array.isArray(parsed.files)) {
     return { ok: false, error: 'Save backup is missing the files section.' };
   }
-  if (parsed.localStorage !== undefined && (typeof parsed.localStorage !== 'object' || Array.isArray(parsed.localStorage))) {
-    return { ok: false, error: 'Save backup has an invalid localStorage section.' };
+  if (parsed.localStorage !== undefined) {
+    if (typeof parsed.localStorage !== 'object' || Array.isArray(parsed.localStorage)) {
+      return { ok: false, error: 'Save backup has an invalid localStorage section.' };
+    }
+    for (const [k, v] of Object.entries(parsed.localStorage)) {
+      if (v !== null && v !== undefined && typeof v !== 'string') {
+        return { ok: false, error: `Invalid localStorage value for key "${k}": expected string.` };
+      }
+    }
   }
 
   const profile = parsed.files['bard_profile.json'];
@@ -187,6 +194,22 @@ function applySaveBackupPayload({
       } else {
         storage.removeItem(key);
       }
+    }
+  }
+
+  if (backedUpCount > 0) {
+    try {
+      const parentDir = path.dirname(targetBackupDir);
+      const oldDirs = fsImpl.readdirSync(parentDir)
+        .filter((name) => name.startsWith('pre-import-'))
+        .sort();
+      if (oldDirs.length > 10) {
+        for (const oldName of oldDirs.slice(0, oldDirs.length - 10)) {
+          fsImpl.rmSync(path.join(parentDir, oldName), { recursive: true, force: true });
+        }
+      }
+    } catch {
+      // Ignore pruning errors
     }
   }
 
