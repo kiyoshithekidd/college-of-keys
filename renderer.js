@@ -869,6 +869,7 @@ const playbackState = {
 // Issue #39 & Epic #43 State: Grand-Staff Sheet Music Renderer & Stage View Mode (Always boots in 'highway')
 const VALID_STAGE_VIEW_MODES = ['highway', 'split', 'score', 'karaoke'];
 let stageViewMode = 'highway';
+let waitModeBeforeKaraoke = null; // Wait Mode state saved when entering Karaoke, restored on exit (#202)
 let cachedNotationPaneHeight = 0;
 let cachedHighwayTopY = 0;
 const dismissedQualitySongIds = new Set();
@@ -1520,14 +1521,9 @@ function loadTxtVocalChartFromBuffer(arrayBuffer, fileName = 'Vocal Chart.txt', 
     backingAudioEl.volume = getBackingAudioVolumeFromSlider();
   }
 
-  const vocalChart = buildVocalChartFromTxt(parsed, { voice: 'P1' });
+  const vocalChart = buildVocalChartFromTxt(parsed, { voice: 'P1', offsetSec: bundle.lyricsOffsetSec || 0 });
   const notes = vocalChart.notes || [];
-  const nps = parsed.durationSec > 0 ? notes.length / parsed.durationSec : 0;
-  const difficulty = {
-    spellLevel: nps >= 5 ? 6 : nps >= 3.5 ? 4 : nps >= 2 ? 2 : 0,
-    label: nps >= 5 ? '6th-Level' : nps >= 3.5 ? '4th-Level' : nps >= 2 ? '2nd-Level' : 'Cantrip',
-    nps: Math.round(nps * 100) / 100
-  };
+  const difficulty = calculateSpellDifficulty(notes.length, parsed.durationSec);
 
   currentSong = {
     songId,
@@ -1541,6 +1537,30 @@ function loadTxtVocalChartFromBuffer(arrayBuffer, fileName = 'Vocal Chart.txt', 
     isTxtVocalChart: true,
     txtParsed: parsed,
     txtVocalChart: vocalChart,
+    // Full currentSong shape so Capo, Hygiene, Inspector and Bundle code never see undefined fields (#203)
+    ppq: 480,
+    timeSignature: [4, 4],
+    timeSigNumerator: 4,
+    timeSigDenominator: 4,
+    beatsPerMeasure: 4,
+    headerTempos: [],
+    headerTimeSignatures: [],
+    headerKeySignatures: [],
+    headerMeta: [],
+    sustainSpans: [],
+    sectionMarkers: [],
+    chordMarkers: [],
+    musicXmlMeta: null,
+    rawTracks: [],
+    selectedTrackMode: 'auto-piano',
+    backingBandTracks: [],
+    foldedNotesCount: 0,
+    totalNotes: notes.length,
+    midiCleanStats: { enabled: false, selectionNote: null, snapped: 0, removed: 0, trimmed: 0 },
+    midiCleanupOverride: null,
+    notationScore: null,
+    notationQuality: null,
+    noteIdMap: new Map(),
     hasRap: parsed.hasRap,
     hasRadiant: parsed.hasRadiant,
     isDuet: parsed.isDuet,
@@ -1577,8 +1597,13 @@ function loadTxtVocalChartFromBuffer(arrayBuffer, fileName = 'Vocal Chart.txt', 
   btnRestart.disabled = false;
   songProgressSlider.disabled = false;
   resetPlaybackToStart();
+  if (typeof clearRehearsalLoop === 'function') clearRehearsalLoop();
   if (typeof updateAudioSyncUI === 'function') updateAudioSyncUI();
   setStageViewMode('karaoke');
+  if (typeof updateSpellInspectorHUD === 'function') updateSpellInspectorHUD();
+  if (typeof renderTimelineSectionMarkers === 'function') renderTimelineSectionMarkers();
+  if (typeof updateCapoControlsUI === 'function') updateCapoControlsUI();
+  if (typeof updateChordBannerHUD === 'function') updateChordBannerHUD();
   if (!quietSuccess) {
     showGrimoireToast(`🎤 Loaded .txt Vocal Chart: "${parsed.title}"`, 'success');
   }
@@ -2018,6 +2043,7 @@ function foldAndDeduplicateHandNotes(noteArr, handTrack, transposeSemitones = 0)
 
 function assignSongTracksAndDifficulty(mode = 'auto-piano', { autoSyncStemMute = false } = {}) {
   if (!currentSong) return;
+  if (currentSong.isTxtVocalChart) return; // .txt vocal charts have no MIDI tracks to assign (#203)
   currentSong.selectedTrackMode = mode;
   const transposeSemitones = clampTransposeSemitones(currentSong.transposeSemitones ?? 0);
   currentSong.transposeSemitones = transposeSemitones;
@@ -2274,6 +2300,7 @@ function syncNotationWaitOverlayPill(nowMs = performance.now()) {
 function setStageViewMode(mode, { announceToast = false } = {}) {
   const nextMode = VALID_STAGE_VIEW_MODES.includes(mode) ? mode : 'highway';
   const changed = stageViewMode !== nextMode;
+  const prevStageViewMode = stageViewMode;
   stageViewMode = nextMode;
 
   if (stageContainer) {
@@ -2296,7 +2323,10 @@ function setStageViewMode(mode, { announceToast = false } = {}) {
 
   if (nextMode === 'karaoke') {
     // Issue #43 (#126): Spell-Singing is a standalone karaoke flow; disable Wait Mode so vocal track plays smoothly
-    if (playbackState.waitMode && typeof setWaitModeEnabled === 'function') {
+    if (prevStageViewMode !== 'karaoke') {
+      waitModeBeforeKaraoke = Boolean(playbackState.waitMode);
+    }
+    if (playbackState.waitMode) {
       setWaitModeEnabled(false);
     }
     if (typeof ensureVocalChartForCurrentSong === 'function') {
@@ -2307,6 +2337,13 @@ function setStageViewMode(mode, { announceToast = false } = {}) {
     }
     if (typeof updateKaraokeHudStats === 'function') {
       updateKaraokeHudStats();
+    }
+  } else if (prevStageViewMode === 'karaoke' && waitModeBeforeKaraoke !== null) {
+    // Restore the player's piano Wait Mode setting after leaving Karaoke (#202)
+    const shouldRestoreWait = waitModeBeforeKaraoke;
+    waitModeBeforeKaraoke = null;
+    if (shouldRestoreWait && !playbackState.waitMode) {
+      setWaitModeEnabled(true);
     }
   }
   if (typeof applyCurrentStemMixToAudioElements === 'function') {
@@ -3442,6 +3479,16 @@ function shouldAutoPlayHand(handTrack) {
 
   if (acc === 'auto-both') return true;
   if (acc === 'mute-other') return false;
+  // MIDI-only Karaoke has no backing audio, so play the MIDI hands so the singer hears the song (#202)
+  if (
+    stageViewMode === 'karaoke' &&
+    currentSong &&
+    !currentSong.isTxtVocalChart &&
+    !currentSong.backingAudioPath &&
+    !currentSong.stems
+  ) {
+    return true;
+  }
 
   if (iso === 'track1' && handTrack === 2) return true;
   if (iso === 'track2' && handTrack === 1) return true;
@@ -5101,8 +5148,12 @@ function animationLoop(timestamp) {
       }
     }
 
+    // Karaoke is a mic-only stage: no piano Wait Mode gating or Arcade piano-miss expiry (#202)
+    if (stageViewMode === 'karaoke') {
+      playbackState.isWaitingForStrike = false;
+      playbackState.activeStrikeGroup = null;
     // Phase 4: Wait Mode Strike-Zone Gating
-    if (playbackState.waitMode && playbackState.accompanimentMode !== 'auto-both') {
+    } else if (playbackState.waitMode && playbackState.accompanimentMode !== 'auto-both') {
       const nextGroup = getNextUnsatisfiedStrikeGroup();
 
       if (nextGroup) {
@@ -5449,7 +5500,9 @@ function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceT
       projectRoot: __dirname
     });
     const entryId = `${sourceTag.toLowerCase()}::${fileName.toLowerCase()}`;
-    const tierInfo = SPELLBOOK_TIERS[info.difficulty.spellLevel] || SPELLBOOK_TIERS[0];
+    // Use the same string-based tier model as MIDI entries so badges and tier filing work (#203)
+    const txtDifficulty = calculateSpellDifficulty(info.noteCount, info.durationSec);
+    const tierInfo = SPELLBOOK_TIERS.find((t) => t.levelName === txtDifficulty.spellLevel) || SPELLBOOK_TIERS[0];
     return {
       id: entryId,
       songId,
@@ -5464,10 +5517,10 @@ function extractGrimoireEntryFromBuffer(arrayBuffer, fileName, filePath, sourceT
       totalNotes: info.noteCount,
       noteCount: info.noteCount,
       nps: info.nps,
-      difficulty: info.difficulty,
-      spellLevel: info.difficulty.spellLevel,
+      difficulty: txtDifficulty,
+      spellLevel: txtDifficulty.spellLevel,
       xpMultiplier: tierInfo.xpMultiplier || 1.0,
-      isFavorite: isGrimoireFavorite(songId, fileName),
+      isFavorite: grimoireFavorites.has(entryId),
       hasRap: info.hasRap,
       hasRadiant: info.hasRadiant,
       isDuet: info.isDuet,
@@ -6021,6 +6074,9 @@ let isSpellbookFlipping = false;
 let spellbookFavoritesOnly = false; // Issue #79: Favorites filter toggle
 
 function getSpellbookTierIndexForLevel(spellLevel) {
+  if (typeof spellLevel === 'number' && Number.isInteger(spellLevel)) {
+    return Math.max(0, Math.min(9, spellLevel));
+  }
   if (!spellLevel) return 0;
   const lower = String(spellLevel).toLowerCase();
   if (lower.includes('cantrip')) return 0;
@@ -6447,7 +6503,7 @@ function collectGrimoireEntryFiles(entry) {
     if (entry.filePath && entry.filePath !== 'BUILTIN_DEMO') {
       try {
         const dir = path.dirname(entry.filePath);
-        const base = path.basename(entry.filePath).replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '');
+        const base = path.basename(entry.filePath).replace(/\.(mid|midi|musicxml|xml|mxl|txt)$/i, '');
         const pairedExts = ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.musicxml', '.mxl', '.xml', '.pdf'];
         for (const ext of pairedExts) {
           pushCandidate(path.join(dir, `${base}${ext}`));
@@ -7224,6 +7280,16 @@ function ensureVocalChartForCurrentSong({ forceRebuild = false } = {}) {
     : [];
   const customLyricsText = spellSingingState.customLyricsBySongId[currentSong.songId] || '';
 
+  if (currentSong.isTxtVocalChart && currentSong.txtVocalChart && currentSong.txtParsed) {
+    const wantedOffset = currentSong.lyricsOffsetSec || 0;
+    if (forceRebuild || (currentSong.txtVocalChart.offsetSec || 0) !== wantedOffset) {
+      currentSong.txtVocalChart = buildVocalChartFromTxt(currentSong.txtParsed, {
+        voice: currentSong.txtVocalChart.activeVoice || 'P1',
+        offsetSec: wantedOffset
+      });
+    }
+  }
+
   const chart = currentSong.isTxtVocalChart && currentSong.txtVocalChart
     ? currentSong.txtVocalChart
     : buildVocalChart({
@@ -7788,7 +7854,7 @@ if (btnKaraokeDuetVoice) {
     if (!currentSong?.isDuet || !currentSong?.txtParsed) return;
     const prevVoice = currentSong.txtVocalChart?.activeVoice || 'P1';
     const nextVoice = prevVoice === 'P1' ? 'P2' : 'P1';
-    currentSong.txtVocalChart = buildVocalChartFromTxt(currentSong.txtParsed, { voice: nextVoice });
+    currentSong.txtVocalChart = buildVocalChartFromTxt(currentSong.txtParsed, { voice: nextVoice, offsetSec: currentSong.lyricsOffsetSec || 0 });
     spellSingingState.songId = null;
     ensureVocalChartForCurrentSong();
     syncKaraokeKeyShiftAndDuetUI();
@@ -9241,8 +9307,12 @@ function syncPracticeTimingModeUI() {
   }
 }
 
-btnWaitMode.addEventListener('click', () => {
-  playbackState.waitMode = !playbackState.waitMode;
+/**
+ * Turn Wait Mode on or off with all side effects (crowd warning, status badge, backing audio sync).
+ * Shared by the Wait Mode button and Karaoke entry/exit (#202).
+ */
+function setWaitModeEnabled(enabled) {
+  playbackState.waitMode = Boolean(enabled);
   syncCrowdFailStateForModeChange({ clearWarning: Boolean(playbackState.waitMode) });
   if (playbackState.waitMode) {
     playbackState.rhythmMode = false;
@@ -9272,6 +9342,10 @@ btnWaitMode.addEventListener('click', () => {
     setStrikeStatusBadge('ready', 'Wait Mode Active (100ms Chord Grace)');
   }
   syncBackingAudioElement(playbackState.currentTime);
+}
+
+btnWaitMode.addEventListener('click', () => {
+  setWaitModeEnabled(!playbackState.waitMode);
 });
 
 if (btnRhythmMode) {
@@ -10576,7 +10650,7 @@ if (btnQuestTabTranscribe) {
 }
 
 function sanitizeBundleStem(rawTitleOrName, fallback = 'Bundled_Spell') {
-  const noExt = String(rawTitleOrName || '').replace(/\.(mid|midi|musicxml|xml|mxl|wav|mp3|ogg|m4a|flac|pdf)$/i, '');
+  const noExt = String(rawTitleOrName || '').replace(/\.(mid|midi|musicxml|xml|mxl|txt|wav|mp3|ogg|m4a|flac|pdf)$/i, '');
   const safe = noExt
     .replace(/[^a-zA-Z0-9_-]+/g, '_')
     .replace(/^_+|_+$/g, '')
@@ -10773,7 +10847,7 @@ if (questBundleNotesInput) {
     }
     if (questBundleTitleInput && !questBundleTitleInput.value.trim()) {
       questBundleTitleInput.value = file.name
-        .replace(/\.(mid|midi|musicxml|xml|mxl)$/i, '')
+        .replace(/\.(mid|midi|musicxml|xml|mxl|txt)$/i, '')
         .replace(/[_-]+/g, ' ')
         .trim();
     }
@@ -11025,15 +11099,21 @@ async function runSaveSongBundle() {
         validatedPickedRawBuf.byteOffset + validatedPickedRawBuf.byteLength
       );
 
-      let checkMidiData;
-      if (isMusicXmlFileName(pickedNameForCheck)) {
-        const convertedCheck = convertMusicXmlToMidiBuffer(validatedPickedArrayBuf, pickedNameForCheck);
-        checkMidiData = new Midi(convertedCheck.midiArrayBuffer);
+      let totalCheckNotes = 0;
+      if (isTxtFileName(pickedNameForCheck)) {
+        // .txt vocal charts are not MIDI; validate through the chart inspector instead (#203)
+        const txtInfo = inspectTxtVocalChartBuffer(validatedPickedArrayBuf, pickedNameForCheck);
+        totalCheckNotes = txtInfo && txtInfo.isTxtVocalChart ? (txtInfo.noteCount || 0) : 0;
       } else {
-        checkMidiData = new Midi(validatedPickedArrayBuf);
+        let checkMidiData;
+        if (isMusicXmlFileName(pickedNameForCheck)) {
+          const convertedCheck = convertMusicXmlToMidiBuffer(validatedPickedArrayBuf, pickedNameForCheck);
+          checkMidiData = new Midi(convertedCheck.midiArrayBuffer);
+        } else {
+          checkMidiData = new Midi(validatedPickedArrayBuf);
+        }
+        totalCheckNotes = (checkMidiData.tracks || []).reduce((sum, tr) => sum + (tr.notes?.length || 0), 0);
       }
-
-      const totalCheckNotes = (checkMidiData.tracks || []).reduce((sum, tr) => sum + (tr.notes?.length || 0), 0);
       if (totalCheckNotes <= 0) {
         throw new Error('Selected notes file contains no playable notes.');
       }

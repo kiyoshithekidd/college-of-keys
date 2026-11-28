@@ -10,6 +10,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.13.2] - 2026-11-27
+
+### Fixed
+- **Grimoire `.txt` vocal chart ingestion (`#201`):** Replaced undefined `isGrimoireFavorite(songId, fileName)` with `grimoireFavorites.has(entryId)` so community `.txt` vocal charts appear in The Grimoire and Setlists instead of throwing `ReferenceError`.
+- **Karaoke Wait Mode & MIDI-only accompaniment (`#202`):** Defined `setWaitModeEnabled(enabled)` (shared by the Wait Mode button and Karaoke entry/exit), saved and restored the player's Wait Mode preference on entering/leaving Karaoke, skipped piano Wait Mode gating and Arcade piano-miss expiry in `animationLoop()` while `stageViewMode === 'karaoke'`, and enabled automatic MIDI hand playback in `shouldAutoPlayHand()` for MIDI-only Karaoke songs.
+- **`.txt` vocal chart `currentSong` schema, HUD resets & Spellbook tiering (`#203`):** Populated the complete `currentSong` schema (`rawTracks`, `backingBandTracks`, `foldedNotesCount`, `timeSignature`, `sustainSpans`, `sectionMarkers`, `totalNotes`, full `calculateSpellDifficulty()` object), guarded `assignSongTracksAndDifficulty()` on `.txt` charts, reset Rehearsal Loop / Spell Inspector / timeline markers / Capo / chord banner on `.txt` load, stored string `spellLevel` + accepted numeric `0..9` in `getSpellbookTierIndexForLevel()`, and validated `.txt` files via `inspectTxtVocalChartBuffer()` in `runSaveSongBundle()`.
+- **LRCLIB oversized response Promise hang (`#224`):** Added a `settled` guard and `res.on('close', ...)` in `httpGetJson()` (`lyrics-fetcher.js`) and settled with `null` before `req.destroy()` so `🔍 Fetch Lyrics` never stalls on `> 2 MB` responses.
+- **Tap-to-Sync timestamp rollover & 1-digit tenths (`#231`):** Rounded to total centiseconds first in `formatTapSyncTimestamp()` (`59.996s` → `[01:00.00]`) and parsed 1-digit fractional seconds as tenths in `parseEditableLyricLines()` (`[00:12.5]` → `12.50s`).
+- **`.txt` Lyric Timing Sync offset & stack-safe min/max (`#232`):** Added `offsetSec` support in `buildVocalChartFromTxt()`, rebuilt `currentSong.txtVocalChart` when `lyricsOffsetSec` or duet voice changes, and replaced `Math.min/max(...arr)` spreads with iterative loops/reducers.
+- **Lyric note assignment deduplication (`#233`):** Tracked assigned notes by object reference (`Set`) in `applyLrcOrLinesToNotes()` so both word-sync and line-sync branches guard against double-assigning notes with missing or non-sequential `.index`.
+
+### Added
+- **Tap-to-Sync full Undo snapshots (`#244`):** `nudgeLine()` and `reanchorFromLine()` now push full timestamp snapshots onto `undoStack` alongside `tapCurrentLine()`.
+- **Drag-and-drop overlay copy (`#250`):** Updated `#global-drop-overlay` in `index.html` to mention `.txt` vocal charts, `.pdf`, and sheet images.
+- **Tests:** Added unit tests for `#231`/`#244`, `#232`, and `#233`, plus the `karaokeTxtChartRobustness` Electron DOM check for `#201`, `#202`, and `#203`.
+
+---
+
 ## [1.13.1] - 2026-11-27
 
 ### Fixed

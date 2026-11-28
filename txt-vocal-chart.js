@@ -188,7 +188,7 @@ function parseTxtVocalChart(input, fallbackTitle = 'Untitled Vocal Chart') {
   const p2Notes = convertVoiceNotes(voices.P2);
   const primaryNotes = p1Notes.length > 0 ? p1Notes : p2Notes;
   const durationSec = primaryNotes.length > 0
-    ? Math.max(...primaryNotes.map((n) => n.endTime)) + 1.0
+    ? primaryNotes.reduce((m, n) => (n.endTime > m ? n.endTime : m), 0) + 1.0
     : Math.max(0, gapSec + lastBeatEnd * secPerQuarterBeat);
 
   const audioFileName = (headers.MP3 || headers.AUDIO || '').trim() || null;
@@ -271,12 +271,17 @@ function inspectTxtVocalChartBuffer(input, fileName = '') {
   };
 }
 
-function buildVocalChartFromTxt(parsed, { voice = 'P1' } = {}) {
+function buildVocalChartFromTxt(parsed, { voice = 'P1', offsetSec = 0 } = {}) {
   const chosenVoice = voice === 'P2' && parsed.voices.P2.length > 0 ? 'P2' : 'P1';
-  const rawNotes = parsed.voices[chosenVoice].length > 0
+  const baseNotes = parsed.voices[chosenVoice].length > 0
     ? parsed.voices[chosenVoice]
     : (parsed.voices.P1.length > 0 ? parsed.voices.P1 : parsed.voices.P2);
-  const breaks = (parsed.phraseBreaks[chosenVoice] || []).slice().sort((a, b) => a - b);
+  // Lyric Timing Sync offset shifts every note and phrase break (#232)
+  const shift = Number.isFinite(Number(offsetSec)) ? Number(offsetSec) : 0;
+  const rawNotes = shift === 0
+    ? baseNotes
+    : baseNotes.map((n) => ({ ...n, time: n.time + shift, endTime: n.endTime + shift }));
+  const breaks = (parsed.phraseBreaks[chosenVoice] || []).map((b) => b + shift).sort((a, b) => a - b);
 
   // Flag legato slides on consecutive pitched non-rap notes
   const notes = rawNotes.map((n, idx) => {
@@ -339,8 +344,8 @@ function buildVocalChartFromTxt(parsed, { voice = 'P1' } = {}) {
       notes: currentNotes,
       words,
       text: text.replace(/\s+/g, ' ').trim(),
-      minMidi: Math.min(...midis),
-      maxMidi: Math.max(...midis)
+      minMidi: midis.reduce((a, b) => (b < a ? b : a), Infinity),
+      maxMidi: midis.reduce((a, b) => (b > a ? b : a), -Infinity)
     });
     currentNotes = [];
   };
@@ -361,7 +366,16 @@ function buildVocalChartFromTxt(parsed, { voice = 'P1' } = {}) {
   }
   flushPhrase();
 
-  const allMidis = notes.map((n) => n.midi);
+  let minMidi = 55;
+  let maxMidi = 76;
+  if (notes.length > 0) {
+    minMidi = Infinity;
+    maxMidi = -Infinity;
+    for (const n of notes) {
+      if (n.midi < minMidi) minMidi = n.midi;
+      if (n.midi > maxMidi) maxMidi = n.midi;
+    }
+  }
   return {
     notes,
     phrases,
@@ -370,9 +384,10 @@ function buildVocalChartFromTxt(parsed, { voice = 'P1' } = {}) {
     hasRadiant: parsed.hasRadiant,
     isDuet: parsed.isDuet,
     activeVoice: chosenVoice,
-    minMidi: allMidis.length > 0 ? Math.min(...allMidis) : 55,
-    maxMidi: allMidis.length > 0 ? Math.max(...allMidis) : 76,
-    durationSec: parsed.durationSec
+    minMidi,
+    maxMidi,
+    offsetSec: shift,
+    durationSec: Math.max(0, parsed.durationSec + shift)
   };
 }
 

@@ -314,6 +314,17 @@ function parseEnhancedLrcText(rawText, offsetSec = 0) {
  */
 function httpGetJson(urlStr, timeoutMs = 8000, redirectsLeft = 2) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const settleResolve = (val) => {
+      if (settled) return;
+      settled = true;
+      resolve(val);
+    };
+    const settleReject = (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
     const req = https.get(
       urlStr,
       {
@@ -333,39 +344,44 @@ function httpGetJson(urlStr, timeoutMs = 8000, redirectsLeft = 2) {
         ) {
           res.resume();
           const nextUrl = new URL(res.headers.location, urlStr).toString();
-          httpGetJson(nextUrl, timeoutMs, redirectsLeft - 1).then(resolve, reject);
+          httpGetJson(nextUrl, timeoutMs, redirectsLeft - 1).then(settleResolve, settleReject);
           return;
         }
         if (res.statusCode && res.statusCode >= 400) {
           res.resume();
-          return resolve(null);
+          return settleResolve(null);
         }
         let body = '';
         let totalBytes = 0;
         const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
         res.setEncoding('utf8');
         res.on('data', (chunk) => {
+          if (settled) return;
           totalBytes += Buffer.byteLength(chunk, 'utf8');
           if (totalBytes > MAX_RESPONSE_BYTES) {
+            // Settle first so callers (Fetch Lyrics button) never hang on an oversized response (#224)
+            settleResolve(null);
             req.destroy();
             return;
           }
           body += chunk;
         });
+        res.on('error', () => settleResolve(null));
+        res.on('close', () => settleResolve(null));
         res.on('end', () => {
           try {
-            resolve(JSON.parse(body));
+            settleResolve(JSON.parse(body));
           } catch {
-            resolve(null);
+            settleResolve(null);
           }
         });
       }
     );
     req.on('timeout', () => {
+      settleReject(new Error('LRCLIB request timed out'));
       req.destroy();
-      reject(new Error('LRCLIB request timed out'));
     });
-    req.on('error', reject);
+    req.on('error', settleReject);
   });
 }
 

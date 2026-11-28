@@ -483,6 +483,57 @@ async function runUnitTests() {
     }
   });
 
+  record('Issues #231 & #244 Tap-to-Sync timestamp rollover, 1-digit fractions and full undo snapshots', () => {
+    const ed = require(path.join(REPO_ROOT, 'lyrics-sync-editor.js'));
+    assert.strictEqual(ed.formatTapSyncTimestamp(59.996), '[01:00.00]');
+    assert.strictEqual(ed.formatTapSyncTimestamp(12.5), '[00:12.50]');
+    const lines = ed.parseEditableLyricLines('[00:12.5] First\n[00:20.25] Second');
+    assert.strictEqual(lines[0].timeSec, 12.5, '1-digit fraction is tenths');
+    assert.strictEqual(lines[1].timeSec, 20.25);
+
+    const session = ed.createTapSyncSession('[00:10.00] A\n[00:20.00] B\n[00:30.00] C');
+    session.reanchorFromLine(0, 15);
+    assert.ok(session.serializeToLrc().includes('[00:25.00] B'), 'reanchor shifts later lines');
+    assert.strictEqual(session.undoLastTap(), true);
+    assert.ok(session.serializeToLrc().includes('[00:20.00] B'), 'undo reverts reanchor');
+    session.nudgeLine(1, 0.5);
+    assert.ok(session.serializeToLrc().includes('[00:20.50] B'));
+    session.undoLastTap();
+    assert.ok(session.serializeToLrc().includes('[00:20.00] B'), 'undo reverts nudge');
+  });
+
+  record('Issue #233 applyLrcOrLinesToNotes does not double-assign words on notes without sequential index', () => {
+    const singing = require(path.join(REPO_ROOT, 'spell-singing.js'));
+    const mk = (time) => ({ time, endTime: time + 0.3, midi: 60, duration: 0.3 });
+    const notes = [mk(0.0), mk(1.0), mk(2.0), mk(3.0)];
+    const chart = singing.buildVocalChart({
+      vocalNotes: notes,
+      lrcLines: [
+        { time: 0, text: 'one two' },
+        { time: 2.0, text: 'three four' }
+      ],
+      simplifyVocalTrack: false
+    });
+    const words = chart.notes.map((n) => n.lyric).filter(Boolean).join(' ');
+    assert.strictEqual(words, 'one two three four', `unexpected assignment: ${words}`);
+  });
+
+  record('Issue #232 .txt vocal chart honors offsetSec and large charts do not overflow', () => {
+    const txt = require(path.join(REPO_ROOT, 'txt-vocal-chart.js'));
+    const text = ['#TITLE:T', '#BPM:120', '#GAP:0', ': 0 4 60 Hi', ': 8 4 62 There', 'E'].join('\n');
+    const parsed = txt.parseTxtVocalChart(text, 'T');
+    const base = txt.buildVocalChartFromTxt(parsed, { voice: 'P1' });
+    const shifted = txt.buildVocalChartFromTxt(parsed, { voice: 'P1', offsetSec: 0.5 });
+    assert.ok(Math.abs(shifted.notes[0].time - base.notes[0].time - 0.5) < 1e-6, 'notes shift by offset');
+    assert.ok(Math.abs(shifted.phrases[0].startTime - base.phrases[0].startTime - 0.5) < 1e-6, 'phrases shift by offset');
+    const lines = ['#TITLE:Big', '#BPM:120', '#GAP:0'];
+    for (let i = 0; i < 150000; i++) lines.push(`: ${i * 2} 1 ${50 + (i % 20)} la`);
+    lines.push('E');
+    const big = txt.parseTxtVocalChart(lines.join('\n'), 'Big');
+    const bigChart = txt.buildVocalChartFromTxt(big, { voice: 'P1' });
+    assert.ok(bigChart.notes.length > 100000);
+  });
+
   record('Issue #139 OMR XML title override preserves $1/$& tokens safely', () => {
     const omr = require(path.join(REPO_ROOT, 'omr-confidence.js'));
     const xml = '<score-partwise version="3.1"><work><work-title>Old</work-title></work><part id="P1"><measure number="1"></measure></part></score-partwise>';
@@ -1083,8 +1134,35 @@ app.whenReady().then(async () => {
         ': 0 4 4 Harm',
         'E'
       ].join('\\n');
+      const waitBeforeKaraokeTest = Boolean(playbackState.waitMode);
+      setWaitModeEnabled(true);
       const txtLoaded = loadSongFromBuffer(Buffer.from(sampleTxt, 'utf8'), 'tavern_duet_test.txt', null, { quietSuccess: true });
       const inKaraokeMode = stageViewMode === 'karaoke';
+      // Issue #202: entering Karaoke turns Wait Mode off (and exits restore it below)
+      const waitOffInKaraoke = playbackState.waitMode === false && !playbackState.isWaitingForStrike;
+      // Issue #203: .txt currentSong has the full shape so Capo/Hygiene/Inspector paths do not throw
+      let txtShapeOk = true;
+      try {
+        assignSongTracksAndDifficulty('auto-piano');
+        updateSpellInspectorHUD();
+        txtShapeOk = Array.isArray(currentSong.rawTracks) &&
+          Array.isArray(currentSong.backingBandTracks) &&
+          typeof currentSong.difficulty.badgeClass === 'string' &&
+          currentSong.difficulty.badgeClass.length > 0;
+      } catch (err) {
+        txtShapeOk = false;
+      }
+      // Issues #201 & #203: Grimoire ingestion of a .txt chart returns an entry with a string tier that files into the right Spellbook tier
+      let txtGrimoireOk = false;
+      try {
+        const txtEntry = extractGrimoireEntryFromBuffer(Buffer.from(sampleTxt, 'utf8'), 'tavern_duet_test.txt', null, 'Imports');
+        txtGrimoireOk = Boolean(txtEntry) &&
+          typeof txtEntry.spellLevel === 'string' &&
+          getSpellbookTierIndexForLevel(txtEntry.spellLevel) >= 0 &&
+          getSpellbookTierIndexForLevel(2) === 2;
+      } catch (err) {
+        txtGrimoireOk = false;
+      }
       const duetBtn = document.getElementById('btn-karaoke-duet-voice');
       const duetVisible = duetBtn && !duetBtn.classList.contains('hidden');
       const keyUpBtn = document.getElementById('btn-karaoke-key-up');
@@ -1099,6 +1177,15 @@ app.whenReady().then(async () => {
       showKaraokePhraseRatingPop({ label: 'Perfect!', xpBonus: 20, coveragePct: 98, phraseIndex: 0 });
       const ratingPopVisible = !document.getElementById('karaoke-phrase-rating-pop').classList.contains('hidden');
       setStageViewMode('highway');
+      const waitRestoredAfterKaraoke = playbackState.waitMode === true;
+      setWaitModeEnabled(waitBeforeKaraokeTest);
+
+      checks.karaokeTxtChartRobustness = Boolean(
+        waitOffInKaraoke &&
+        waitRestoredAfterKaraoke &&
+        txtShapeOk &&
+        txtGrimoireOk
+      );
 
       checks.karaokeStageEcosystemWorks = Boolean(
         txtLoaded &&
