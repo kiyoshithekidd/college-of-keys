@@ -2453,36 +2453,40 @@ def _align_known_lyrics_to_vocals(vocals_wav: Path, plain_lyrics_text: str, lang
 
     lang_arg = None if (not language or language == "auto") else language
     for device in ("cuda", "cpu"):
+        log_status("lyrics", f"Aligning known lyrics to vocals.wav via stable-ts ({device})...", 92)
         try:
-            log_status("lyrics", f"Aligning known lyrics to vocals.wav via stable-ts ({device})...", 92)
             model = stable_whisper.load_model("base", device=device)
             result = model.align(str(vocals_wav), plain_lyrics_text, language=lang_arg)
-            lines_out = []
-            for seg in getattr(result, "segments", []) or []:
-                words = getattr(seg, "words", None) or []
-                if words:
-                    seg_start = _format_lrc_ts(float(getattr(words[0], "start", seg.start) or 0.0))
-                    word_tokens = []
-                    for w in words:
-                        w_txt = str(getattr(w, "word", "") or "").strip()
-                        if not w_txt:
-                            continue
-                        w_ts = _format_lrc_ts(float(getattr(w, "start", seg.start) or 0.0), angled=True)
-                        word_tokens.append(f"{w_ts} {w_txt}")
-                    if word_tokens:
-                        lines_out.append(f"{seg_start} {' '.join(word_tokens)}")
-                else:
-                    s_txt = str(getattr(seg, "text", "") or "").strip()
-                    if s_txt:
-                        lines_out.append(f"{_format_lrc_ts(float(getattr(seg, 'start', 0.0) or 0.0))} {s_txt}")
-            if lines_out:
-                return "\n".join(lines_out) + "\n"
         except Exception as exc:
             if device == "cuda":
                 log_status("warning", f"CUDA forced alignment fallback to CPU: {exc}", 92)
                 continue
             return ""
-    return ""
+        break
+
+    try:
+        lines_out = []
+        for seg in getattr(result, "segments", []) or []:
+            seg_start = getattr(seg, "start", 0.0) or 0.0
+            timed_words = []
+            for word in getattr(seg, "words", None) or []:
+                text = str(getattr(word, "word", "") or "").strip()
+                if text:
+                    start = getattr(word, "start", None)
+                    stamp = _format_lrc_ts(float(seg_start if start is None else start))
+                    timed_words.append((stamp, text))
+            if timed_words:
+                line_stamp = timed_words[0][0]
+                tokens = " ".join(f"<{stamp}> {text}" for stamp, text in timed_words)
+                lines_out.append(f"[{line_stamp}] {tokens}")
+            else:
+                text = str(getattr(seg, "text", "") or "").strip()
+                if text:
+                    lines_out.append(f"[{_format_lrc_ts(float(seg_start))}] {text}")
+        return "\n".join(lines_out) + "\n" if lines_out else ""
+    except (TypeError, ValueError, OverflowError) as exc:
+        log_status("warning", f"Could not format aligned lyrics: {exc}", 92)
+        return ""
 
 
 def fetch_synced_lyrics_for_import(
