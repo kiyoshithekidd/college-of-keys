@@ -1,6 +1,6 @@
 # College of Keys — Progress & Roadmap
 
-Last Updated: 2026-11-27 (v1.13.1)
+Last Updated: 2026-11-27 (v1.13.2)
 
 ## Completed & Merged to `main`
 - **Bug Backlog & Maintenance:** `#98`–`#105`, `#107`, `#110`, `#121` (Electron `v45.3.4` runtime upgrade), `#122`
@@ -34,4 +34,4 @@ Last Updated: 2026-11-27 (v1.13.1)
 
 ## Codebase Sweep (2026-11-27)
 
-56 verified findings (`#196`–`#251`) are bundled into milestones `v1.13.1`–`v1.13.5` and `v1.14.0`; see `docs/codebase-sweep-findings.md`. `v1.13.1` covers `#196`, `#197`, `#209`, `#210`, `#211`, `#219`, `#220`, `#238`, `#239`.
+56 verified findings (`#196`–`#251`) are bundled into milestones `v1.13.1`–`v1.13.5` and `v1.14.0`; see `docs/codebase-sweep-findings.md`. `v1.13.1` (`#196`, `#197`, `#209`–`#211`, `#219`, `#220`, `#238`, `#239`) and `v1.13.2` (`#201`–`#203`, `#224`, `#231`–`#233`, `#244`, `#250`) are shipped.

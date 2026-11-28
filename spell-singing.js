@@ -475,7 +475,8 @@ function applyLrcOrLinesToNotes(monoNotes, lines) {
   const hasTimestamps = lines.some((l) => Number.isFinite(l.time));
 
   if (hasTimestamps) {
-    const assignedNoteIndices = new Set();
+    // Track assigned notes by object reference so index-less or non-contiguous notes can't be double-assigned (#233)
+    const assignedNotes = new Set();
     for (let li = 0; li < lines.length; li++) {
       const line = lines[li];
       const nextLine = lines[li + 1];
@@ -490,7 +491,7 @@ function applyLrcOrLinesToNotes(monoNotes, lines) {
           let bestDist = 0.28;
           for (const n of monoNotes) {
             const d = Math.abs(n.time - w.startTime);
-            if (d < bestDist && !n.lyric) {
+            if (d < bestDist && !n.lyric && !assignedNotes.has(n)) {
               bestDist = d;
               bestNote = n;
             }
@@ -498,7 +499,7 @@ function applyLrcOrLinesToNotes(monoNotes, lines) {
           if (bestNote) {
             bestNote.lyric = w.text;
             bestNote.syllabic = 'single';
-            assignedNoteIndices.add(bestNote.index);
+            assignedNotes.add(bestNote);
           }
         }
         continue;
@@ -506,7 +507,7 @@ function applyLrcOrLinesToNotes(monoNotes, lines) {
 
       const words = line.text.split(/\s+/).filter(Boolean);
       const matchingNotes = monoNotes.filter(
-        (n, idx) => !assignedNoteIndices.has(idx) && n.time >= startSec - startMargin && n.time < endSec - 0.05
+        (n) => !assignedNotes.has(n) && n.time >= startSec - startMargin && n.time < endSec - 0.05
       );
       if (matchingNotes.length === 0 || words.length === 0) continue;
 
@@ -520,7 +521,7 @@ function applyLrcOrLinesToNotes(monoNotes, lines) {
         target.syllabic = 'single';
       }
       for (const mn of matchingNotes) {
-        assignedNoteIndices.add(mn.index);
+        assignedNotes.add(mn);
       }
     }
   } else {

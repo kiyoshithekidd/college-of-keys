@@ -8,11 +8,11 @@
  */
 
 function formatTapSyncTimestamp(sec) {
-  const clamped = Math.max(0, Number(sec) || 0);
-  const mins = Math.floor(clamped / 60);
-  const rem = clamped - mins * 60;
-  const wholeSecs = Math.floor(rem);
-  const hundredths = Math.min(99, Math.round((rem - wholeSecs) * 100));
+  // Round to total centiseconds first so 59.996s rolls over to [01:00.00] (#231)
+  const totalCentis = Math.max(0, Math.round((Number(sec) || 0) * 100));
+  const mins = Math.floor(totalCentis / 6000);
+  const wholeSecs = Math.floor((totalCentis % 6000) / 100);
+  const hundredths = totalCentis % 100;
   const mm = String(mins).padStart(2, '0');
   const ss = String(wholeSecs).padStart(2, '0');
   const xx = String(hundredths).padStart(2, '0');
@@ -34,7 +34,7 @@ function parseEditableLyricLines(rawText) {
       const mins = Number(lrcMatch[1]) || 0;
       const secs = Number(lrcMatch[2]) || 0;
       const fracRaw = lrcMatch[3] || '0';
-      const frac = fracRaw.length === 3 ? Number(fracRaw) / 1000 : Number(fracRaw) / 100;
+      const frac = fracRaw.length === 3 ? Number(fracRaw) / 1000 : fracRaw.length === 1 ? Number(fracRaw) / 10 : Number(fracRaw) / 100;
       const text = (lrcMatch[4] || '').replace(/<\d{1,3}:\d{2}(?:[.:]\d{1,3})?>/g, '').replace(/\s+/g, ' ').trim();
       if (text) {
         out.push({ text, timeSec: Math.round((mins * 60 + secs + frac) * 100) / 100 });
@@ -60,12 +60,17 @@ function createTapSyncSession(initialInput) {
   let activeIndex = 0;
   const undoStack = [];
 
+  // Snapshot every timestamp so Undo can revert tap, nudge and re-anchor alike (#244)
+  function pushUndoSnapshot() {
+    undoStack.push({ activeIndex, times: parsed.map((l) => l.timeSec) });
+    if (undoStack.length > 200) undoStack.shift();
+  }
+
   function tapCurrentLine(songTimeSec) {
     if (activeIndex < 0 || activeIndex >= parsed.length) {
       return { stamped: false, activeIndex, line: null };
     }
-    const prevTime = parsed[activeIndex].timeSec;
-    undoStack.push({ index: activeIndex, prevTime });
+    pushUndoSnapshot();
     const stampedTime = Math.max(0, Math.round((Number(songTimeSec) || 0) * 100) / 100);
     parsed[activeIndex].timeSec = stampedTime;
     const stampedIndex = activeIndex;
@@ -84,12 +89,12 @@ function createTapSyncSession(initialInput) {
   function undoLastTap() {
     if (undoStack.length === 0) return false;
     const last = undoStack.pop();
-    if (last.index >= 0 && last.index < parsed.length) {
-      parsed[last.index].timeSec = last.prevTime;
-      activeIndex = last.index;
-      return true;
+    if (!Array.isArray(last.times) || last.times.length !== parsed.length) return false;
+    for (let i = 0; i < parsed.length; i++) {
+      parsed[i].timeSec = last.times[i];
     }
-    return false;
+    activeIndex = Math.max(0, Math.min(Math.max(0, parsed.length - 1), last.activeIndex));
+    return true;
   }
 
   function setActiveIndex(idx) {
@@ -103,6 +108,7 @@ function createTapSyncSession(initialInput) {
 
   function nudgeLine(index, deltaSec) {
     if (index < 0 || index >= parsed.length) return null;
+    pushUndoSnapshot();
     const base = parsed[index].timeSec !== null ? parsed[index].timeSec : 0;
     const next = Math.max(0, Math.round((base + (Number(deltaSec) || 0)) * 100) / 100);
     parsed[index].timeSec = next;
@@ -111,6 +117,7 @@ function createTapSyncSession(initialInput) {
 
   function reanchorFromLine(index, newTimeSec) {
     if (index < 0 || index >= parsed.length) return 0;
+    pushUndoSnapshot();
     const targetTime = Math.max(0, Math.round((Number(newTimeSec) || 0) * 100) / 100);
     const oldTime = parsed[index].timeSec;
     if (oldTime === null) {
