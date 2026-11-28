@@ -10,6 +10,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.13.1] - 2026-11-27
+
+### Fixed
+- **MusicXML sub-1 BPM hang (`#196`):** Parsed `<sound tempo>` / metronome values are clamped to 15–400 BPM in `musicxml-converter.js`, and `getTempoPrefixTable()` guards against zero, so a tempo like `0.4` no longer freezes the renderer in `midi.toArray()`.
+- **Bundle sidecar wipe (`#197`):** `saveBundleRecord()` now merges the on-disk `<Base>.bundle.json` sidecar (newer `updatedAt` wins per field) before writing, so partial saves such as the Karaoke Key Shift buttons no longer erase `stems`, `vocalMix`, `loudnessGainDb`, etc. `persistCurrentSongCalibration()` also saves `karaokeKeyShiftSemitones`.
+- **Modal chrome (`#209`):** Added `.modal-card`, `.modal-header`, `.modal-header-left`, `.modal-title`, `.modal-subtitle` and `.tavern-input` rules so Bardic Annals, How to Play, Bard Colleges and Campaign modals get a card surface, scrolling and aligned headers, and OMR/Setlist inputs match the tavern theme.
+- **Hidden confirm dialogs (`#210`):** `#import-save-confirm-modal` and `#boo-off-modal` now use `z-index: 1450` so they open above the Tavern Main Menu.
+- **Test isolation (`#211`):** `npm test` runs with a temporary Electron `userData` dir, also backs up `grimoire_library.json`, and restores files in the fatal-error path.
+- **Electron hardening (`#219`):** Added `will-navigate` and `setWindowOpenHandler` guards, registered permission handlers once, checked `isDirectory()` and handled `explorer.exe` spawn errors, and restricted `sheetMusicPath` to PDF / MusicXML / PNG / JPG / WebP (`isSafeSheetReferencePath`).
+- **Repo hygiene (`#220`, `#238`, `#239`):** `.gitignore` ignores all of `Imports/`; fixed `var(--text-main)` and the missing `modalFadeIn` animation; synced `package-lock.json` to the package version; version defaults are read from `package.json` (`save-backup.js`, LRCLIB User-Agent); `start.bat` uses `setlocal`, checks `vexflow`/`electron`, and pauses on errors; refreshed `progress.md`.
+
+### Tests
+- Added unit tests for `#196` (extreme tempos finish quickly) and `#197` (sidecar fields survive a partial save).
+
+---
+
 ## [1.13.0] - 2026-11-26
 
 ### Added

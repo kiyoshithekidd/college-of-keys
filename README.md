@@ -36,6 +36,7 @@
 | **v1.11.0** | **Piano Hardware & Warmup Dojo: Web MIDI Output Pass-Through to Hardware Digital Piano (`#180`), Arcane Drills Interactive Scales/Chords/Progressions Dojo (`#178`), and QA Hardening (`#190`)** | **Completed** |
 | **v1.12.0** | **Karaoke Stage & Chart Ecosystem: Community `.txt` Syllable-Timed Vocal Chart Importer (`#172`), Radiant 2x Notes / Rap Freestyle Bars / Per-Line Rating Pops (`#173`), Real-Time `±6 st` Karaoke Key Shifting (`#174`), and QA Hardening (`#192`)** | **Completed** |
 | **v1.13.0** | **Audio & Lyrics Pipeline Pro: Known-Lyrics Forced Alignment & Tap-to-Sync Editor (`#175`), Mel-Band RoFormer & Pre-CREPE De-Reverb Presets (`#176`), Automatic `-14 LUFS` Loudness Normalization (`#177`), and QA Hardening (`#194`)** | **Completed** |
+| **v1.13.1** | **Data Safety, Modals & Test Isolation: MusicXML Sub-1 BPM Hang Fix (`#196`), Bundle Sidecar Merge (`#197`), Modal Card Styling & Z-Index (`#209`, `#210`), Isolated `npm test` userData (`#211`), Electron Navigation Guards & Safe Sheet Opening (`#219`), `Imports/` Ignore (`#220`), CSS & Version Drift Fixes (`#238`, `#239`)** | **Completed** |
 
 ---
 

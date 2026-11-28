@@ -607,6 +607,13 @@ function isPianoPartMeta(partMeta) {
   return false;
 }
 
+// Clamp parsed tempos to a sane range; sub-1 BPM values round to 0 and hang MIDI serialization (#196).
+function clampBpm(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 120;
+  return Math.max(15, Math.min(400, Math.round(n)));
+}
+
 const tempoPrefixCache = new WeakMap();
 
 function getTempoPrefixTable(tempoChanges, ppq) {
@@ -624,7 +631,7 @@ function getTempoPrefixTable(tempoChanges, ppq) {
       seconds += ((tc.ticks - lastTick) / ppq) * (60 / currentBpm);
       lastTick = tc.ticks;
     }
-    currentBpm = tc.bpm;
+    currentBpm = Math.max(1, tc.bpm);
     entries.push({ ticks: tc.ticks, bpm: currentBpm, startSec: seconds });
   }
   tempoPrefixCache.set(tempoChanges, { ppq, len: tempoChanges.length, entries });
@@ -821,14 +828,14 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
         } else if (child.tag === 'sound') {
           const tempoAttr = parseFloat(child.attrs.tempo);
           if (Number.isFinite(tempoAttr) && tempoAttr > 0) {
-            globalTempoChanges.push({ ticks: cursorTicks, bpm: Math.round(tempoAttr) });
+            globalTempoChanges.push({ ticks: cursorTicks, bpm: clampBpm(tempoAttr) });
           }
         } else if (child.tag === 'direction') {
           const soundNode = getChild(child, 'sound');
           if (soundNode && soundNode.attrs.tempo) {
             const tVal = parseFloat(soundNode.attrs.tempo);
             if (Number.isFinite(tVal) && tVal > 0) {
-              globalTempoChanges.push({ ticks: cursorTicks, bpm: Math.round(tVal) });
+              globalTempoChanges.push({ ticks: cursorTicks, bpm: clampBpm(tVal) });
             }
           } else {
             let metro = null;
@@ -842,7 +849,7 @@ function convertMusicXmlToMidiBuffer(arrayBufferOrBuffer, fileName = 'Untitled S
               const perMin = parseFloat(getText(metro, 'per-minute') || '');
               if (Number.isFinite(perMin) && perMin > 0) {
                 const mult = (BEAT_UNIT_MULTIPLIER[beatUnit] || 1) * (hasDot ? 1.5 : 1);
-                globalTempoChanges.push({ ticks: cursorTicks, bpm: Math.round(perMin * mult) });
+                globalTempoChanges.push({ ticks: cursorTicks, bpm: clampBpm(perMin * mult) });
               }
             }
           }

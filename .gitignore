@@ -8,12 +8,8 @@ __pycache__/
 *.pyc
 
 # Local user imports / temporary audio files / player profile
-Imports/*.wav
-Imports/*.mp3
-Imports/*.m4a
-Imports/*.webm
-Imports/*.mid
-Imports/*.midi
+# Entire Imports/ folder: audio, MIDI, .bundle.json, .lrc, MusicXML, .txt charts, Sheets/, *_stems/ (#220)
+Imports/
 bard_profile.json
 grimoire_library.json
 grimoire_bundles.json
