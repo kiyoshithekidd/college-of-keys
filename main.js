@@ -39,12 +39,17 @@ ipcMain.handle('open-folder-in-explorer', async (_event, targetDir) => {
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
     }
+    if (!fs.statSync(targetDir).isDirectory()) {
+      return { ok: false, error: 'Target path is not a folder.' };
+    }
     const openErr = await shell.openPath(targetDir);
     if (!openErr) {
       return { ok: true };
     }
     if (process.platform === 'win32') {
-      spawn('explorer.exe', [path.resolve(targetDir)], { detached: true, stdio: 'ignore' }).unref();
+      const child = spawn('explorer.exe', [path.resolve(targetDir)], { detached: true, stdio: 'ignore' });
+      child.on('error', () => {});
+      child.unref();
       return { ok: true };
     }
     return { ok: false, error: openErr };
@@ -53,7 +58,11 @@ ipcMain.handle('open-folder-in-explorer', async (_event, targetDir) => {
   }
 });
 
-function createWindow() {
+let permissionHandlersInstalled = false;
+
+function installSessionPermissionHandlers() {
+  if (permissionHandlersInstalled) return;
+  permissionHandlersInstalled = true;
   // Automatically grant Web MIDI & Microphone (for Backlog Vocals) permissions in Electron's Chromium session
   const ALLOWED_PERMISSIONS = new Set(['midi', 'midiSysex', 'media']);
 
@@ -64,6 +73,10 @@ function createWindow() {
   session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
     return ALLOWED_PERMISSIONS.has(permission);
   });
+}
+
+function createWindow() {
+  installSessionPermissionHandlers();
 
   const mainWindow = new BrowserWindow({
     width: 1440,
@@ -78,6 +91,14 @@ function createWindow() {
       contextIsolation: false
     }
   });
+
+  // The renderer runs with Node integration, so never let it navigate to or open remote content (#219)
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!String(url).startsWith('file://')) {
+      event.preventDefault();
+    }
+  });
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
   mainWindow.webContents.on('console-message', (event) => {
     const level = event.level ?? '';

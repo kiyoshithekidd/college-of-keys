@@ -1,6 +1,6 @@
 # College of Keys — Progress & Roadmap
 
-Last Updated: 2026-11-18
+Last Updated: 2026-11-27 (v1.13.1)
 
 ## Completed & Merged to `main`
 - **Bug Backlog & Maintenance:** `#98`–`#105`, `#107`, `#110`, `#121` (Electron `v45.3.4` runtime upgrade), `#122`
@@ -24,13 +24,14 @@ Last Updated: 2026-11-18
 - **Multi-Engine AI Transcription & Demucs + CREPE Full-Song Pipeline (`v1.5.0`–`v1.5.2`):** `#144`, `#145`, `#146`, `#150`–`#156`, responsive 2-row Bar 2 layout, and `#158` (`.btn-audio-sync` & text pill `.btn-icon` width/nowrap fix)
 - **Karaoke Suite Upgrade (Synced Lyrics, Sliding Vocal Highway & Vocal/Harmony Mix):** `#159` (`lyrics-fetcher.js` LRCLIB word/line sync, 3-tier Python `.lrc` cascade with LRCLIB + `.json3`/`.vtt` YouTube captions + optional `faster-whisper`, 1-click `🔍 Fetch Lyrics`, Lyric Timing Sync / Auto-Align & Apple Music word sweep), `#160` (`CREPE`/`pYIN` 170ms vibrato median smoothing in true vocal register, `simplifyVocalNotesForSinging()`, cubic Bezier glide ribbons & Warm Tavern stage palette), and `#161` (`vocal-harmony-dsp.js` Lead Vocal fader defaulting to 25% Guide, Keep Harmonies toggle, Web Audio Stereo Mid/Side matrix & optional UVR AI `vocals_lead`/`vocals_backing` split)
 
+- **Shipped v1.6.0–v1.13.0 (see `CHANGELOG.md` for details):** `v1.6.0` Synced Lyrics Cascade, CREPE smoothing & Vocal Harmony Mix (`#158`–`#161`, `#166`); `v1.7.0` Hall of Legends & 30s Grimoire Preview (`#162`, `#163`, `#167`, `#168`); `v1.8.0` Crowd Fail State / Boo-Off (`#164`, `#170`); `v1.9.0` Rhythm & Sight-Reading Polish (`#179`, `#181`–`#183`, `#186`); `v1.10.0` Save Backup & `modules/` refactor (`#184`, `#185`, `#188`); `v1.11.0` MIDI Output & Arcane Drills (`#178`, `#180`, `#190`); `v1.12.0` `.txt` Vocal Charts, Radiant notes & Karaoke Key Shift (`#172`–`#174`, `#192`); `v1.13.0` Forced Alignment, RoFormer/De-Reverb & `-14 LUFS` Loudness (`#175`–`#177`, `#194`)
+
 ---
 
 ## Remaining Open Backlog
 
-1. **#162 — `[Backlog] Grimoire Hall of Legends: Personal Records Board (Best Accuracy & Biggest XP)`** (`persona: gamer-bard`)
-2. **#163 — `[Backlog] Grimoire Audio Preview: 30-Second Listen Before You Load`** (`persona: returning-adult`, `persona: casual-player`)
-3. **#164 — `[Backlog] Fail State: Crowd Warning and Boo-Off (Tavern Crowd Meter Refinement)`** (`persona: rock-band`)
-4. **#23 — `[Backlog] Mobile iOS Port (iPad Mini)`** (`persona: returning-adult`)
+1. **#23 — `[Backlog] Mobile iOS Port (iPad Mini)`** (`persona: returning-adult`)
 
+## Codebase Sweep (2026-11-27)
 
+56 verified findings (`#196`–`#251`) are bundled into milestones `v1.13.1`–`v1.13.5` and `v1.14.0`; see `docs/codebase-sweep-findings.md`. `v1.13.1` covers `#196`, `#197`, `#209`, `#210`, `#211`, `#219`, `#220`, `#238`, `#239`.

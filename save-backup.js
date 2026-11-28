@@ -10,6 +10,16 @@ const fs = require('fs');
 const path = require('path');
 
 const SAVE_BACKUP_SCHEMA_VERSION = 1;
+
+/** Read the app version from package.json so exports never carry a stale hardcoded default (#239). */
+function readPackageVersion() {
+  try {
+    return String(JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')).version || '');
+  } catch {
+    return '';
+  }
+}
+const DEFAULT_APP_VERSION = readPackageVersion() || '0.0.0';
 const SAVE_BACKUP_APP_ID = 'college-of-keys';
 
 const MANAGED_SAVE_FILES = [
@@ -47,7 +57,7 @@ const MANAGED_LOCAL_STORAGE_KEYS = [
 function buildSaveBackupPayload({
   repoDir,
   storage = null,
-  appVersion = '1.10.0',
+  appVersion = DEFAULT_APP_VERSION,
   fsImpl = fs
 } = {}) {
   const files = {};
@@ -78,7 +88,7 @@ function buildSaveBackupPayload({
   return {
     schemaVersion: SAVE_BACKUP_SCHEMA_VERSION,
     app: SAVE_BACKUP_APP_ID,
-    appVersion: String(appVersion || '1.10.0'),
+    appVersion: String(appVersion || DEFAULT_APP_VERSION),
     exportedAt: new Date().toISOString(),
     files,
     localStorage: localStorageDump

@@ -38,6 +38,16 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 DEFAULT_IMPORTS_DIR = PROJECT_ROOT / "Imports"
 
 
+
+def _app_version() -> str:
+    """Return the app version from ../package.json (used in the LRCLIB User-Agent)."""
+    try:
+        pkg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "package.json")
+        with open(pkg, "r", encoding="utf-8") as fh:
+            return str(json.load(fh).get("version") or "dev")
+    except Exception:
+        return "dev"
+
 def log_status(stage: str, message: str, progress: int = 0, extra: dict = None):
     """Print human-readable and machine-parseable status updates for CLI & Phase 9 Quest Board."""
     payload = {
@@ -2184,7 +2194,7 @@ def _fetch_lrclib_lrc_text(title: str, duration_sec: float = 0.0):
         return None
 
     headers = {
-        "User-Agent": "CollegeOfKeys/1.5.2 (https://github.com/kiyoshithekidd/college-of-keys)",
+        "User-Agent": f"CollegeOfKeys/{_app_version()} (https://github.com/kiyoshithekidd/college-of-keys)",
         "Accept": "application/json",
     }
 

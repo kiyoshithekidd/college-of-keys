@@ -17,6 +17,13 @@ const {
 const BUNDLE_STORE_FILENAME = 'grimoire_bundles.json';
 const BACKING_AUDIO_EXTS = ['.wav', '.mp3', '.ogg', '.m4a', '.flac'];
 const SHEET_REF_EXTS = ['.musicxml', '.mxl', '.xml', '.pdf'];
+// Extensions a bundle's sheetMusicPath may point at; anything else (.bat/.exe/...) is never opened via the OS shell (#219).
+const SAFE_SHEET_OPEN_EXTS = [...SHEET_REF_EXTS, '.png', '.jpg', '.jpeg', '.webp'];
+
+function isSafeSheetReferencePath(filePath) {
+  if (!filePath || typeof filePath !== 'string') return false;
+  return SAFE_SHEET_OPEN_EXTS.includes(path.extname(filePath).toLowerCase());
+}
 const STEM_NAMES = ['piano', 'drums', 'bass', 'vocals', 'guitar', 'other'];
 const OPTIONAL_VOCAL_SUBSTEMS = ['vocals_lead', 'vocals_backing'];
 
@@ -395,6 +402,7 @@ function resolveBundleForSong({
   if (!sheetUnlinked) {
     for (const src of orderedSources) {
       sheetMusicPath = pickExistingPath(src.rec?.sheetMusicPath, src.dir);
+      if (sheetMusicPath && !isSafeSheetReferencePath(sheetMusicPath)) sheetMusicPath = null;
       if (sheetMusicPath) break;
     }
     if (!sheetMusicPath && filePath && !isDemoFile) {
@@ -481,6 +489,49 @@ function resolveBundleForSong({
 }
 
 /**
+ * Combine the grimoire_bundles.json entry with any on-disk <Base>.bundle.json sidecar so partial saves
+ * never wipe fields (stems, vocalMix, loudnessGainDb...) that only the sidecar holds (#197).
+ * The record with the newer updatedAt wins per-field; fields missing from it fall back to the older one.
+ * Sidecar paths are rebased to be relative to baseDir like store entries.
+ */
+function mergeExistingWithSidecar(storeEntry, notesAbs, baseDir) {
+  const storeRec = storeEntry && typeof storeEntry === 'object' ? storeEntry : null;
+  if (!notesAbs) return storeRec || {};
+  const sidecarPath = getSidecarBundlePath(notesAbs);
+  if (!sidecarPath || !fs.existsSync(sidecarPath)) return storeRec || {};
+  const raw = readJsonFileSafe(sidecarPath, null);
+  if (!raw || typeof raw !== 'object') return storeRec || {};
+
+  const sidecarDir = path.dirname(sidecarPath);
+  const rebase = (p) => {
+    if (!p) return p || null;
+    const abs = fromPortablePath(p, sidecarDir);
+    return abs ? toPortablePath(abs, baseDir) : null;
+  };
+  const sidecarRec = { ...raw };
+  if ('sheetMusicPath' in raw) sidecarRec.sheetMusicPath = rebase(raw.sheetMusicPath);
+  if ('backingAudioPath' in raw) sidecarRec.backingAudioPath = rebase(raw.backingAudioPath);
+  if (raw.stems && typeof raw.stems === 'object') {
+    sidecarRec.stems = {};
+    for (const [name, p] of Object.entries(raw.stems)) {
+      if (p) sidecarRec.stems[name] = rebase(p);
+    }
+  }
+  if (!storeRec) return sidecarRec;
+
+  const storeTs = Date.parse(storeRec.updatedAt);
+  const sidecarTs = Date.parse(sidecarRec.updatedAt);
+  const sidecarNewer = Number.isFinite(sidecarTs) && (!Number.isFinite(storeTs) || sidecarTs > storeTs);
+  const newer = sidecarNewer ? sidecarRec : storeRec;
+  const older = sidecarNewer ? storeRec : sidecarRec;
+  const merged = { ...older };
+  for (const [k, v] of Object.entries(newer)) {
+    if (v !== undefined) merged[k] = v; // explicit null from the newer record means "cleared"
+  }
+  return merged;
+}
+
+/**
  * Persist a bundle record to grimoire_bundles.json and (when inside writable Imports/ or existing sidecar)
  * write a portable <Base>.bundle.json sidecar alongside the notes file.
  */
@@ -526,7 +577,8 @@ function saveBundleRecord({
       }
     }
   }
-  const existing = (existingKey ? store.bundles[existingKey] : null) || {};
+  const storeExisting = (existingKey ? store.bundles[existingKey] : null) || null;
+  const existing = mergeExistingWithSidecar(storeExisting, notesAbs, baseDir);
   if (existingKey && existingKey !== key) {
     delete store.bundles[existingKey];
   }
@@ -794,6 +846,8 @@ module.exports = {
   BUNDLE_STORE_FILENAME,
   BACKING_AUDIO_EXTS,
   SHEET_REF_EXTS,
+  SAFE_SHEET_OPEN_EXTS,
+  isSafeSheetReferencePath,
   STEM_NAMES,
   OPTIONAL_VOCAL_SUBSTEMS,
   createDefaultStemMix,

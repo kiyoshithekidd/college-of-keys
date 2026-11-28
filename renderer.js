@@ -141,6 +141,7 @@ const {
   getSidecarBundlePath,
   loadBundlesStore,
   resolveBundleForSong,
+  isSafeSheetReferencePath,
   saveBundleRecord,
   removeBundleRecordForSong,
   getMappedBackingAudioTime,
@@ -4591,6 +4592,7 @@ function persistCurrentSongCalibration() {
         stemMix: currentSong.stemMix || undefined,
         vocalMix: currentSong.vocalMix || undefined,
         lyricsOffsetSec: clampLyricsOffsetSec(currentSong.lyricsOffsetSec ?? 0),
+        karaokeKeyShiftSemitones: currentSong.karaokeKeyShiftSemitones ?? undefined,
         youtubeUrl: currentSong.youtubeUrl || undefined,
         spotifyUrl: currentSong.spotifyUrl || undefined,
         audioOffsetSec: currentSong.audioOffsetSec ?? 0,
@@ -10357,6 +10359,10 @@ if (spellbookBundleSheetChip) {
     if (!entry?.sheetMusicPath || !fs.existsSync(entry.sheetMusicPath)) {
       showGrimoireToast('Attached sheet music file could not be found on disk.', 'warning');
       renderSpellbookSpread();
+      return;
+    }
+    if (!isSafeSheetReferencePath(entry.sheetMusicPath)) {
+      showGrimoireToast('Refusing to open this file type as sheet music (allowed: PDF, MusicXML, PNG, JPG, WebP).', 'warning');
       return;
     }
     try {

@@ -14,6 +14,7 @@ const { app, BrowserWindow, session, ipcMain } = require('electron');
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
@@ -438,6 +439,50 @@ async function runUnitTests() {
     assert.strictEqual(hw.chosenPlayableIndices.has(1), false, 'Unselected GM bass track must not be muted when Stem: Bass is chosen');
   });
 
+  record('Issue #196 MusicXML sub-1 BPM tempo is clamped and does not hang conversion', () => {
+    const mxml = require(path.join(REPO_ROOT, 'musicxml-converter.js'));
+    for (const tempo of ['0.4', '0.01', '99999']) {
+      const xml = `<score-partwise version="3.1"><part-list><score-part id="P1"><part-name>P</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes><direction><sound tempo="${tempo}"/></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note></measure></part></score-partwise>`;
+      const t0 = Date.now();
+      const out = mxml.convertMusicXmlToMidiBuffer(Buffer.from(xml, 'utf8'), 'tempo.musicxml');
+      assert.ok(Date.now() - t0 < 5000, `tempo=${tempo} conversion too slow`);
+      assert.ok(out && (out.midiBuffer || out.buffer || out.length !== 0 || Object.keys(out).length > 0), 'conversion must return a result');
+    }
+  });
+
+  record('Issue #197 saveBundleRecord preserves sidecar-only fields on partial saves', () => {
+    const bundle = require(path.join(REPO_ROOT, 'song-bundle.js'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cok-sidecar-'));
+    try {
+      const notes = path.join(tmpDir, 'Song.mid');
+      fs.writeFileSync(notes, '');
+      fs.writeFileSync(path.join(tmpDir, 'Song_vocals.wav'), '');
+      fs.writeFileSync(path.join(tmpDir, 'Song.bundle.json'), JSON.stringify({
+        version: 1,
+        title: 'Song',
+        notesFile: 'Song.mid',
+        stems: { vocals: 'Song_vocals.wav' },
+        vocalMix: { vocals: 0.5 },
+        loudnessGainDb: -3.5,
+        updatedAt: new Date(Date.now() - 1000).toISOString()
+      }));
+      const storePath = path.join(tmpDir, 'bundles.json');
+      bundle.saveBundleRecord({
+        storePath,
+        projectRoot: tmpDir,
+        importsDir: tmpDir,
+        record: { notesPath: notes, karaokeKeyShiftSemitones: 2 }
+      });
+      const side = JSON.parse(fs.readFileSync(path.join(tmpDir, 'Song.bundle.json'), 'utf8'));
+      assert.strictEqual(side.karaokeKeyShiftSemitones, 2);
+      assert.strictEqual(side.loudnessGainDb, -3.5, 'loudnessGainDb must survive partial save');
+      assert.ok(side.stems && side.stems.vocals, 'stems must survive partial save');
+      assert.ok(side.vocalMix, 'vocalMix must survive partial save');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   record('Issue #139 OMR XML title override preserves $1/$& tokens safely', () => {
     const omr = require(path.join(REPO_ROOT, 'omr-confidence.js'));
     const xml = '<score-partwise version="3.1"><work><work-title>Old</work-title></work><part id="P1"><measure number="1"></measure></part></score-partwise>';
@@ -529,27 +574,41 @@ async function runUnitTests() {
   return results;
 }
 
-app.whenReady().then(async () => {
-  const managedStoreFiles = ['grimoire_bundles.json', 'song_stats.json', 'bard_profile.json'].map((name) => {
-    const filePath = path.join(REPO_ROOT, name);
-    const existed = fs.existsSync(filePath);
-    const prevContent = existed ? fs.readFileSync(filePath, 'utf8') : null;
-    return { filePath, existed, prevContent };
-  });
-  const cleanupBundleStore = () => {
-    for (const store of managedStoreFiles) {
-      try {
-        if (store.existed) {
-          fs.writeFileSync(store.filePath, store.prevContent, 'utf8');
-        } else if (fs.existsSync(store.filePath)) {
-          fs.unlinkSync(store.filePath);
-        }
-      } catch {
-        // Ignore cleanup errors
-      }
-    }
-  };
+// Issue #211: isolate Electron userData (localStorage etc.) in a temp dir so tests never touch real player prefs.
+// Fixed path wiped at the start of each run: Chromium may write cache files after app.exit(), so leftovers never accumulate.
+const TEST_USER_DATA_DIR = path.join(os.tmpdir(), 'cok-test-userdata');
+fs.rmSync(TEST_USER_DATA_DIR, { recursive: true, force: true });
+fs.mkdirSync(TEST_USER_DATA_DIR, { recursive: true });
+app.setPath('userData', TEST_USER_DATA_DIR);
 
+// Back up repo-root save files the app may write during the run; restored in cleanupBundleStore().
+const managedStoreFiles = ['grimoire_bundles.json', 'grimoire_library.json', 'song_stats.json', 'bard_profile.json'].map((name) => {
+  const filePath = path.join(REPO_ROOT, name);
+  const existed = fs.existsSync(filePath);
+  const prevContent = existed ? fs.readFileSync(filePath, 'utf8') : null;
+  return { filePath, existed, prevContent };
+});
+const cleanupBundleStore = () => {
+  for (const store of managedStoreFiles) {
+    try {
+      if (store.existed) {
+        fs.writeFileSync(store.filePath, store.prevContent, 'utf8');
+      } else if (fs.existsSync(store.filePath)) {
+        fs.unlinkSync(store.filePath);
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+  try {
+    fs.rmSync(TEST_USER_DATA_DIR, { recursive: true, force: true });
+  } catch {
+    // Ignore cleanup errors
+  }
+};
+
+
+app.whenReady().then(async () => {
   const unitResults = await runUnitTests();
   const rendererErrors = [];
 
@@ -1098,12 +1157,11 @@ app.whenReady().then(async () => {
   const allDomTrue = Object.entries(domChecks).every(([k, v]) => (k === 'pianoKeyCount' ? v === 61 : v === true));
 
   // Issue #166: Restore grimoire_bundles.json if created solely by the test run so git status stays clean
-  if (typeof cleanupBundleStore === 'function') {
-    cleanupBundleStore();
-  }
+  cleanupBundleStore();
 
   app.exit(failedUnits.length === 0 && allDomTrue && rendererErrors.length === 0 ? 0 : 1);
 }).catch((err) => {
   console.error('REGRESSION_TEST_FATAL:', err);
+  cleanupBundleStore();
   app.exit(1);
 });
